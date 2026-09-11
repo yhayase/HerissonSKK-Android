@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">SKK 入力確認</string>
+    <string name="test_action_count">入力先への Enter／アクション: %1$d 回</string>
+    <string name="test_multiline_a">複数行 A</string>
+    <string name="test_multiline_b">複数行 B（入力先切替用）</string>
+    <string name="test_search">検索（外部送信しません）</string>
+    <string name="test_send">送信（外部送信しません）</string>
+    <string name="test_password">パスワード</string>
+    <string name="test_no_learning">学習禁止</string>
+</resources>
