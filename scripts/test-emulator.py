@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """専用エミュレーターで接続試験を実行し、終了時に以前の IME 選択を戻します。"""
 import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -23,7 +26,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="専用エミュレーターの adb シリアル")
     args = parser.parse_args()
-    if not args.serial.startswith("emulator-"):
+    if not re.fullmatch(r"emulator-[0-9]+", args.serial):
         parser.error("実機の入力設定を変更しないため、専用エミュレーターを指定してください")
     root = Path(__file__).resolve().parents[1]
 
@@ -35,9 +38,10 @@ def main():
     ime = "jp.hayase.skk/.SkkInputMethodService"
     previous = adb("shell", "settings", "get", "secure", "default_input_method").strip()
     enabled = ime in adb("shell", "ime", "list", "-s").splitlines()
-    for apk in ("app/build/outputs/apk/debug/app-debug.apk",
+    apks = ("app/build/outputs/apk/debug/app-debug.apk",
                 "test-editor/build/outputs/apk/debug/test-editor-debug.apk",
-                "test-editor/build/outputs/apk/androidTest/debug/test-editor-debug-androidTest.apk"):
+                "test-editor/build/outputs/apk/androidTest/debug/test-editor-debug-androidTest.apk")
+    for apk in apks:
         print(adb("install", "-r", str(root / apk)), end="")
     deadline = time.monotonic() + 15
     while ime not in adb("shell", "ime", "list", "-a", "-s").splitlines():
@@ -53,6 +57,17 @@ def main():
         report = root / "test-editor/build/reports/emulator-instrumentation.txt"
         report.parent.mkdir(parents=True, exist_ok=True)
         report.write_text(result)
+        history = report.parent / "connection" / args.serial / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        history.mkdir(parents=True, exist_ok=False)
+        (history / "instrumentation.txt").write_text(result)
+        metadata = {
+            "serial": args.serial,
+            "api": adb("shell", "getprop", "ro.build.version.sdk").strip(),
+            "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
+            "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True)),
+            "apk_sha256": {apk: hashlib.sha256((root / apk).read_bytes()).hexdigest() for apk in apks},
+        }
+        (history / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
         print(result)
         if not instrumentation_succeeded(result):
             raise SystemExit("結合試験が失敗・スキップ、または完了しませんでした")

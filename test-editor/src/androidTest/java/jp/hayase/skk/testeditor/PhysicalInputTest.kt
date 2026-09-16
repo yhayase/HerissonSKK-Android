@@ -21,6 +21,99 @@ import org.junit.runner.RunWith
 class PhysicalInputTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
+    /** K01・K02・I02: 残余の確定と文字種切替で送信を発生させません。 */
+    @Test fun terminalRomajiAndKanaModesDoNotSend() {
+        withSendEditor { editor, counter ->
+            type("n")
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitText(editor, "ん")
+            type("q")
+            type("n")
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitText(editor, "んン")
+            key(KeyEvent.KEYCODE_Q, KeyEvent.META_CTRL_ON)
+            type("kana")
+            awaitText(editor, "んンｶﾅ")
+            key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+            type("kitte")
+            awaitText(editor, "んンｶﾅきって")
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
+    /** K04・K07・K08: 送りや注釈が確定文字へ二重に付かないことを実配送で確認します。 */
+    @Test fun okuriAbbrevAndPrefixSuffixCommitExactlyOnce() {
+        withSendEditor { editor, counter ->
+            type("KaKu")
+            awaitText(editor, "書く")
+            key(KeyEvent.KEYCODE_ENTER)
+            type("/API ")
+            awaitText(editor, "書くエーピーアイ")
+            key(KeyEvent.KEYCODE_ENTER)
+            type("Dai>")
+            awaitText(editor, "書くエーピーアイ第")
+            type(">kai ")
+            awaitText(editor, "書くエーピーアイ第回")
+            key(KeyEvent.KEYCODE_ENTER)
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
+    /** F05・K02: 内部カーソルの編集は入力先の確定済み文字に触れません。 */
+    @Test fun internalReadingEditPreservesCommittedPrefix() {
+        withSendEditor { editor, _ ->
+            type("aNihon ")
+            awaitText(editor, "あ日本")
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            key(KeyEvent.KEYCODE_DPAD_LEFT)
+            key(KeyEvent.KEYCODE_DPAD_LEFT)
+            type("a")
+            key(KeyEvent.KEYCODE_FORWARD_DEL)
+            type("q")
+            awaitText(editor, "あニアン")
+        }
+    }
+
+    /** K06: 4番目からの一覧ラベルで選び、注釈を本文へ混ぜません。 */
+    @Test fun menuLabelCommitsCandidateWithoutAnnotation() {
+        withSendEditor { editor, counter ->
+            type("Tesuto    ")
+            awaitText(editor, "候補4")
+            val deadline = SystemClock.uptimeMillis() + 5000
+            var menuShown = false
+            while (SystemClock.uptimeMillis() < deadline && !menuShown) {
+                menuShown = instrumentation.uiAutomation.windows.any { window ->
+                    val root = window.root
+                    root?.findAccessibilityNodeInfosByText("注釈4")?.isNotEmpty() == true &&
+                        root.findAccessibilityNodeInfosByText("a:").isNotEmpty()
+                }
+                if (!menuShown) SystemClock.sleep(20)
+            }
+            assertTrue("候補一覧のラベルと注釈が表示されません", menuShown)
+            type("a")
+            awaitText(editor, "候補4")
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitText(counter, "入力先への Enter／アクション: 1 回")
+        }
+    }
+
+    private fun withSendEditor(block: (EditText, TextView) -> Unit) {
+        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+            lateinit var editor: EditText
+            lateinit var counter: TextView
+            scenario.onActivity { activity ->
+                val views = descendants(activity.window.decorView)
+                editor = views.filterIsInstance<EditText>().first { it.hint.toString().startsWith("送信") }
+                counter = views.filterIsInstance<TextView>().first { it.text.toString().startsWith("入力先への") }
+                editor.requestFocus()
+            }
+            awaitIme()
+            key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+            block(editor, counter)
+        }
+    }
+
     @Test fun candidateEnterDoesNotSendAndNextEnterReachesEditor() {
         ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
             lateinit var editor: EditText
@@ -94,12 +187,15 @@ class PhysicalInputTest {
         instrumentation.waitForIdleSync()
         val automation = instrumentation.uiAutomation
         automation.serviceInfo = automation.serviceInfo.apply {
-            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
         val deadline = SystemClock.uptimeMillis() + 5000
         while (SystemClock.uptimeMillis() < deadline) {
             if (automation.windows.any { window ->
-                    window.root?.findAccessibilityNodeInfosByText("かな")?.isNotEmpty() == true
+                    val root = window.root
+                    root?.packageName?.toString() == "jp.hayase.skk" &&
+                        root.findAccessibilityNodeInfosByViewId("jp.hayase.skk:id/input_status").isNotEmpty()
                 }) return
             SystemClock.sleep(20)
         }

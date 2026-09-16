@@ -15,7 +15,7 @@ import android.widget.TextView
 import jp.hayase.skk.input.EditorSession
 import jp.hayase.skk.input.HardwareKeyMapper
 import jp.hayase.skk.input.KeyPressLedger
-import jp.hayase.skk.input.PilotEngine
+import jp.hayase.skk.core.InputMode
 
 class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceListener {
     private var generation = 0L
@@ -80,6 +80,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onCreateCandidatesView(): View = TextView(this).apply {
+        id = R.id.input_status
         textSize = 18f
         setPadding(dp(16), dp(8), dp(16), dp(8))
         setTextColor(0xff202124.toInt())
@@ -102,8 +103,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     mapper.reset()
                 }
                 lastDevice = event.deviceId
-                when (val decoded = mapper.decode(event, current.engine.mode == PilotEngine.Mode.ASCII,
-                    current.engine.hasComposition)) {
+                when (val decoded = mapper.decode(event, current.engine.state.mode == InputMode.DIRECT,
+                    current.hasComposition)) {
                     HardwareKeyMapper.Decoded.Pass -> {
                         if (!KeyEvent.isModifierKey(keyCode)) {
                             current.preserveText()
@@ -168,7 +169,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         val current = session
         val enabled = getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("show_status", true)
         val show = current != null && !current.protectedInput &&
-            (enabled || current.engine.hasComposition || current.failed)
+            (enabled || current.hasComposition || current.failed)
         setCandidatesViewShown(show)
         if (show && !requestedVisible) {
             requestedVisible = true
@@ -186,9 +187,27 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             current == null || current.protectedInput -> ""
             current.failed -> getString(R.string.input_failed)
             else -> {
-                val mode = getString(if (current.engine.mode == PilotEngine.Mode.ASCII)
-                    R.string.status_ascii else R.string.status_kana)
-                "$mode  ${current.engine.candidateLabel}"
+                val mode = getString(when (current.engine.state.mode) {
+                    InputMode.HIRAGANA -> R.string.status_hiragana
+                    InputMode.KATAKANA -> R.string.status_katakana
+                    InputMode.HALFWIDTH -> R.string.status_halfwidth
+                    InputMode.DIRECT -> R.string.status_ascii
+                    InputMode.FULLWIDTH -> R.string.status_fullwidth
+                })
+                val candidate = current.view.candidate
+                val details = buildList {
+                    add(getString(R.string.limited_dictionary))
+                    candidate?.let {
+                        add("${it.index + 1}/${it.total} ${it.selected.text}")
+                        it.selected.annotation?.let(::add)
+                        if (it.menu.isNotEmpty()) add(it.menu.joinToString("  ") { item ->
+                            val annotation = item.candidate.annotation?.let { note -> "（$note）" }.orEmpty()
+                            "${item.label}: ${item.candidate.text}$annotation"
+                        })
+                    }
+                    current.notice?.let(::add)
+                }
+                "$mode  ${details.joinToString("\n")}"
             }
         }
     }
