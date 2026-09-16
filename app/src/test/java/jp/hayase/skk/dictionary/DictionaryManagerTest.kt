@@ -36,6 +36,29 @@ class DictionaryManagerTest {
         databases.forEach(context::deleteDatabase)
     }
 
+    @Test fun `補完は公開済み世代だけを使い再公開で新しい見出しへ切り替わる`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        repository.replacePersonal(document("にほん /日本/"), 0)
+        val serial = ManualExecutor()
+        var loads = 0
+        val manager = DictionaryManager(repository, serial, Executor { it.run() },
+            loadSnapshot = { loads++; repository.loadSnapshot() })
+        val query = jp.hayase.skk.core.CompletionQuery("に",
+            scope = jp.hayase.skk.core.CompletionScope.PERSONAL_ONLY)
+        assertThrows(DictionaryUnavailableException::class.java) { manager.complete(query) }
+        manager.loadAsync(); serial.runAll()
+        val first = manager.complete(query)
+        assertEquals(listOf("にほん"), first)
+        repository.replacePersonal(document("にほんご /日本語/"), 1)
+        assertEquals(first, manager.complete(query))
+        assertEquals(1, loads)
+        manager.loadAsync(); serial.runAll()
+        assertEquals(listOf("にほんご"), manager.complete(query))
+        assertEquals(listOf("にほん"), first)
+        assertEquals(2, loads)
+        manager.close(); serial.runAll()
+    }
+
     @Test fun `学習禁止の入力は保存キューへ入らず既存辞書を変更しない`() {
         val repository = SQLiteDictionaryRepository(context, databaseName())
         repository.replacePersonal(document("かな /既存/"), 0)

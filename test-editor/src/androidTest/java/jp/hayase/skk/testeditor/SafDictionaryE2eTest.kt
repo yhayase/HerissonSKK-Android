@@ -61,6 +61,7 @@ class SafDictionaryE2eTest {
         val deletionCandidate = "削除検証候補" + id.takeLast(8)
         val fixtureBytes = """
             てすと /統合候補;E2E注釈/
+            に /二/
             にほん /日本;第一注釈/二本;第二注釈/
             na# /第#0;数値注釈/
             nb# /#1/
@@ -78,11 +79,16 @@ class SafDictionaryE2eTest {
         var suppressionCreated = false
         var suppressionRestored = false
         var systemRemoved = false
+        var originalDynamicCompletion: Boolean? = null
+        var dynamicSettingTouched = false
+        var dynamicSettingRestored = false
         var bodyFailure: Throwable? = null
 
         try {
             writeFile(fixture, fixtureBytes)
             writeFile(systemFixture, "$deletionReading /$deletionCandidate/\n".toByteArray(StandardCharsets.UTF_8))
+            openMainSettings()
+            originalDynamicCompletion = dynamicCompletionEnabled()
             openDictionarySettings()
 
             exportPersonal(fileName(backup))
@@ -91,13 +97,48 @@ class SafDictionaryE2eTest {
             writeFile(recovery, recoveryJson(
                 id, backup, fixture, learned, exported, restored,
                 systemFixture, systemSourceName, deletionReading, deletionCandidate,
+                checkNotNull(originalDynamicCompletion),
             ).toByteArray(StandardCharsets.UTF_8))
             recoveryWritten = true
 
+            openMainSettings()
+            // 操作後の表示確認に失敗しても元の設定へ戻すため、クリック前に復元対象として記録します。
+            dynamicSettingTouched = true
+            setDynamicCompletion(true)
+            openDictionarySettings()
             replacePersonal(fileName(fixture))
             // この呼出し中に永続化して後続の UI 検証だけが失敗しても、finally で必ず探索します。
             systemImported = true
             addSystemDictionary(systemSourceName)
+
+            val noLearningIntent = android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
+                .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true)
+            ActivityScenario.launch<InputTestActivity>(noLearningIntent).use { scenario ->
+                val editor = scenario.editorStartingWith("複数行 A")
+                scenario.onActivity { editor.requestFocus() }
+                awaitIme()
+                key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+                type("Ni")
+                awaitTextVisible("補完候補: に【ほん】")
+                key(KeyEvent.KEYCODE_SPACE)
+                key(KeyEvent.KEYCODE_ENTER)
+                awaitText(editor, "二")
+            }
+
+            // 新しい入力欄は設定を読み直し、Right で受諾した場合だけ補完後の読みを変換します。
+            ActivityScenario.launch<InputTestActivity>(noLearningIntent).use { scenario ->
+                val editor = scenario.editorStartingWith("複数行 A")
+                scenario.onActivity { editor.requestFocus() }
+                awaitIme()
+                key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+                type("Ni")
+                awaitTextVisible("補完候補: に【ほん】")
+                key(KeyEvent.KEYCODE_DPAD_RIGHT)
+                key(KeyEvent.KEYCODE_SPACE)
+                key(KeyEvent.KEYCODE_ENTER)
+                awaitText(editor, "日本")
+            }
+
             ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
                 val editor = scenario.editorStartingWith("複数行 A")
                 scenario.onActivity { editor.requestFocus() }
@@ -189,8 +230,6 @@ class SafDictionaryE2eTest {
                 awaitText(editor, "二本")
             }
 
-            val noLearningIntent = android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
-                .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true)
             ActivityScenario.launch<InputTestActivity>(noLearningIntent).use { scenario ->
                 val editor = scenario.editorStartingWith("複数行 A")
                 scenario.onActivity { editor.requestFocus() }
@@ -239,7 +278,7 @@ class SafDictionaryE2eTest {
             throw failure
         } finally {
             if (recoveryWritten) {
-                val restoreFailure = runCatching {
+                val dictionaryRestoreFailure = runCatching {
                     openDictionarySettings()
                     if (!suppressionRestored) {
                         val restoredSuppression = restoreSuppressionIfPresent(
@@ -261,15 +300,25 @@ class SafDictionaryE2eTest {
                     exportPersonal(fileName(restored))
                     assertArrayEquals("個人辞書を開始時の内容へ戻せません", checkNotNull(backupBytes), readFile(restored))
                 }.exceptionOrNull()
-                if (restoreFailure == null) {
+                val settingRestoreFailure = runCatching {
+                    if (dynamicSettingTouched) {
+                        openMainSettings()
+                        setDynamicCompletion(checkNotNull(originalDynamicCompletion))
+                        dynamicSettingRestored = true
+                    }
+                }.exceptionOrNull()
+                val restoreFailures = listOfNotNull(dictionaryRestoreFailure, settingRestoreFailure)
+                if (restoreFailures.isEmpty()) {
                     removeFiles(backup, fixture, learned, exported, restored, systemFixture, recovery)
                 } else {
                     val recoveryError = AssertionError(
                         "辞書状態の復元に失敗しました。復旧情報を残しました: $recovery " +
                             "(systemImported=$systemImported, suppressionCreated=$suppressionCreated, " +
-                            "suppressionRestored=$suppressionRestored, systemRemoved=$systemRemoved)",
-                        restoreFailure,
+                            "suppressionRestored=$suppressionRestored, systemRemoved=$systemRemoved, " +
+                            "dynamicSettingRestored=$dynamicSettingRestored)",
+                        restoreFailures.first(),
                     )
+                    restoreFailures.drop(1).forEach(recoveryError::addSuppressed)
                     if (bodyFailure == null) throw recoveryError else bodyFailure!!.addSuppressed(recoveryError)
                 }
             } else {
@@ -279,11 +328,47 @@ class SafDictionaryE2eTest {
     }
 
     private fun openDictionarySettings() {
+        openMainSettings()
+        clickText("辞書を管理する")
+        awaitTextVisible("辞書を管理できます。")
+    }
+
+    private fun openMainSettings() {
         // 前回失敗した SAF picker がタスク先頭に残っていても、設定画面まで確実に戻します。
         shell("am start -W -f 0x14000000 -n $SKK_PACKAGE/.SettingsActivity")
         awaitTextVisible("SKK の設定")
-        clickText("辞書を管理する")
-        awaitTextVisible("辞書を管理できます。")
+    }
+
+    private fun dynamicCompletionEnabled(): Boolean = dynamicCompletionSwitch().isChecked
+
+    private fun setDynamicCompletion(enabled: Boolean) {
+        val current = dynamicCompletionSwitch()
+        if (current.isChecked != enabled) {
+            assertTrue("動的補完の設定を変更できません", clickNodeOrParent(current))
+        }
+        awaitNode("動的補完の設定が反映されません: $enabled") { root ->
+            root.takeIf { it.packageName?.toString() == SKK_PACKAGE }
+                ?.findAccessibilityNodeInfosByText(DYNAMIC_COMPLETION_LABEL)
+                ?.firstOrNull { it.className?.toString() == Switch::class.java.name && it.isChecked == enabled }
+        }
+    }
+
+    private fun dynamicCompletionSwitch(): AccessibilityNodeInfo {
+        val deadline = SystemClock.uptimeMillis() + UI_TIMEOUT_MS
+        while (SystemClock.uptimeMillis() < deadline) {
+            findNodeNow { root ->
+                root.takeIf { it.packageName?.toString() == SKK_PACKAGE }
+                    ?.findAccessibilityNodeInfosByText(DYNAMIC_COMPLETION_LABEL)
+                    ?.firstOrNull {
+                        it.className?.toString() == Switch::class.java.name && it.isCheckable && it.isVisibleToUser
+                    }
+            }?.let { return it }
+            // 小さい API 26 画面でも、公開設定の三つ目のスイッチを実際に表示してから操作します。
+            device.swipe(device.displayWidth / 2, device.displayHeight * 4 / 5,
+                device.displayWidth / 2, device.displayHeight / 5, 16)
+            device.waitForIdle()
+        }
+        throw AssertionError("動的補完の設定がありません")
     }
 
     private fun exportPersonal(fileName: String) {
@@ -672,7 +757,8 @@ class SafDictionaryE2eTest {
         systemSourceName: String,
         deletionReading: String,
         deletionCandidate: String,
-    ) = """{"test":"$id","backup":"$backup","fixture":"$fixture","learned":"$learned","exported":"$exported","restored":"$restored","systemFixture":"$systemFixture","systemSourceName":"$systemSourceName","deletionReading":"$deletionReading","deletionCandidate":"$deletionCandidate"}""" + "\n"
+        originalDynamicCompletion: Boolean,
+    ) = """{"test":"$id","backup":"$backup","fixture":"$fixture","learned":"$learned","exported":"$exported","restored":"$restored","systemFixture":"$systemFixture","systemSourceName":"$systemSourceName","deletionReading":"$deletionReading","deletionCandidate":"$deletionCandidate","originalDynamicCompletion":$originalDynamicCompletion}""" + "\n"
 
     private fun fileName(path: String): String = path.substringAfterLast('/')
 
@@ -689,6 +775,7 @@ class SafDictionaryE2eTest {
 
     private companion object {
         const val SKK_PACKAGE = "jp.hayase.skk"
+        const val DYNAMIC_COMPLETION_LABEL = "個人辞書の動的補完（次の入力欄から適用）"
         val DOCUMENTS_UI_PACKAGES = setOf("com.google.android.documentsui", "com.android.documentsui")
         const val DOWNLOADS = "/sdcard/Download"
         const val UI_TIMEOUT_MS = 10_000L

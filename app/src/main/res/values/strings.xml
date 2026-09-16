@@ -2,11 +2,12 @@
     <string name="app_name">SKK（開発版）</string>
     <string name="subtype_name">日本語・物理キーボード</string>
     <string name="setup_title">SKK の設定</string>
-    <string name="setup_description">物理キーボード向けの開発版です。現在は限定試験辞書による基本入力だけを搭載しています。日常利用向けの完全な辞書・入力機能は開発中です。</string>
+    <string name="setup_description">物理キーボード向けの開発版です。ローカル辞書の取り込み、変換・登録・学習・補完を利用できます。同梱辞書は限定試験用です。入力設定と対応アプリの検証は開発中です。</string>
     <string name="enable_ime">入力方法の設定を開く</string>
     <string name="select_ime">入力方法を選ぶ</string>
+    <string name="dynamic_completion">個人辞書の動的補完（次の入力欄から適用）</string>
     <string name="show_status">入力モード・候補を表示する</string>
-    <string name="key_help">Ctrl+j：ひらがなへ切替／確定\nCtrl+g：取消\nCtrl+q：半角カナ切替\nq：ひらがな・カタカナ切替\nl：直接入力へ切替\nNihon → Space：日本／二本の確認\nEnter：未確定文字だけを確定</string>
+    <string name="key_help">Ctrl+j：ひらがなへ切替／確定\nCtrl+g：取消\nCtrl+q：半角カナ切替\nq：ひらがな・カタカナ切替\nl：直接入力へ切替\nNihon → Space：日本／二本の確認\nEnter：未確定文字だけを確定\nTab／Shift+Tab：見出し語の補完\nRight：動的補完の受諾\n候補中のX：削除確認</string>
     <string name="status_ascii">英数</string>
     <string name="status_hiragana">あ</string>
     <string name="status_katakana">ア</string>

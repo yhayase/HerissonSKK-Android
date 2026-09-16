@@ -13,7 +13,8 @@ class HardwareKeyMapper {
     private var accent = 0
     fun reset() { accent = 0 }
 
-    fun decode(event: KeyEvent, ascii: Boolean, composing: Boolean): Decoded {
+    fun decode(event: KeyEvent, ascii: Boolean, composing: Boolean,
+        dynamicCompletionAvailable: Boolean = false): Decoded {
         if (KeyEvent.isModifierKey(event.keyCode)) return Decoded.Pass
         val noCtrl = event.metaState and KeyEvent.META_CTRL_MASK.inv()
         val unicode = event.getUnicodeChar(noCtrl)
@@ -32,6 +33,11 @@ class HardwareKeyMapper {
         }
         if (ascii) return Decoded.Pass
         when (event.keyCode) {
+            KeyEvent.KEYCODE_TAB -> return if (composing && !event.isAltPressed) {
+                reset()
+                Decoded.Action(if (event.isShiftPressed) BasicSkkAction.CompleteBackward
+                    else BasicSkkAction.CompleteForward)
+            } else Decoded.Pass
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                 if (accent != 0) {
                     val text = String(Character.toChars(accent)); reset()
@@ -48,7 +54,9 @@ class HardwareKeyMapper {
                 return if (composing) Decoded.Action(BasicSkkAction.Cancel) else Decoded.Pass
             }
             KeyEvent.KEYCODE_DPAD_LEFT -> return if (composing) Decoded.Action(BasicSkkAction.Left) else Decoded.Pass
-            KeyEvent.KEYCODE_DPAD_RIGHT -> return if (composing) Decoded.Action(BasicSkkAction.Right) else Decoded.Pass
+            KeyEvent.KEYCODE_DPAD_RIGHT -> return if (composing) Decoded.Action(
+                if (dynamicCompletionAvailable && !event.isAltPressed && !event.isShiftPressed)
+                    BasicSkkAction.AcceptDynamicCompletion else BasicSkkAction.Right) else Decoded.Pass
             KeyEvent.KEYCODE_MOVE_HOME -> return if (composing) Decoded.Action(BasicSkkAction.Home) else Decoded.Pass
             KeyEvent.KEYCODE_MOVE_END -> return if (composing) Decoded.Action(BasicSkkAction.End) else Decoded.Pass
             KeyEvent.KEYCODE_FORWARD_DEL -> return if (composing) Decoded.Action(BasicSkkAction.Delete) else Decoded.Pass

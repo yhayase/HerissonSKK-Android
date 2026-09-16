@@ -83,4 +83,26 @@ class HardwareKeyMapperTest {
         assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Halfwidth),
             mapper.decode(key(KeyEvent.KEYCODE_Q, KeyEvent.META_CTRL_ON), false, false))
     }
+    @Test fun `補完キーは未確定中だけ働き動的受諾を独立させる`() {
+        val mapper = HardwareKeyMapper()
+        assertEquals(HardwareKeyMapper.Decoded.Pass,
+            mapper.decode(key(KeyEvent.KEYCODE_TAB), false, false))
+        assertEquals(HardwareKeyMapper.Decoded.Pass,
+            mapper.decode(key(KeyEvent.KEYCODE_TAB), true, true))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.CompleteForward),
+            mapper.decode(key(KeyEvent.KEYCODE_TAB), false, true, true))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.CompleteBackward),
+            mapper.decode(key(KeyEvent.KEYCODE_TAB, KeyEvent.META_SHIFT_ON), false, true))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.AcceptDynamicCompletion),
+            mapper.decode(key(KeyEvent.KEYCODE_DPAD_RIGHT), false, true, true))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Right),
+            mapper.decode(key(KeyEvent.KEYCODE_DPAD_RIGHT), false, true, false))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Right),
+            mapper.decode(key(KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.META_SHIFT_ON), false, true, true))
+        assertEquals(HardwareKeyMapper.Decoded.Pass,
+            mapper.decode(key(KeyEvent.KEYCODE_TAB, KeyEvent.META_ALT_ON), false, true))
+        assertEquals(HardwareKeyMapper.Decoded.Pass,
+            mapper.decode(key(KeyEvent.KEYCODE_TAB, KeyEvent.META_CTRL_ON), false, true))
+    }
+
 }

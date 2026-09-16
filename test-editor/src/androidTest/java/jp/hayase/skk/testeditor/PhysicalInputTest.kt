@@ -23,6 +23,30 @@ import org.junit.runner.RunWith
 class PhysicalInputTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
+    /** K14: TABは読みだけを補完し、取消で元へ戻り、受諾後のSpaceで変換します。 */
+    @Test fun manualCompletionStaysInCompositionAndCancelRestoresPrefix() {
+        withSendEditor { editor, counter ->
+            type("Ni")
+            awaitText(editor, "に")
+            key(KeyEvent.KEYCODE_TAB)
+            awaitText(editor, "にほん")
+            instrumentation.runOnMainSync {
+                assertEquals(0, BaseInputConnection.getComposingSpanStart(editor.text))
+                assertEquals(3, BaseInputConnection.getComposingSpanEnd(editor.text))
+            }
+            key(KeyEvent.KEYCODE_TAB, KeyEvent.META_SHIFT_ON)
+            awaitText(editor, "にほん")
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            awaitText(editor, "に")
+            key(KeyEvent.KEYCODE_TAB)
+            key(KeyEvent.KEYCODE_SPACE)
+            awaitText(editor, "日本")
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitText(editor, "日本")
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
     /** I10: パスワード欄では SKK の未確定表示も候補表示も作らず、入力先の文字をそのまま通します。 */
     @Test fun passwordEditorBypassesSkkAndKeepsLiteralText() {
         launchWithoutLearning().use { scenario ->

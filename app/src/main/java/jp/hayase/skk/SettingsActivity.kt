@@ -44,6 +44,13 @@ class SettingsActivity : Activity() {
             isChecked = preferences.getBoolean("show_status", true)
             setOnCheckedChangeListener { _, checked -> preferences.edit().putBoolean("show_status", checked).apply() }
         })
+        layout.addView(Switch(this).apply {
+            setText(R.string.dynamic_completion)
+            isChecked = preferences.getBoolean("dynamic_completion", false)
+            setOnCheckedChangeListener { _, checked ->
+                preferences.edit().putBoolean("dynamic_completion", checked).apply()
+            }
+        })
         label(R.string.key_help)
         setContentView(ScrollView(this).apply { addView(layout) })
         applySystemInsets()

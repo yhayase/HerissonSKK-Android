@@ -39,6 +39,15 @@ data class NumericLearningTarget(
 /** 登録本文を永続化する前に固定した、入力先へ確定する語幹です。 */
 data class RegistrationPreparation(val committedStem: String)
 
+/** 入力セッション中に固定する補完機能の設定です。 */
+data class CompletionConfig(
+    val manualEnabled: Boolean = true,
+    val dynamicEnabled: Boolean = false,
+)
+
+/** 入力済み部分と、入力先へまだ反映しない提案部分を分離した表示です。 */
+data class DynamicCompletionView(val prefix: String, val suffix: String)
+
 /**
  * フェーズ 2 用の同期辞書境界です。
  *
@@ -47,6 +56,9 @@ data class RegistrationPreparation(val committedStem: String)
  */
 fun interface BasicSkkDictionary {
     fun lookup(query: DictionaryQuery): List<DictionaryCandidate>
+
+    /** 公開済みのメモリー内スナップショットから、前方一致する見出し語を返します。 */
+    fun complete(query: CompletionQuery): List<String> = emptyList()
 
     /** 未登録語を保存する見出し語です。通常辞書は元の読みをそのまま使います。 */
     fun registrationQuery(original: DictionaryQuery): DictionaryQuery = original
@@ -70,6 +82,9 @@ sealed interface BasicSkkAction {
     data object End : BasicSkkAction
     data object Delete : BasicSkkAction
     data object DeleteCandidate : BasicSkkAction
+    data object CompleteForward : BasicSkkAction
+    data object CompleteBackward : BasicSkkAction
+    data object AcceptDynamicCompletion : BasicSkkAction
 }
 
 data class CandidateView(
@@ -89,6 +104,7 @@ data class BasicSkkView(
     val candidate: CandidateView?,
     val registration: RegistrationView? = null,
     val deletion: CandidateDeletionView? = null,
+    val completion: DynamicCompletionView? = null,
 )
 
 data class BasicSkkState(
@@ -122,6 +138,7 @@ class BasicSkkEngine(
     private val registrationPolicy: RegistrationPolicy,
     private val learningEnabled: Boolean = false,
     private val deletionEnabled: Boolean = false,
+    private val completionConfig: CompletionConfig = CompletionConfig(),
 ) {
     constructor(dictionary: BasicSkkDictionary) : this(dictionary, RegistrationPolicy())
 
@@ -142,6 +159,8 @@ class BasicSkkEngine(
     private var nextFrameId = 1L
     private var nextOperationId = 1L
     private var deletion: DeletionState? = null
+    private var completionCycle: CompletionCycle? = null
+    private var dynamicCompletion: String? = null
 
     val state: BasicSkkState
         get() {
@@ -165,9 +184,17 @@ class BasicSkkEngine(
 
     fun dispatch(action: BasicSkkAction): BasicSkkResult {
         if (deletion != null) return dispatchCandidateDeletion(action)
-        if (action is BasicSkkAction.Text) return dispatchText(action.text)
-        if (action == BasicSkkAction.DeleteCandidate) return result(startCandidateDeletion())
-        if (registrations.isNotEmpty()) return dispatchRegistration(action)
+        if (registrations.lastOrNull()?.savingToken != null) return dispatchRegistration(action)
+        completionCycle?.let { return dispatchCompletionCycle(action, it) }
+        when (action) {
+            BasicSkkAction.CompleteForward -> return result(startManualCompletion(forward = true))
+            BasicSkkAction.CompleteBackward -> return result(startManualCompletion(forward = false))
+            BasicSkkAction.AcceptDynamicCompletion -> return result(acceptDynamicCompletion())
+            else -> Unit
+        }
+        if (action is BasicSkkAction.Text) return afterInput(dispatchText(action.text))
+        if (action == BasicSkkAction.DeleteCandidate) return afterInput(result(startCandidateDeletion()))
+        if (registrations.isNotEmpty()) return afterInput(dispatchRegistration(action))
         val outcome = when (action) {
             is BasicSkkAction.Text -> error("文字入力は先に処理済みです")
             BasicSkkAction.Enter -> onEnter(false)
@@ -181,7 +208,12 @@ class BasicSkkEngine(
             BasicSkkAction.End -> onMove { it.moveEnd() }
             BasicSkkAction.Delete -> onDelete()
             BasicSkkAction.DeleteCandidate -> error("候補削除は先に処理済みです")
+            BasicSkkAction.CompleteForward,
+            BasicSkkAction.CompleteBackward,
+            BasicSkkAction.AcceptDynamicCompletion,
+            -> error("補完操作は先に処理済みです")
         }
+        refreshDynamicCompletion()
         return result(outcome)
     }
 
@@ -226,6 +258,161 @@ class BasicSkkEngine(
         notice = notice,
         effects = effects,
     )
+
+    private fun afterInput(result: BasicSkkResult): BasicSkkResult {
+        refreshDynamicCompletion()
+        return result.copy(view = view())
+    }
+
+    private fun startManualCompletion(forward: Boolean): Outcome {
+        dynamicCompletion = null
+        if (!completionConfig.manualEnabled) return Outcome(false)
+        if (phase != InputPhase.READING && phase != InputPhase.ABBREV) {
+            return Outcome(true, notice = "読み入力中だけ見出し語を補完できます")
+        }
+        if (okuriBoundary != null || okuriConsonant != null || okuriText().isNotEmpty()) {
+            return Outcome(true, notice = "送りがある読みは補完できません")
+        }
+        if (buffer.cursor != buffer.text.length) {
+            return Outcome(true, notice = "読みの末尾で補完してください")
+        }
+        val original = snapshotReading()
+        if (romanizer.pending.isNotEmpty()) {
+            if (romanizer.pending != "n") {
+                return Outcome(true, notice = "未入力のローマ字を完成してから補完してください")
+            }
+            finishPendingIntoBuffer()
+        }
+        if (buffer.text.isEmpty()) {
+            restoreReadingForCompletion(original)
+            return Outcome(true)
+        }
+        val prefix = buffer.text
+        val values = try {
+            dictionary.complete(CompletionQuery(prefix, abbrev = phase == InputPhase.ABBREV)).toList()
+        } catch (_: RuntimeException) {
+            restoreReadingForCompletion(original)
+            return Outcome(true, notice = COMPLETION_FAILURE_NOTICE)
+        }
+        if (values.isEmpty()) {
+            restoreReadingForCompletion(original)
+            return Outcome(true, notice = "補完候補がありません")
+        }
+        if (!validCompletionValues(values, prefix, CompletionQuery.MAX_RESULTS)) {
+            restoreReadingForCompletion(original)
+            return Outcome(true, notice = COMPLETION_FAILURE_NOTICE)
+        }
+        completionCycle = CompletionCycle(original, values, 0)
+        applyCompletion(values.first())
+        return Outcome(true, notice = if (forward) null else "これより前の補完候補はありません")
+    }
+
+    private fun dispatchCompletionCycle(action: BasicSkkAction, cycle: CompletionCycle): BasicSkkResult {
+        return when (action) {
+            BasicSkkAction.CompleteForward -> {
+                if (cycle.index == cycle.values.lastIndex) {
+                    result(Outcome(true, notice = "これより後の補完候補はありません"))
+                } else {
+                    cycle.index++
+                    applyCompletion(cycle.values[cycle.index])
+                    result(Outcome(true))
+                }
+            }
+            BasicSkkAction.CompleteBackward -> {
+                if (cycle.index == 0) {
+                    result(Outcome(true, notice = "これより前の補完候補はありません"))
+                } else {
+                    cycle.index--
+                    applyCompletion(cycle.values[cycle.index])
+                    result(Outcome(true))
+                }
+            }
+            BasicSkkAction.Cancel -> {
+                completionCycle = null
+                restoreReadingForCompletion(cycle.original)
+                dynamicCompletion = null
+                result(Outcome(true))
+            }
+            else -> {
+                completionCycle = null
+                dispatch(action)
+            }
+        }
+    }
+
+    private fun applyCompletion(value: String) {
+        buffer = EditableBuffer(value, value.length)
+        romanizer.reset()
+        pendingTargetsOkuri = false
+        dynamicCompletion = null
+    }
+
+    private fun acceptDynamicCompletion(): Outcome {
+        val value = dynamicCompletion ?: return Outcome(false)
+        if (phase != InputPhase.READING && phase != InputPhase.ABBREV || buffer.cursor != buffer.text.length) {
+            dynamicCompletion = null
+            return Outcome(false)
+        }
+        buffer = EditableBuffer(value, value.length)
+        romanizer.reset()
+        pendingTargetsOkuri = false
+        dynamicCompletion = null
+        return Outcome(true)
+    }
+
+    private fun refreshDynamicCompletion() {
+        dynamicCompletion = null
+        if (!completionConfig.dynamicEnabled || completionCycle != null || deletion != null) return
+        if (registrations.lastOrNull()?.savingToken != null) return
+        if (phase != InputPhase.READING && phase != InputPhase.ABBREV) return
+        if (okuriBoundary != null || okuriConsonant != null || okuriText().isNotEmpty()) return
+        if (romanizer.pending.isNotEmpty() || buffer.cursor != buffer.text.length || buffer.text.isEmpty()) return
+        dynamicCompletion = try {
+            val prefix = buffer.text
+            val values = dictionary.complete(CompletionQuery(
+                prefix = buffer.text,
+                abbrev = phase == InputPhase.ABBREV,
+                limit = 1,
+                scope = CompletionScope.PERSONAL_ONLY,
+            )).toList()
+            values.singleOrNull()?.takeIf {
+                validCompletionValues(values, prefix, 1)
+            }
+        } catch (_: RuntimeException) {
+            null
+        }
+    }
+
+    /** 辞書ポート実装が境界契約を破っても、読みや表示へ不正な値を取り込みません。 */
+    private fun validCompletionValues(values: List<String>, prefix: String, limit: Int): Boolean {
+        if (values.size > limit) return false
+        var total = 0L
+        for (value in values) {
+            if (value.length <= prefix.length || value.length > CompletionQuery.MAX_RESULT_CHARS ||
+                !value.startsWith(prefix)
+            ) return false
+            if (runCatching { EditableBuffer(value) }.isFailure) return false
+            total += value.length.toLong()
+            if (total > CompletionQuery.MAX_TOTAL_RESULT_CHARS) return false
+        }
+        return true
+    }
+
+    private fun restoreReadingForCompletion(saved: ReadingSnapshot) {
+        phase = saved.phase
+        buffer = EditableBuffer(saved.text, saved.cursor)
+        okuriBoundary = saved.okuriBoundary
+        okuriConsonant = saved.okuriConsonant
+        romanizer = Romanizer().also {
+            check(it.feed(saved.pendingRomaji).isEmpty()) { "未消化ローマ字を復元できません" }
+        }
+        pendingTargetsOkuri = saved.pendingTargetsOkuri
+        candidates = emptyList()
+        candidateIndex = 0
+        selectionReturnState = null
+        selectionQuery = null
+        selectionRegistrationQuery = null
+    }
 
     private fun startCandidateDeletion(): Outcome {
         if (phase != InputPhase.SELECTING) return Outcome(false)
@@ -394,6 +581,10 @@ class BasicSkkEngine(
                 is BasicSkkAction.Text -> Unit
                 BasicSkkAction.Halfwidth -> Unit
                 BasicSkkAction.DeleteCandidate -> Unit
+                BasicSkkAction.CompleteForward,
+                BasicSkkAction.CompleteBackward,
+                BasicSkkAction.AcceptDynamicCompletion,
+                -> Unit
             }
         }
 
@@ -419,6 +610,9 @@ class BasicSkkEngine(
         BasicSkkAction.End -> onMove { it.moveEnd() }
         BasicSkkAction.Delete -> onDelete()
         BasicSkkAction.DeleteCandidate -> startCandidateDeletion()
+        BasicSkkAction.CompleteForward -> startManualCompletion(forward = true)
+        BasicSkkAction.CompleteBackward -> startManualCompletion(forward = false)
+        BasicSkkAction.AcceptDynamicCompletion -> acceptDynamicCompletion()
     }
 
     private fun innerIsClean(): Boolean = phase == InputPhase.IDLE && romanizer.pending.isEmpty()
@@ -992,7 +1186,15 @@ class BasicSkkEngine(
                 saving = current.token != null,
             )
         }
-        val inner = BasicSkkView(composing, cursor, candidate, deletion = deletionView)
+        val completionView = dynamicCompletion?.let { proposed ->
+            val prefix = if (phase == InputPhase.ABBREV) buffer.text else renderKana(buffer.text, readingStartMode)
+            val completed = if (phase == InputPhase.ABBREV) proposed else renderKana(proposed, readingStartMode)
+            completed.takeIf { it.startsWith(prefix) && it.length > prefix.length }
+                ?.let { DynamicCompletionView(prefix, completed.substring(prefix.length)) }
+        }
+        val inner = BasicSkkView(
+            composing, cursor, candidate, deletion = deletionView, completion = completionView,
+        )
         val frame = registrations.lastOrNull() ?: return inner
         val root = registrations.first()
         return BasicSkkView(
@@ -1010,6 +1212,7 @@ class BasicSkkEngine(
                 saving = frame.savingToken != null,
             ),
             deletion = deletionView,
+            completion = completionView,
         )
     }
 
@@ -1043,6 +1246,8 @@ class BasicSkkEngine(
         selectionQuery = selectionQuery,
         selectionRegistrationQuery = selectionRegistrationQuery,
         deletion = deletion?.frozenCopy(),
+        completionCycle = completionCycle?.frozenCopy(),
+        dynamicCompletion = dynamicCompletion,
     )
 
     private fun restoreEngine(snapshot: EngineSnapshot) {
@@ -1062,6 +1267,8 @@ class BasicSkkEngine(
         selectionQuery = snapshot.selectionQuery
         selectionRegistrationQuery = snapshot.selectionRegistrationQuery
         deletion = snapshot.deletion?.frozenCopy()
+        completionCycle = snapshot.completionCycle?.frozenCopy()
+        dynamicCompletion = snapshot.dynamicCompletion
     }
 
     private fun snapshotRuntime() = RuntimeSnapshot(
@@ -1092,6 +1299,8 @@ class BasicSkkEngine(
         selectionQuery = null
         selectionRegistrationQuery = null
         deletion = null
+        completionCycle = null
+        dynamicCompletion = null
     }
 
     private data class ReadingSnapshot(
@@ -1120,6 +1329,8 @@ class BasicSkkEngine(
         val selectionQuery: DictionaryQuery?,
         val selectionRegistrationQuery: DictionaryQuery?,
         val deletion: DeletionState?,
+        val completionCycle: CompletionCycle?,
+        val dynamicCompletion: String?,
     )
 
     private data class RegistrationFrame(
@@ -1145,6 +1356,14 @@ class BasicSkkEngine(
         var token: CandidateDeletionToken? = null,
     ) {
         fun frozenCopy() = copy()
+    }
+
+    private data class CompletionCycle(
+        val original: ReadingSnapshot,
+        val values: List<String>,
+        var index: Int,
+    ) {
+        fun frozenCopy() = copy(values = values.toList())
     }
 
     private data class EditorReadingView(val text: String, val cursor: Int)
@@ -1177,6 +1396,7 @@ class BasicSkkEngine(
         const val BODY_LIMIT_NOTICE = "登録本文は65,536 UTF-16コード単位までです"
         const val NUMERIC_FAILURE_NOTICE = "数値を展開できません。読みを保持しました。入力を確認してください"
         const val DELETION_HELP_NOTICE = "候補を削除する場合は y、戻る場合は n または取消を押してください"
+        const val COMPLETION_FAILURE_NOTICE = "見出し語を補完できません。読みを保持しました"
         val InputMode.isKana: Boolean get() = this == InputMode.HIRAGANA || this == InputMode.KATAKANA || this == InputMode.HALFWIDTH
         val Char.isRomajiInput: Boolean get() = this == '\'' || isLetter() && code < 128
 

@@ -77,6 +77,9 @@ class DictionaryManager(
     override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> =
         currentDictionary().lookup(query)
 
+    override fun complete(query: jp.hayase.skk.core.CompletionQuery): List<String> =
+        currentDictionary().complete(query)
+
     override fun registrationQuery(original: DictionaryQuery): DictionaryQuery =
         currentDictionary().registrationQuery(original)
 

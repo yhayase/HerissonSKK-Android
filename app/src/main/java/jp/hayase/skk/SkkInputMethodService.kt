@@ -7,6 +7,10 @@ import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Build
 import android.os.Looper
+import android.graphics.Typeface
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.StyleSpan
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
@@ -59,6 +63,10 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         val info = attribute ?: return
         val protected = isPassword(info.inputType) || info.inputType == InputType.TYPE_NULL
         val learningAllowed = !protected && info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING == 0
+        val completionConfig = jp.hayase.skk.core.CompletionConfig(
+            dynamicEnabled = getSharedPreferences("settings", Context.MODE_PRIVATE)
+                .getBoolean("dynamic_completion", false),
+        )
         session = EditorSession(generation, connection, protected,
             learningAllowed,
             info.initialSelStart, info.initialSelEnd, dictionaries,
@@ -106,7 +114,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         })
                     })
                 }
-            })
+            }, completionConfig = completionConfig)
         render()
     }
 
@@ -166,7 +174,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 }
                 lastDevice = event.deviceId
                 when (val decoded = mapper.decode(event, current.engine.state.mode == InputMode.DIRECT,
-                    current.hasComposition)) {
+                    current.hasComposition, current.view.completion != null)) {
                     HardwareKeyMapper.Decoded.Pass -> {
                         if (!KeyEvent.isModifierKey(keyCode)) {
                             current.preserveText()
@@ -278,6 +286,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         it.innerComposing?.takeIf(String::isNotEmpty)?.let { value -> add("▽$value") }
                         add(getString(if (it.saving) R.string.registration_saving else R.string.registration_help))
                     }
+                    current.view.completion?.let { completion ->
+                        add("補完候補: ${completion.prefix}【${completion.suffix}】\nRight: 受諾 / Tab: 通常補完")
+                    }
                     current.view.deletion?.let { deletion ->
                         add("削除確認: ${deletion.readingKey} → ${deletion.candidateText}")
                         add("個人候補 ${deletion.personalOriginCount} 件を削除し、システム由来 ${deletion.systemOriginCount} 件を非表示にします")
@@ -295,7 +306,18 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     }
                     current.notice?.let(::add)
                 }
-                "$mode  ${details.joinToString("\n")}"
+                val text = "$mode  ${details.joinToString("\n")}"
+                SpannableString(text).apply {
+                    current.view.completion?.let { completion ->
+                        val label = "補完候補: ${completion.prefix}【"
+                        val labelStart = text.indexOf(label)
+                        if (labelStart >= 0) {
+                            val start = labelStart + label.length
+                            setSpan(StyleSpan(Typeface.BOLD_ITALIC), start,
+                                start + completion.suffix.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                    }
+                }
             }
         }
     }

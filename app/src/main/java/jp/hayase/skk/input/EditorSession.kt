@@ -7,6 +7,7 @@ import jp.hayase.skk.core.BasicSkkEngine
 import jp.hayase.skk.core.BasicSkkView
 import jp.hayase.skk.core.BasicSkkEffect
 import jp.hayase.skk.core.BasicSkkResult
+import jp.hayase.skk.core.CompletionConfig
 import jp.hayase.skk.core.InputPhase
 import jp.hayase.skk.core.RegistrationPolicy
 import jp.hayase.skk.core.RegistrationSaveRequest
@@ -32,12 +33,14 @@ class EditorSession(
     private val onStateChanged: () -> Unit = {},
     private val candidateLearner: ((CandidateCommitRequest, (RegistrationSaveOutcome) -> Unit) -> Unit)? = null,
     private val candidateDeleter: ((CandidateDeletionRequest, (CandidateDeletionOutcome) -> Unit) -> Unit)? = null,
+    completionConfig: CompletionConfig = CompletionConfig(),
 ) {
     val engine = BasicSkkEngine(dictionary, RegistrationPolicy(
         enabled = registrationSaver != null,
         sessionGeneration = generation,
         savingAllowed = learningAllowed,
-    ), learningEnabled = candidateLearner != null, deletionEnabled = candidateDeleter != null)
+    ), learningEnabled = candidateLearner != null, deletionEnabled = candidateDeleter != null,
+        completionConfig = completionConfig)
     var view = BasicSkkView(null, null, null)
         private set
     var notice: String? = null

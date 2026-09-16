@@ -2,6 +2,10 @@ package jp.hayase.skk.core.dictionary
 
 import java.util.Collections
 import jp.hayase.skk.core.BasicSkkDictionary
+import jp.hayase.skk.core.CompletionException
+import jp.hayase.skk.core.CompletionFailure
+import jp.hayase.skk.core.CompletionQuery
+import jp.hayase.skk.core.CompletionScope
 import jp.hayase.skk.core.DictionaryCandidate
 import jp.hayase.skk.core.DictionaryQuery
 
@@ -13,6 +17,7 @@ class SkkDictionarySource(
     val enabled: Boolean = true,
 ) {
     private val index = entries.associate { it.key to it.candidates }
+    private val sortedKeys = index.keys.sorted()
 
     init {
         require(id.isNotBlank()) { "辞書IDは空にできません" }
@@ -21,6 +26,27 @@ class SkkDictionarySource(
     }
 
     internal fun candidates(key: String): List<SkkDictionaryCandidate> = index[key].orEmpty()
+
+    /** ソート済み索引の一致範囲だけを列挙し、辞書全件を通常経路で走査しません。 */
+    internal fun completionKeys(prefix: String): Sequence<String> = sequence {
+        var index = sortedKeys.lowerBound(prefix)
+        while (index < sortedKeys.size) {
+            val key = sortedKeys[index]
+            if (!key.startsWith(prefix)) break
+            yield(key)
+            index++
+        }
+    }
+
+    private fun List<String>.lowerBound(value: String): Int {
+        var low = 0
+        var high = size
+        while (low < high) {
+            val middle = (low + high).ushr(1)
+            if (this[middle] < value) low = middle + 1 else high = middle
+        }
+        return low
+    }
 }
 
 data class CandidateOrigin(
@@ -55,6 +81,7 @@ class CompositeSkkDictionary(
     systems: List<SkkDictionarySource> = emptyList(),
     suppressions: Collection<SuppressedDictionaryCandidate> = emptyList(),
 ) : BasicSkkDictionary {
+    private val personalSource = personal
     private val personalGeneration = personal?.generation
     private val sources = listOfNotNull(personal?.let { it to true }) + systems.map { it to false }
     private val suppressions = suppressions.toSet()
@@ -86,6 +113,63 @@ class CompositeSkkDictionary(
         )
     }
 
+    override fun complete(query: CompletionQuery): List<String> {
+        validateCompletionQuery(query)
+        if (query.prefix.isEmpty()) return emptyList()
+        val selectedSources = when (query.scope) {
+            CompletionScope.ALL -> sources
+            CompletionScope.PERSONAL_ONLY -> listOfNotNull(personalSource?.let { it to true })
+        }
+        val result = linkedSetOf<String>()
+        var workItems = 0
+        var totalChars = 0L
+        for ((source, personal) in selectedSources) {
+            if (!source.enabled) continue
+            for (key in source.completionKeys(query.prefix)) {
+                if (result.size >= query.limit) return result.toList()
+                workItems++
+                if (workItems > CompletionQuery.MAX_WORK_ITEMS) {
+                    throw CompletionException(CompletionFailure.WORK_LIMIT)
+                }
+                if (key == query.prefix ||
+                    !query.abbrev && key.isOkuriAriKey() ||
+                    query.abbrev && !key.isAscii()
+                ) continue
+                val candidates = source.candidates(key)
+                if (candidates.isEmpty()) continue
+                if (!personal) {
+                    var visible = false
+                    for (candidate in candidates) {
+                        workItems++
+                        if (workItems > CompletionQuery.MAX_WORK_ITEMS) {
+                            throw CompletionException(CompletionFailure.WORK_LIMIT)
+                        }
+                        if (SuppressedDictionaryCandidate(
+                            source.id,
+                            key,
+                            candidate.text,
+                            candidate.okuriCondition,
+                        ) !in suppressions) {
+                            visible = true
+                            break
+                        }
+                    }
+                    if (!visible) continue
+                }
+                if (!key.hasValidUtf16()) throw CompletionException(CompletionFailure.INVALID_INPUT)
+                if (key.length > CompletionQuery.MAX_RESULT_CHARS) {
+                    throw CompletionException(CompletionFailure.RESULT_LIMIT)
+                }
+                if (!result.add(key)) continue
+                totalChars += key.length
+                if (totalChars > CompletionQuery.MAX_TOTAL_RESULT_CHARS) {
+                    throw CompletionException(CompletionFailure.RESULT_LIMIT)
+                }
+            }
+        }
+        return result.toList()
+    }
+
     fun resolve(query: DictionaryQuery): List<ResolvedDictionaryCandidate> {
         val byText = linkedMapOf<String, MutableList<CandidateOrigin>>()
         for ((source, personal) in sources) {
@@ -112,5 +196,34 @@ class CompositeSkkDictionary(
             val annotation = origins.firstNotNullOfOrNull { it.candidate.annotation?.takeIf(String::isNotEmpty) }
             ResolvedDictionaryCandidate(first.copy(annotation = annotation), origins)
         }
+    }
+
+    private fun validateCompletionQuery(query: CompletionQuery) {
+        if (query.limit !in 1..CompletionQuery.MAX_RESULTS ||
+            query.prefix.length > CompletionQuery.MAX_PREFIX_CHARS ||
+            !query.prefix.hasValidUtf16()
+        ) {
+            throw CompletionException(CompletionFailure.INVALID_INPUT)
+        }
+    }
+
+    private fun String.isAscii(): Boolean = all { it.code in 0x20..0x7e }
+
+    private fun String.isOkuriAriKey(): Boolean = lastOrNull() in 'a'..'z'
+
+    private fun String.hasValidUtf16(): Boolean {
+        var index = 0
+        while (index < length) {
+            val value = this[index]
+            when {
+                value.isHighSurrogate() -> {
+                    if (index + 1 >= length || !this[index + 1].isLowSurrogate()) return false
+                    index += 2
+                }
+                value.isLowSurrogate() -> return false
+                else -> index++
+            }
+        }
+        return true
     }
 }

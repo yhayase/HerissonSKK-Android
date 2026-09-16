@@ -1,6 +1,7 @@
 package jp.hayase.skk.core.numeric
 
 import jp.hayase.skk.core.BasicSkkDictionary
+import jp.hayase.skk.core.CompletionQuery
 import jp.hayase.skk.core.DictionaryCandidate
 import jp.hayase.skk.core.DictionaryQuery
 import jp.hayase.skk.core.NumericLearningTarget
@@ -15,6 +16,8 @@ class NumericLookupException(val failure: NumericLookupFailure) : RuntimeExcepti
 
 /** 数値を含む読みだけを正規化キーで検索し、表示候補を安全に展開します。 */
 class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictionary {
+    override fun complete(query: CompletionQuery): List<String> = raw.complete(query)
+
     override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> {
         val extraction = extract(query)
         if (!extraction.hasNumericSpans) return raw.lookup(query)
