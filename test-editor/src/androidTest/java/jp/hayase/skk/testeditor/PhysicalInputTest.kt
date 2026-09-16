@@ -7,6 +7,8 @@ import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -20,6 +22,63 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PhysicalInputTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+
+    /** I10: パスワード欄では SKK の未確定表示も候補表示も作らず、入力先の文字をそのまま通します。 */
+    @Test fun passwordEditorBypassesSkkAndKeepsLiteralText() {
+        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+            val password = scenario.editorStartingWith("パスワード")
+            scenario.onActivity { password.requestFocus() }
+            awaitProtectedEditor(password)
+
+            type("Nihon ")
+
+            awaitText(password, "Nihon ")
+            instrumentation.runOnMainSync {
+                assertEquals(-1, BaseInputConnection.getComposingSpanStart(password.text))
+                assertEquals(-1, BaseInputConnection.getComposingSpanEnd(password.text))
+            }
+            assertFalse(statusViewIsVisible())
+        }
+    }
+
+    /** I10: 候補を表示した通常欄からパスワード欄へ移っても、通常欄を保ち未確定文字を持ち込みません。 */
+    @Test fun switchingCandidateToPasswordPreservesNormalTextWithoutLeakingComposition() {
+        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+            val normal = scenario.editorStartingWith("送信")
+            val password = scenario.editorStartingWith("パスワード")
+            scenario.onActivity { normal.requestFocus() }
+            awaitIme()
+            key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+            type("Nihon ")
+            awaitText(normal, "日本")
+
+            scenario.onActivity { password.requestFocus() }
+            awaitProtectedEditor(password)
+            type("Nihon ")
+
+            assertEquals("日本", text(normal))
+            awaitText(password, "Nihon ")
+            instrumentation.runOnMainSync {
+                assertEquals(-1, BaseInputConnection.getComposingSpanStart(password.text))
+                assertEquals(-1, BaseInputConnection.getComposingSpanEnd(password.text))
+            }
+            assertFalse(statusViewIsVisible())
+        }
+    }
+
+    /** I10: 学習禁止フラグだけでは通常の変換を止めません。保存抑止は永続辞書の導入後に別途検証します。 */
+    @Test fun noPersonalizedLearningEditorStillConverts() {
+        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+            val editor = scenario.editorStartingWith("学習禁止")
+            scenario.onActivity { editor.requestFocus() }
+            awaitIme()
+            key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+
+            type("Nihon ")
+
+            awaitText(editor, "日本")
+        }
+    }
 
     /** K01・K02・I02: 残余の確定と文字種切替で送信を発生させません。 */
     @Test fun terminalRomajiAndKanaModesDoNotSend() {
@@ -183,19 +242,36 @@ class PhysicalInputTest {
         instrumentation.waitForIdleSync()
     }
 
+    private fun ActivityScenario<InputTestActivity>.editorStartingWith(hint: String): EditText {
+        lateinit var editor: EditText
+        onActivity { activity ->
+            editor = descendants(activity.window.decorView).filterIsInstance<EditText>().first {
+                it.hint.toString().startsWith(hint)
+            }
+        }
+        return editor
+    }
+
+    private fun awaitProtectedEditor(editor: EditText) {
+        val automation = configuredAutomation()
+        val deadline = SystemClock.uptimeMillis() + 5000
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (selectedIme(automation) == SKK_IME && isServedEditor(editor) && !statusViewIsVisible(automation)) return
+            SystemClock.sleep(20)
+        }
+        fail("パスワード欄が SKK に保護入力として提供されません。selected=${selectedIme(automation)}, " +
+            "served=${isServedEditor(editor)}, status=${statusViewIsVisible(automation)}")
+    }
+
     private fun awaitIme() {
         instrumentation.waitForIdleSync()
-        val automation = instrumentation.uiAutomation
-        automation.serviceInfo = automation.serviceInfo.apply {
-            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
-        }
+        val automation = configuredAutomation()
         val deadline = SystemClock.uptimeMillis() + 5000
         while (SystemClock.uptimeMillis() < deadline) {
             if (automation.windows.any { window ->
                     val root = window.root
-                    root?.packageName?.toString() == "jp.hayase.skk" &&
-                        root.findAccessibilityNodeInfosByViewId("jp.hayase.skk:id/input_status").isNotEmpty()
+                    root?.packageName?.toString() == SKK_PACKAGE &&
+                        root.findAccessibilityNodeInfosByViewId("$SKK_PACKAGE:id/input_status").isNotEmpty()
                 }) return
             SystemClock.sleep(20)
         }
@@ -209,6 +285,34 @@ class PhysicalInputTest {
         }
         fail("SKK の入力モード表示が現れません。\n$diagnostic")
     }
+
+    private fun configuredAutomation() = instrumentation.uiAutomation.apply {
+        serviceInfo = serviceInfo.apply {
+            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+        }
+    }
+
+    private fun selectedIme(automation: android.app.UiAutomation): String =
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            automation.executeShellCommand("settings get secure default_input_method")
+        ).bufferedReader().use { it.readText().trim() }
+
+    private fun isServedEditor(editor: EditText): Boolean {
+        var served = false
+        instrumentation.runOnMainSync {
+            val manager = editor.context.getSystemService(InputMethodManager::class.java)
+            served = editor.hasFocus() && editor.isAttachedToWindow && manager.isActive(editor)
+        }
+        return served
+    }
+
+    private fun statusViewIsVisible(automation: android.app.UiAutomation = configuredAutomation()): Boolean =
+        automation.windows.any { window ->
+            val root = window.root
+            root?.packageName?.toString() == SKK_PACKAGE &&
+                root.findAccessibilityNodeInfosByViewId("$SKK_PACKAGE:id/input_status").isNotEmpty()
+        }
 
     private fun key(code: Int, meta: Int = 0) {
         val now = SystemClock.uptimeMillis()
@@ -233,4 +337,9 @@ class PhysicalInputTest {
 
     private fun descendants(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
+
+    private companion object {
+        const val SKK_PACKAGE = "jp.hayase.skk"
+        const val SKK_IME = "$SKK_PACKAGE/.SkkInputMethodService"
+    }
 }

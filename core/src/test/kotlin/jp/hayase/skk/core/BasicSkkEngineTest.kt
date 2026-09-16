@@ -17,7 +17,7 @@ class BasicSkkEngineTest {
         ),
         DictionaryQuery("かk", "く") to listOf(DictionaryCandidate("書", "筆記", "く")),
         DictionaryQuery("おおk", "く") to listOf(
-            DictionaryCandidate("大"), DictionaryCandidate("多", okuriCondition = "く"),
+            DictionaryCandidate("多", okuriCondition = "く"), DictionaryCandidate("大"),
             DictionaryCandidate("大", okuriCondition = "き"),
         ),
         DictionaryQuery("API", abbrev = true) to listOf(DictionaryCandidate("エーピーアイ", "略語")),
@@ -150,7 +150,7 @@ class BasicSkkEngineTest {
         assertEquals("カク", engine.dispatch(BasicSkkAction.Text("q")).commit)
     }
 
-    @Test fun `K04 送り一致候補を優先し不一致候補も除外しない`() {
+    @Test fun `K04 辞書が決めた送り候補順を使い実際の送りを一度付ける`() {
         val engine = engine()
         engine.type("OoKu")
         assertEquals("多く", engine.dispatch(BasicSkkAction.Text("")).view.candidate?.committedText)

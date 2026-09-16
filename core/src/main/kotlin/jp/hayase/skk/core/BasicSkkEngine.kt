@@ -27,6 +27,7 @@ data class DictionaryCandidate(
  * フェーズ 2 用の同期辞書境界です。
  *
  * 実装はメモリー上のデータだけを参照し、この呼び出し内でディスク I/O を行いません。
+ * 辞書の優先順位、送り条件、重複を解決した最終表示順で候補を返します。
  */
 fun interface BasicSkkDictionary {
     fun lookup(query: DictionaryQuery): List<DictionaryCandidate>
@@ -374,14 +375,7 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
             okuri = okuriText().nullIfEmpty(),
             abbrev = phase == InputPhase.ABBREV,
         )
-        val found = dictionary.lookup(query)
-        candidates = found.sortedBy { candidate ->
-            when {
-                query.okuri == null -> 1
-                candidate.okuriCondition == query.okuri -> 0
-                else -> 1
-            }
-        }
+        candidates = dictionary.lookup(query).toList()
         candidateIndex = 0
         selectionReturnState = returnState
         return if (candidates.isEmpty()) {
