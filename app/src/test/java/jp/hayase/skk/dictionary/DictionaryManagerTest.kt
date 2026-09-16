@@ -3,7 +3,13 @@ package jp.hayase.skk.dictionary
 import android.content.Context
 import java.util.UUID
 import java.util.concurrent.Executor
+import jp.hayase.skk.core.BasicSkkAction
+import jp.hayase.skk.core.BasicSkkEffect
+import jp.hayase.skk.core.BasicSkkEngine
 import jp.hayase.skk.core.DictionaryQuery
+import jp.hayase.skk.core.RegistrationPolicy
+import jp.hayase.skk.core.RegistrationSaveCompletion
+import jp.hayase.skk.core.RegistrationSaveOutcome
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 import jp.hayase.skk.core.dictionary.SkkDictionaryCodec
@@ -103,6 +109,59 @@ class DictionaryManagerTest {
 
         assertEquals(1, loads)
         assertEquals(listOf("公開候補"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `公開済みスナップショットの数値キーを同じ世代で展開する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        repository.replacePersonal(document("だい# /第#3/"), 0)
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        manager.loadAsync(); serial.runNext()
+        assertEquals(listOf("第十二"), manager.lookup(DictionaryQuery("だい12")).map { it.text })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `数値登録の正規化と四番展開を一つの公開済み世代へ委譲する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        repository.replacePersonal(document("だい# /地域:#4/\n314 /北#3区/\nかな /通常/"), 0)
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        manager.loadAsync(); serial.runNext()
+
+        val original = DictionaryQuery("だい314", okuri = "る", abbrev = true)
+        assertEquals(DictionaryQuery("だい#", "る", true), manager.registrationQuery(original))
+        assertEquals("地域:北#3区", manager.prepareRegistration(original, "地域:#4").committedStem)
+        assertEquals(DictionaryQuery("かな"), manager.registrationQuery(DictionaryQuery("かな")))
+        assertEquals("字面", manager.prepareRegistration(DictionaryQuery("かな"), "字面").committedStem)
+
+        repository.replacePersonal(document("だい# /地域:#4/\n314 /中央区/"), 1)
+        assertEquals("地域:北#3区", manager.prepareRegistration(original, "地域:#4").committedStem)
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `数値登録は保存要求時の公開世代で展開し以後の再読込では再計算しない`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        repository.replacePersonal(document("314 /旧/"), 0)
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        manager.loadAsync(); serial.runNext()
+        val engine = BasicSkkEngine(manager, RegistrationPolicy(enabled = true))
+        engine.dispatch(BasicSkkAction.Text("Dai314 "))
+        engine.dispatch(BasicSkkAction.Text("地域:#4"))
+
+        repository.replacePersonal(document("314 /要求時/"), 1)
+        manager.loadAsync(); serial.runNext()
+        val saving = engine.dispatch(BasicSkkAction.Enter)
+        val request = (saving.effects.single() as BasicSkkEffect.SaveRegistration).request
+        assertEquals("地域:要求時", request.committedText)
+
+        repository.replacePersonal(document("314 /完了時/"), 2)
+        manager.loadAsync(); serial.runNext()
+        val completed = engine.completeRegistration(
+            RegistrationSaveCompletion(request.token, RegistrationSaveOutcome.Applied),
+        )
+        assertEquals("地域:要求時", completed.commit)
         manager.close(); serial.runAll()
     }
 

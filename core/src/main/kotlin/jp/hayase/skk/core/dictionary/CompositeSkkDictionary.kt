@@ -30,6 +30,14 @@ data class CandidateOrigin(
     val candidate: SkkDictionaryCandidate,
 )
 
+/** 個人領域で非表示にしたシステム候補です。注釈や辞書更新世代は同一性に含めません。 */
+data class SuppressedDictionaryCandidate(
+    val sourceId: String,
+    val entryKey: String,
+    val text: String,
+    val okuriCondition: String? = null,
+)
+
 class ResolvedDictionaryCandidate internal constructor(
     val candidate: SkkDictionaryCandidate,
     origins: List<CandidateOrigin>,
@@ -45,8 +53,10 @@ class ResolvedDictionaryCandidate internal constructor(
 class CompositeSkkDictionary(
     personal: SkkDictionarySource? = null,
     systems: List<SkkDictionarySource> = emptyList(),
+    suppressions: Collection<SuppressedDictionaryCandidate> = emptyList(),
 ) : BasicSkkDictionary {
     private val sources = listOfNotNull(personal?.let { it to true }) + systems.map { it to false }
+    private val suppressions = suppressions.toSet()
 
     init {
         require(sources.map { it.first.id }.distinct().size == sources.size) { "辞書IDが重複しています" }
@@ -61,7 +71,11 @@ class CompositeSkkDictionary(
         val byText = linkedMapOf<String, MutableList<CandidateOrigin>>()
         for ((source, personal) in sources) {
             if (!source.enabled) continue
-            val candidates = source.candidates(query.readingKey)
+            val candidates = source.candidates(query.readingKey).filterNot { candidate ->
+                !personal && SuppressedDictionaryCandidate(
+                    source.id, query.readingKey, candidate.text, candidate.okuriCondition,
+                ) in suppressions
+            }
             val ordered = if (query.okuri == null || query.abbrev) candidates else candidates.sortedBy {
                 when (it.okuriCondition) {
                     query.okuri -> 0

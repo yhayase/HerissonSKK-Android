@@ -16,6 +16,7 @@ import jp.hayase.skk.core.dictionary.SkkDictionaryDocument
 import jp.hayase.skk.core.dictionary.SkkDictionaryEncoding
 import jp.hayase.skk.core.dictionary.SkkDictionaryEntry
 import jp.hayase.skk.core.dictionary.SkkDictionarySource
+import jp.hayase.skk.core.dictionary.SuppressedDictionaryCandidate
 
 enum class DictionarySourceKind { PERSONAL, SYSTEM }
 
@@ -32,10 +33,18 @@ data class DictionarySourceInfo(
 class DictionaryLookupSnapshot(
     val personal: SkkDictionarySource?,
     systems: List<SkkDictionarySource>,
+    suppressions: List<CandidateSuppressionInfo> = emptyList(),
 ) {
     val systems: List<SkkDictionarySource> = Collections.unmodifiableList(ArrayList(systems))
+    val suppressions: List<CandidateSuppressionInfo> =
+        Collections.unmodifiableList(ArrayList(suppressions))
 
-    fun asComposite(): CompositeSkkDictionary = CompositeSkkDictionary(personal, systems)
+    fun asComposite(fallbackSystems: List<SkkDictionarySource> = emptyList()): CompositeSkkDictionary =
+        CompositeSkkDictionary(personal, systems + fallbackSystems, suppressions.map { suppression ->
+            suppression.key.let {
+                SuppressedDictionaryCandidate(it.sourceId, it.entryKey, it.templateText, it.okuriCondition)
+            }
+        })
 }
 
 enum class DictionaryWritePoint {
@@ -135,8 +144,7 @@ class SQLiteDictionaryRepository internal constructor(
             val merged = mergeEntries(document.entries, readEntries(database, PERSONAL_SOURCE_ID))
             replaceRows(database, PERSONAL_SOURCE_ID, merged)
             failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
-            val published = current.copy(generation = current.generation + 1)
-            updateSource(database, published)
+            val published = publishNextGeneration(database, current)
             failpoint.hit(DictionaryWritePoint.BEFORE_PUBLICATION)
             published
         }
@@ -162,8 +170,7 @@ class SQLiteDictionaryRepository internal constructor(
                 "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ?", arrayOf(PERSONAL_SOURCE_ID, key))
             insertRows(database, PERSONAL_SOURCE_ID, merged)
             failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
-            val published = current.copy(generation = current.generation + 1)
-            updateSource(database, published)
+            val published = publishNextGeneration(database, current)
             failpoint.hit(DictionaryWritePoint.BEFORE_PUBLICATION)
             published
         }
@@ -181,6 +188,93 @@ class SQLiteDictionaryRepository internal constructor(
     fun listSources(): List<DictionarySourceInfo> {
         val database = helper.readableDatabase
         return database.inReadTransaction { querySources(database) }
+    }
+
+    /** 固定した表示候補の全保存由来を、一つの世代変更として削除・抑止します。 */
+    @Synchronized
+    fun deleteCandidate(
+        request: DeleteCandidateRequest,
+        approvedImmutableSources: Map<String, Long>,
+        mayWrite: () -> Boolean = { true },
+    ): DictionarySourceInfo {
+        val immutableApprovals = approvedImmutableSources.toMap()
+        require(immutableApprovals.none { (id, generation) ->
+            id.isBlank() || id == PERSONAL_SOURCE_ID || generation < 0
+        }) {
+            "組み込み辞書の承認表が不正です"
+        }
+        val database = helper.writableDatabase
+        return database.inTransaction {
+            if (!mayWrite()) throw PersonalDataPolicyRejectedException()
+            val personal = requireSource(database, PERSONAL_SOURCE_ID)
+            checkGeneration(personal, request.expectedPersonalGeneration)
+            validateDeletionOrigins(database, request.origins, immutableApprovals)
+
+            request.origins.filter { it.kind == CandidateOriginKind.PERSONAL }
+                .groupBy { it.entryKey }
+                .forEach { (entryKey, origins) ->
+                    val removed = origins.map { CandidateIdentity(it.templateText, it.okuriCondition) }.toSet()
+                    val previous = readEntries(database, PERSONAL_SOURCE_ID, entryKey).singleOrNull()
+                        ?: throw CandidateOriginMismatchException()
+                    val retained = previous.candidates.filterNot {
+                        CandidateIdentity(it.text, it.okuriCondition) in removed
+                    }
+                    if (previous.candidates.size - retained.size != removed.size) {
+                        throw CandidateOriginMismatchException()
+                    }
+                    database.delete(
+                        TABLE_CANDIDATES,
+                        "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ?",
+                        arrayOf(PERSONAL_SOURCE_ID, entryKey),
+                    )
+                    if (retained.isNotEmpty()) {
+                        insertRows(database, PERSONAL_SOURCE_ID, listOf(SkkDictionaryEntry(entryKey, retained)))
+                    }
+                }
+
+            request.origins.filter { it.kind != CandidateOriginKind.PERSONAL }.forEach { origin ->
+                insertSuppression(database, origin.suppressionKey())
+            }
+            failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
+            val published = publishNextGeneration(database, personal)
+            failpoint.hit(DictionaryWritePoint.BEFORE_PUBLICATION)
+            published
+        }
+    }
+
+    /** 復元画面に必要な抑止と対応する個人辞書世代を一つの読み取りで返します。 */
+    @Synchronized
+    fun listCandidateSuppressions(): CandidateSuppressionSnapshot {
+        val database = helper.readableDatabase
+        return database.inReadTransaction {
+            CandidateSuppressionSnapshot(
+                requireSource(database, PERSONAL_SOURCE_ID).generation,
+                readSuppressions(database, null),
+            )
+        }
+    }
+
+    /** 完全一致する抑止一件だけを復元し、個人辞書世代を進めます。 */
+    @Synchronized
+    fun restoreCandidateSuppression(
+        key: CandidateSuppressionKey,
+        expectedPersonalGeneration: Long,
+    ): DictionarySourceInfo {
+        val database = helper.writableDatabase
+        return database.inTransaction {
+            val personal = requireSource(database, PERSONAL_SOURCE_ID)
+            checkGeneration(personal, expectedPersonalGeneration)
+            val deleted = database.delete(
+                TABLE_SUPPRESSIONS,
+                suppressionWhereClause(),
+                suppressionWhereArgs(key),
+            )
+            if (deleted != 1) throw CandidateSuppressionMissingException()
+            failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
+            val published = publishNextGeneration(database, personal)
+            failpoint.hit(DictionaryWritePoint.BEFORE_PUBLICATION)
+            published
+        }
     }
 
     /** システム辞書の有効状態を保存します。個人辞書は常に有効です。 */
@@ -252,8 +346,7 @@ class SQLiteDictionaryRepository internal constructor(
             }
             replaceRows(database, id, document.entries)
             failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
-            val published = base.copy(name = name, generation = base.generation + 1)
-            updateSource(database, published)
+            val published = publishNextGeneration(database, base.copy(name = name))
             failpoint.hit(DictionaryWritePoint.BEFORE_PUBLICATION)
             published
         }
@@ -279,6 +372,142 @@ class SQLiteDictionaryRepository internal constructor(
             }
         }
     }
+
+    private fun validateDeletionOrigins(
+        database: SQLiteDatabase,
+        origins: List<StoredCandidateOriginRef>,
+        approvedImmutableSources: Map<String, Long>,
+    ) {
+        origins.forEach { origin ->
+            when (origin.kind) {
+                CandidateOriginKind.PERSONAL -> {
+                    if (origin.sourceId != PERSONAL_SOURCE_ID) throw CandidateOriginMismatchException()
+                    val source = requireSource(database, PERSONAL_SOURCE_ID)
+                    if (source.generation != origin.sourceGeneration) throw CandidateOriginMismatchException()
+                    if (!candidateExists(database, origin)) throw CandidateOriginMismatchException()
+                }
+                CandidateOriginKind.STORED_SYSTEM -> {
+                    if (origin.sourceId == PERSONAL_SOURCE_ID) throw CandidateOriginMismatchException()
+                    val source = findSource(database, origin.sourceId) ?: throw CandidateOriginMismatchException()
+                    if (source.kind != DictionarySourceKind.SYSTEM || source.generation != origin.sourceGeneration) {
+                        throw CandidateOriginMismatchException()
+                    }
+                    if (!candidateExists(database, origin)) throw CandidateOriginMismatchException()
+                }
+                CandidateOriginKind.IMMUTABLE_SYSTEM -> {
+                    if (origin.sourceId == PERSONAL_SOURCE_ID || findSource(database, origin.sourceId) != null) {
+                        throw CandidateOriginMismatchException()
+                    }
+                    if (approvedImmutableSources[origin.sourceId] != origin.sourceGeneration) {
+                        throw CandidateOriginMismatchException()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun candidateExists(database: SQLiteDatabase, origin: StoredCandidateOriginRef): Boolean {
+        val okuriClause = if (origin.okuriCondition == null) "$COLUMN_OKURI IS NULL" else "$COLUMN_OKURI = ?"
+        val args = mutableListOf(origin.sourceId, origin.entryKey, origin.templateText)
+        origin.okuriCondition?.let(args::add)
+        return database.query(
+            TABLE_CANDIDATES,
+            arrayOf("1"),
+            "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ? AND $COLUMN_TEXT = ? AND $okuriClause",
+            args.toTypedArray(),
+            null,
+            null,
+            null,
+            "1",
+        ).use { it.moveToFirst() }
+    }
+
+    private fun insertSuppression(database: SQLiteDatabase, key: CandidateSuppressionKey) {
+        val values = ContentValues().apply {
+            put(COLUMN_SOURCE_ID, key.sourceId)
+            put(COLUMN_ENTRY_KEY, key.entryKey)
+            put(COLUMN_TEXT, key.templateText)
+            put(COLUMN_OKURI, key.okuriCondition ?: NO_OKURI)
+        }
+        if (database.insertWithOnConflict(
+                TABLE_SUPPRESSIONS,
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_IGNORE,
+            ) == -1L
+        ) {
+            throw CandidateOriginMismatchException()
+        }
+    }
+
+    private fun readSuppressions(database: SQLiteDatabase, key: String?): List<CandidateSuppressionInfo> = buildList {
+        database.query(
+            TABLE_SUPPRESSIONS,
+            arrayOf(COLUMN_SOURCE_ID, COLUMN_ENTRY_KEY, COLUMN_TEXT, COLUMN_OKURI),
+            if (key == null) null else "$COLUMN_ENTRY_KEY = ?",
+            key?.let { arrayOf(it) },
+            null,
+            null,
+            "$COLUMN_SOURCE_ID ASC, $COLUMN_ENTRY_KEY ASC, $COLUMN_TEXT ASC, $COLUMN_OKURI ASC",
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                add(CandidateSuppressionInfo(CandidateSuppressionKey(
+                    sourceId = cursor.getString(0),
+                    entryKey = cursor.getString(1),
+                    templateText = cursor.getString(2),
+                    okuriCondition = cursor.getString(3).takeIf(String::isNotEmpty),
+                )))
+            }
+        }
+    }
+
+    private fun StoredCandidateOriginRef.suppressionKey() = CandidateSuppressionKey(
+        sourceId,
+        entryKey,
+        templateText,
+        okuriCondition,
+    )
+
+    private fun suppressionWhereClause(): String =
+        "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ? AND $COLUMN_TEXT = ? AND $COLUMN_OKURI = ?"
+
+    private fun suppressionWhereArgs(key: CandidateSuppressionKey): Array<String> = arrayOf(
+        key.sourceId,
+        key.entryKey,
+        key.templateText,
+        key.okuriCondition ?: NO_OKURI,
+    )
+
+    private fun allocateNextGeneration(database: SQLiteDatabase, source: DictionarySourceInfo): Long {
+        val ledgerGeneration = database.query(
+            TABLE_SOURCE_VERSIONS,
+            arrayOf(COLUMN_LAST_GENERATION),
+            "$COLUMN_SOURCE_ID = ?",
+            arrayOf(source.id),
+            null,
+            null,
+            null,
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L }
+        val next = Math.addExact(maxOf(ledgerGeneration, source.generation), 1L)
+        val values = ContentValues().apply {
+            put(COLUMN_SOURCE_ID, source.id)
+            put(COLUMN_LAST_GENERATION, next)
+        }
+        check(database.insertWithOnConflict(
+            TABLE_SOURCE_VERSIONS,
+            null,
+            values,
+            SQLiteDatabase.CONFLICT_REPLACE,
+        ) != -1L)
+        return next
+    }
+
+    private fun publishNextGeneration(
+        database: SQLiteDatabase,
+        source: DictionarySourceInfo,
+    ): DictionarySourceInfo = source.copy(
+        generation = allocateNextGeneration(database, source),
+    ).also { updateSource(database, it) }
 
     private fun readEntries(database: SQLiteDatabase, sourceId: String, key: String? = null): List<SkkDictionaryEntry> {
         val entries = linkedMapOf<String, MutableList<SkkDictionaryCandidate>>()
@@ -369,7 +598,7 @@ class SQLiteDictionaryRepository internal constructor(
             )
             if (source.personal) personal = snapshot else systems += snapshot
         }
-        return DictionaryLookupSnapshot(personal, systems)
+        return DictionaryLookupSnapshot(personal, systems, readSuppressions(database, key))
     }
 
     private fun querySources(database: SQLiteDatabase): List<DictionarySourceInfo> = buildList {
@@ -493,6 +722,7 @@ class SQLiteDictionaryRepository internal constructor(
             database.execSQL(
                 "CREATE INDEX candidates_key_lookup ON $TABLE_CANDIDATES($COLUMN_ENTRY_KEY, $COLUMN_SOURCE_ID, $COLUMN_ORDINAL)",
             )
+            createVersion2Tables(database)
             val personal = ContentValues().apply {
                 put(COLUMN_ID, PERSONAL_SOURCE_ID)
                 put(COLUMN_NAME, PERSONAL_SOURCE_NAME)
@@ -502,10 +732,48 @@ class SQLiteDictionaryRepository internal constructor(
                 put(COLUMN_ORDER, 0)
             }
             check(database.insertOrThrow(TABLE_SOURCES, null, personal) != -1L)
+            val version = ContentValues().apply {
+                put(COLUMN_SOURCE_ID, PERSONAL_SOURCE_ID)
+                put(COLUMN_LAST_GENERATION, 0)
+            }
+            check(database.insertOrThrow(TABLE_SOURCE_VERSIONS, null, version) != -1L)
         }
 
         override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            if (oldVersion == 1 && newVersion == 2) {
+                createVersion2Tables(database)
+                database.execSQL(
+                    "INSERT INTO $TABLE_SOURCE_VERSIONS($COLUMN_SOURCE_ID, $COLUMN_LAST_GENERATION) " +
+                        "SELECT $COLUMN_ID, $COLUMN_GENERATION FROM $TABLE_SOURCES",
+                )
+                return
+            }
             error("未対応の辞書DB更新です: $oldVersion -> $newVersion")
+        }
+
+        private fun createVersion2Tables(database: SQLiteDatabase) {
+            database.execSQL(
+                """
+                CREATE TABLE $TABLE_SUPPRESSIONS (
+                    $COLUMN_SOURCE_ID TEXT NOT NULL,
+                    $COLUMN_ENTRY_KEY TEXT NOT NULL,
+                    $COLUMN_TEXT TEXT NOT NULL,
+                    $COLUMN_OKURI TEXT NOT NULL,
+                    PRIMARY KEY ($COLUMN_SOURCE_ID, $COLUMN_ENTRY_KEY, $COLUMN_TEXT, $COLUMN_OKURI)
+                )
+                """.trimIndent(),
+            )
+            database.execSQL(
+                "CREATE INDEX suppressions_key_lookup ON $TABLE_SUPPRESSIONS($COLUMN_ENTRY_KEY, $COLUMN_SOURCE_ID)",
+            )
+            database.execSQL(
+                """
+                CREATE TABLE $TABLE_SOURCE_VERSIONS (
+                    $COLUMN_SOURCE_ID TEXT PRIMARY KEY NOT NULL,
+                    $COLUMN_LAST_GENERATION INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
         }
     }
 
@@ -520,12 +788,14 @@ class SQLiteDictionaryRepository internal constructor(
         const val PERSONAL_SOURCE_ID = "personal"
         private const val PERSONAL_SOURCE_NAME = "個人辞書"
         private const val DEFAULT_DATABASE_NAME = "skk-dictionaries.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
         private const val MISSING_GENERATION = -1L
         private const val KIND_PERSONAL = 0
         private const val KIND_SYSTEM = 1
         private const val TABLE_SOURCES = "dictionary_sources"
         private const val TABLE_CANDIDATES = "dictionary_candidates"
+        private const val TABLE_SUPPRESSIONS = "candidate_suppressions"
+        private const val TABLE_SOURCE_VERSIONS = "dictionary_source_versions"
         private const val COLUMN_ID = "source_id"
         private const val COLUMN_NAME = "source_name"
         private const val COLUMN_KIND = "source_kind"
@@ -538,6 +808,8 @@ class SQLiteDictionaryRepository internal constructor(
         private const val COLUMN_TEXT = "candidate_text"
         private const val COLUMN_ANNOTATION = "annotation"
         private const val COLUMN_OKURI = "okuri_condition"
+        private const val COLUMN_LAST_GENERATION = "last_generation"
+        private const val NO_OKURI = ""
         private val SOURCE_COLUMNS = arrayOf(
             COLUMN_ID, COLUMN_NAME, COLUMN_KIND, COLUMN_GENERATION, COLUMN_ENABLED, COLUMN_ORDER,
         )

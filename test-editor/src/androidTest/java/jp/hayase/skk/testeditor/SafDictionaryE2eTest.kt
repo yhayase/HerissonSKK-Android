@@ -55,6 +55,15 @@ class SafDictionaryE2eTest {
         val fixtureBytes = """
             てすと /統合候補;E2E注釈/
             にほん /日本;第一注釈/二本;第二注釈/
+            na# /第#0;数値注釈/
+            nb# /#1/
+            nc# /#2/
+            nd# /#3/
+            ne# /地域:#4;外側注釈/
+            nf# /#5/
+            ng# /#8/
+            nh# /#9/
+            314 /北区;内側注釈/
         """.trimIndent().plus("\n").toByteArray(StandardCharsets.UTF_8)
         var backupBytes: ByteArray? = null
         var recoveryWritten = false
@@ -117,12 +126,49 @@ class SafDictionaryE2eTest {
                 awaitText(editor, "二本")
             }
 
+            val noLearningIntent = android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
+                .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true)
+            ActivityScenario.launch<InputTestActivity>(noLearningIntent).use { scenario ->
+                val editor = scenario.editorStartingWith("複数行 A")
+                scenario.onActivity { editor.requestFocus() }
+                awaitIme()
+                key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+                type("Nihon")
+                key(KeyEvent.KEYCODE_SPACE)
+                key(KeyEvent.KEYCODE_SPACE)
+                key(KeyEvent.KEYCODE_ENTER)
+                awaitText(editor, "日本")
+            }
+
+            ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+                val editor = scenario.editorStartingWith("複数行 A")
+                val numericCases = listOf(
+                    "na12" to "第12", "nb2048" to "２０４８", "nc2048" to "二〇四八",
+                    "nd2048" to "二千四十八", "ne314" to "地域:北区", "nf10000" to "壱萬",
+                    "ng7654321" to "7,654,321", "nh73" to "７三",
+                )
+                scenario.onActivity { editor.requestFocus() }
+                awaitIme()
+                var expectedText = ""
+                // アプリ側 setText の選択通知と次の打鍵を競合させず、連続変換を実際に検査します。
+                for ((reading, expected) in numericCases) {
+                    key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+                    type("/$reading ")
+                    key(KeyEvent.KEYCODE_ENTER)
+                    expectedText += expected
+                    awaitText(editor, expectedText)
+                }
+            }
+
             openDictionarySettings()
             exportPersonal(fileName(exported))
             val exportedText = readFile(exported).toString(StandardCharsets.UTF_8)
             assertTrue("SAF 書き出しに見出し語がありません", exportedText.contains("てすと /統合候補;E2E注釈/"))
             assertTrue("物理キー登録が個人辞書へ保存されません", exportedText.contains("とうろく /たんご/"))
             assertTrue("学習候補または注釈が SAF 書き出しで失われました", exportedText.contains("にほん /二本;第二注釈/日本;第一注釈/"))
+            assertTrue("数値学習で元テンプレートが失われました", exportedText.contains("na# /第#0;数値注釈/"))
+            assertTrue("数値の展開済み本文を別見出しへ学習しました", !exportedText.lineSequence().any { it.startsWith("na12 ") })
+            assertTrue("再検索で外側テンプレートの注釈が失われました", exportedText.contains("ne# /地域:#4;外側注釈/"))
         } catch (failure: Throwable) {
             bodyFailure = failure
             throw failure
@@ -256,7 +302,13 @@ class SafDictionaryE2eTest {
         return descendants(root).any { node ->
             node.text?.toString() in labels && node.viewIdResourceName?.endsWith(":id/breadcrumb_text") == true
         } || root.findAccessibilityNodeInfosByText("FILES IN DOWNLOADS")
-            .any { it.text?.toString() == "FILES IN DOWNLOADS" }
+            .any { it.text?.toString() == "FILES IN DOWNLOADS" } ||
+            // API26 の Downloads は breadcrumb ではなく toolbar の直下に表示されます。
+            DOCUMENTS_UI_PACKAGES.any { packageName ->
+                root.findAccessibilityNodeInfosByViewId("$packageName:id/toolbar").any { toolbar ->
+                    descendants(toolbar).any { it.isVisibleToUser && it.text?.toString() in labels }
+                }
+            }
     }
 
     private fun clickNodeOrParent(node: AccessibilityNodeInfo): Boolean {

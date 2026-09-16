@@ -23,7 +23,19 @@ data class DictionaryCandidate(
     val text: String,
     val annotation: String? = null,
     val okuriCondition: String? = null,
+    val learningTarget: NumericLearningTarget? = null,
 )
+
+/** 数値展開後の表示候補を、永続化用の元辞書候補へ結びます。 */
+data class NumericLearningTarget(
+    val query: DictionaryQuery,
+    val templateText: String,
+    val annotation: String?,
+    val okuriCondition: String?,
+)
+
+/** 登録本文を永続化する前に固定した、入力先へ確定する語幹です。 */
+data class RegistrationPreparation(val committedStem: String)
 
 /**
  * フェーズ 2 用の同期辞書境界です。
@@ -33,6 +45,13 @@ data class DictionaryCandidate(
  */
 fun interface BasicSkkDictionary {
     fun lookup(query: DictionaryQuery): List<DictionaryCandidate>
+
+    /** 未登録語を保存する見出し語です。通常辞書は元の読みをそのまま使います。 */
+    fun registrationQuery(original: DictionaryQuery): DictionaryQuery = original
+
+    /** 登録本文から保存成功後に確定する語幹を作ります。 */
+    fun prepareRegistration(original: DictionaryQuery, templateText: String): RegistrationPreparation =
+        RegistrationPreparation(templateText)
 }
 
 /** Android のキー表から正規化して渡す基本操作です。 */
@@ -113,6 +132,7 @@ class BasicSkkEngine(
     private var pendingTargetsOkuri = false
     private var selectionReturnState: ReadingSnapshot? = null
     private var selectionQuery: DictionaryQuery? = null
+    private var selectionRegistrationQuery: DictionaryQuery? = null
     private val registrations = mutableListOf<RegistrationFrame>()
     private var nextFrameId = 1L
     private var nextOperationId = 1L
@@ -203,6 +223,7 @@ class BasicSkkEngine(
         return when (val outcome = completion.outcome) {
             is RegistrationSaveOutcome.Failed -> {
                 frame.savingToken = null
+                frame.savingCommittedText = null
                 result(Outcome(true, notice = outcome.reason.notice))
             }
             RegistrationSaveOutcome.Applied,
@@ -300,7 +321,12 @@ class BasicSkkEngine(
         if (!registrationPolicy.savingAllowed) {
             return result(Outcome(true, notice = "この入力欄では単語を登録できません"))
         }
-        val committedText = frame.body.text + frame.query.okuri.orEmpty()
+        val committedText = try {
+            dictionary.prepareRegistration(frame.originalQuery, frame.body.text).committedStem +
+                frame.query.okuri.orEmpty()
+        } catch (_: jp.hayase.skk.core.numeric.NumericLookupException) {
+            return result(Outcome(true, notice = NUMERIC_FAILURE_NOTICE))
+        }
         val parent = registrations.getOrNull(registrations.lastIndex - 1)
         if (parent != null && parent.body.text.length + committedText.length > MAX_REGISTRATION_BODY) {
             return result(Outcome(true, notice = BODY_LIMIT_NOTICE))
@@ -313,6 +339,7 @@ class BasicSkkEngine(
             sessionGeneration = registrationPolicy.sessionGeneration,
         )
         frame.savingToken = token
+        frame.savingCommittedText = committedText
         val request = RegistrationSaveRequest(
             token = token,
             readingKey = frame.query.readingKey,
@@ -325,7 +352,7 @@ class BasicSkkEngine(
 
     private fun completeSavedRegistration(frame: RegistrationFrame, notice: String?): BasicSkkResult {
         check(registrations.lastOrNull() === frame)
-        val committedText = frame.body.text + frame.query.okuri.orEmpty()
+        val committedText = checkNotNull(frame.savingCommittedText) { "登録確定文字列がありません" }
         registrations.removeAt(registrations.lastIndex)
         mode = frame.returnState.readingStartMode
         clearComposition()
@@ -361,6 +388,7 @@ class BasicSkkEngine(
     }
 
     private fun startRegistration(
+        originalQuery: DictionaryQuery,
         query: DictionaryQuery,
         returnState: EngineSnapshot,
         editor: EditorReadingView,
@@ -372,6 +400,7 @@ class BasicSkkEngine(
         registrations += RegistrationFrame(
             id = nextFrameId++,
             parentId = parentId,
+            originalQuery = originalQuery,
             query = query,
             returnState = returnState,
             body = EditableBuffer(),
@@ -621,7 +650,9 @@ class BasicSkkEngine(
             okuri = okuriText().nullIfEmpty(),
             abbrev = phase == InputPhase.ABBREV,
         )
+        val registrationQuery: DictionaryQuery
         candidates = try {
+            registrationQuery = dictionary.registrationQuery(query)
             dictionary.lookup(query).toList()
         } catch (unavailable: DictionaryUnavailableException) {
             selectionReturnState = returnState
@@ -630,13 +661,20 @@ class BasicSkkEngine(
                 DictionaryUnavailableReason.INITIALIZING -> "辞書を準備しています。読みを保持しました。準備後にもう一度変換してください"
                 DictionaryUnavailableReason.FAILED -> "辞書を読み込めません。読みを保持しました。設定から再読込してください"
             })
+        } catch (_: jp.hayase.skk.core.numeric.NumericLookupException) {
+            selectionReturnState = returnState
+            restoreSelectionReturnState()
+            return Outcome(true, notice = NUMERIC_FAILURE_NOTICE)
         }
         candidateIndex = 0
         selectionReturnState = returnState
         selectionQuery = query
+        selectionRegistrationQuery = registrationQuery
         return if (candidates.isEmpty()) {
             restoreSelectionReturnState()
-            if (registrationPolicy.enabled) startRegistration(query, snapshotEngine(), editorReadingView(returnState))
+            if (registrationPolicy.enabled) {
+                startRegistration(query, registrationQuery, snapshotEngine(), editorReadingView(returnState))
+            }
             else Outcome(true, notice = "単語登録はまだ利用できません")
         } else {
             phase = InputPhase.SELECTING
@@ -651,8 +689,9 @@ class BasicSkkEngine(
         }
         if (registrationPolicy.enabled) {
             val query = checkNotNull(selectionQuery) { "候補の検索条件がありません" }
+            val registrationQuery = checkNotNull(selectionRegistrationQuery) { "登録の検索条件がありません" }
             val editor = editorReadingView(checkNotNull(selectionReturnState))
-            return startRegistration(query, snapshotEngine(), editor)
+            return startRegistration(query, registrationQuery, snapshotEngine(), editor)
         }
         restoreSelectionReturnState()
         return Outcome(true, notice = "単語登録はまだ利用できません")
@@ -691,6 +730,7 @@ class BasicSkkEngine(
         candidateIndex = 0
         selectionReturnState = null
         selectionQuery = null
+        selectionRegistrationQuery = null
     }
 
     private fun commitCandidate(index: Int): Outcome {
@@ -700,8 +740,10 @@ class BasicSkkEngine(
             listOf(BasicSkkEffect.LearnCandidate(CandidateCommitRequest(
                 operationId = nextOperationId++,
                 sessionGeneration = registrationPolicy.sessionGeneration,
-                query = checkNotNull(selectionQuery),
-                candidate = candidate,
+                query = candidate.learningTarget?.query ?: checkNotNull(selectionQuery),
+                candidate = candidate.learningTarget?.let {
+                    DictionaryCandidate(it.templateText, it.annotation, it.okuriCondition)
+                } ?: candidate,
             )))
         } else emptyList()
         clearComposition()
@@ -860,6 +902,7 @@ class BasicSkkEngine(
         pendingTargetsOkuri = pendingTargetsOkuri,
         selectionReturnState = selectionReturnState,
         selectionQuery = selectionQuery,
+        selectionRegistrationQuery = selectionRegistrationQuery,
     )
 
     private fun restoreEngine(snapshot: EngineSnapshot) {
@@ -877,6 +920,7 @@ class BasicSkkEngine(
         pendingTargetsOkuri = snapshot.pendingTargetsOkuri
         selectionReturnState = snapshot.selectionReturnState
         selectionQuery = snapshot.selectionQuery
+        selectionRegistrationQuery = snapshot.selectionRegistrationQuery
     }
 
     private fun snapshotRuntime() = RuntimeSnapshot(
@@ -905,6 +949,7 @@ class BasicSkkEngine(
         pendingTargetsOkuri = false
         selectionReturnState = null
         selectionQuery = null
+        selectionRegistrationQuery = null
     }
 
     private data class ReadingSnapshot(
@@ -931,11 +976,13 @@ class BasicSkkEngine(
         val pendingTargetsOkuri: Boolean,
         val selectionReturnState: ReadingSnapshot?,
         val selectionQuery: DictionaryQuery?,
+        val selectionRegistrationQuery: DictionaryQuery?,
     )
 
     private data class RegistrationFrame(
         val id: Long,
         val parentId: Long?,
+        val originalQuery: DictionaryQuery,
         val query: DictionaryQuery,
         val returnState: EngineSnapshot,
         val body: EditableBuffer,
@@ -943,6 +990,7 @@ class BasicSkkEngine(
         val editorCursor: Int,
         var revision: Long = 0,
         var savingToken: RegistrationSaveToken? = null,
+        var savingCommittedText: String? = null,
     ) {
         fun frozenCopy() = copy(body = EditableBuffer(body.text, body.cursor))
     }
@@ -975,6 +1023,7 @@ class BasicSkkEngine(
         const val MAX_REGISTRATION_DEPTH = 16
         const val MAX_REGISTRATION_BODY = 65_536
         const val BODY_LIMIT_NOTICE = "登録本文は65,536 UTF-16コード単位までです"
+        const val NUMERIC_FAILURE_NOTICE = "数値を展開できません。読みを保持しました。入力を確認してください"
         val InputMode.isKana: Boolean get() = this == InputMode.HIRAGANA || this == InputMode.KATAKANA || this == InputMode.HALFWIDTH
         val Char.isRomajiInput: Boolean get() = this == '\'' || isLetter() && code < 128
 

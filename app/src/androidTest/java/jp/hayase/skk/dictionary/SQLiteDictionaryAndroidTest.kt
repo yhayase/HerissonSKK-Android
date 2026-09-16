@@ -81,6 +81,50 @@ class SQLiteDictionaryAndroidTest {
         }
     }
 
+    @Test fun versionOneMigrationPreservesCandidatesOrderAndGenerations() {
+        val name = fixtureName()
+        context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { database ->
+            // 従来の v1 と同じ列・制約を直接作り、最新版の作成処理を流用しません。
+            database.execSQL("""
+                CREATE TABLE dictionary_sources (
+                    source_id TEXT PRIMARY KEY NOT NULL, source_name TEXT NOT NULL, source_kind INTEGER NOT NULL,
+                    generation INTEGER NOT NULL, enabled INTEGER NOT NULL, source_order INTEGER NOT NULL
+                )
+            """.trimIndent())
+            database.execSQL("""
+                CREATE TABLE dictionary_candidates (
+                    source_id TEXT NOT NULL, entry_key TEXT NOT NULL, ordinal INTEGER NOT NULL,
+                    candidate_text TEXT NOT NULL, annotation TEXT, okuri_condition TEXT,
+                    PRIMARY KEY(source_id, entry_key, ordinal),
+                    FOREIGN KEY(source_id) REFERENCES dictionary_sources(source_id) ON DELETE CASCADE
+                )
+            """.trimIndent())
+            database.execSQL("CREATE INDEX candidates_key_lookup ON dictionary_candidates(entry_key, source_id, ordinal)")
+            database.execSQL("INSERT INTO dictionary_sources VALUES ('personal', '個人辞書', 0, 7, 1, 0)")
+            database.execSQL("INSERT INTO dictionary_sources VALUES ('legacy', '既存辞書', 1, 11, 1, 3)")
+            database.execSQL("INSERT INTO dictionary_sources VALUES ('disabled', '無効辞書', 1, 2, 0, 9)")
+            database.execSQL("INSERT INTO dictionary_candidates VALUES ('personal', 'かな', 0, '仮名', '注釈', NULL)")
+            database.execSQL("INSERT INTO dictionary_candidates VALUES ('personal', 'かな', 1, 'かな', NULL, NULL)")
+            database.execSQL("INSERT INTO dictionary_candidates VALUES ('legacy', 'おおk', 0, '多', '数量', 'く')")
+            database.version = 1
+        }
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            assertEquals(listOf(7L, 11L, 2L), repository.listSources().map { it.generation })
+            assertEquals(listOf(0, 3, 9), repository.listSources().map { it.order })
+            assertEquals(listOf(true, true, false), repository.listSources().map { it.enabled })
+            val personal = repository.lookup("かな").asComposite().lookup(DictionaryQuery("かな"))
+            assertEquals(listOf("仮名", "かな"), personal.map { it.text })
+            assertEquals("注釈", personal.first().annotation)
+            val system = repository.lookup("おおk").asComposite().lookup(DictionaryQuery("おおk", "く")).single()
+            assertEquals("多", system.text)
+            assertEquals("く", system.okuriCondition)
+            assertEquals("数量", system.annotation)
+        }
+        context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { database ->
+            assertEquals(2, database.version)
+        }
+    }
+
     @Test fun realSQLiteFullRollsBackAndReopenKeepsPublishedGeneration() {
         val name = fixtureName()
         SQLiteDictionaryRepository(context, name).use { repository ->
@@ -113,6 +157,37 @@ class SQLiteDictionaryAndroidTest {
         SQLiteDictionaryRepository(context, name).use { reopened ->
             assertEquals(listOf("旧候補"), lookup(reopened, "かな"))
             assertEquals(1L, reopened.listSources().single { it.id == "system" }.generation)
+        }
+    }
+
+    @Test fun candidateSuppressionSurvivesReopenAndRestoreDoesNotRecreatePersonalRows() {
+        val name = fixtureName()
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            repository.replacePersonal(document("おおk /多/他/"), 0)
+            repository.importSystem("system", "辞書", document("おおk /多/[く/多/]/"))
+            val targets = listOf(
+                StoredCandidateOriginRef("personal", 1, CandidateOriginKind.PERSONAL, "おおk", "多", null),
+                StoredCandidateOriginRef("system", 1, CandidateOriginKind.STORED_SYSTEM, "おおk", "多", null),
+                StoredCandidateOriginRef("system", 1, CandidateOriginKind.STORED_SYSTEM, "おおk", "多", "く"),
+            )
+            repository.deleteCandidate(DeleteCandidateRequest(1, targets), emptyMap())
+            assertEquals(listOf("他"), lookup(repository, "おおk"))
+            assertEquals(listOf(2L, 1L), repository.listSources().map { it.generation })
+        }
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            val hidden = repository.listCandidateSuppressions()
+            assertEquals(2, hidden.suppressions.size)
+            assertEquals(listOf("他"), lookup(repository, "おおk"))
+            repository.restoreCandidateSuppression(
+                CandidateSuppressionKey("system", "おおk", "多", null), hidden.personalGeneration,
+            )
+            val shown = repository.lookup("おおk").asComposite().resolve(DictionaryQuery("おおk", "く"))
+            assertEquals(listOf("他", "多"), shown.map { it.candidate.text })
+            assertTrue(shown.last().origins.all { !it.personal && it.candidate.okuriCondition == null })
+            assertEquals(1, repository.listCandidateSuppressions().suppressions.size)
+            repository.importSystem("system", "更新辞書", document("おおk /多/[く/多;更新注釈/]/"), 1)
+            assertEquals(1, repository.lookup("おおk").asComposite()
+                .resolve(DictionaryQuery("おおk", "く")).last().origins.size)
         }
     }
 

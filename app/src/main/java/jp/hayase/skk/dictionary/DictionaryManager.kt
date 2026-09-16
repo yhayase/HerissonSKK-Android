@@ -1,5 +1,6 @@
 package jp.hayase.skk.dictionary
 
+import jp.hayase.skk.core.DictionaryCandidate
 import android.content.Context
 import android.database.sqlite.SQLiteFullException
 import android.os.Handler
@@ -8,14 +9,14 @@ import java.io.Closeable
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import jp.hayase.skk.core.DictionaryCandidate
 import jp.hayase.skk.core.DictionaryQuery
-import jp.hayase.skk.core.dictionary.CompositeSkkDictionary
+import jp.hayase.skk.core.BasicSkkDictionary
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 import jp.hayase.skk.core.dictionary.SkkDictionaryDocument
 import jp.hayase.skk.core.dictionary.SkkDictionarySource
 import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
+import jp.hayase.skk.core.numeric.NumericSkkDictionary
 
 /** 公開済み辞書と再読込の状態です。 */
 sealed interface DictionaryManagerStatus {
@@ -52,9 +53,9 @@ class DictionaryManager(
     private val loadSnapshot: () -> DictionaryLookupSnapshot = repository::loadSnapshot,
     private val ownedExecutor: ExecutorService? = null,
     val personalDataPolicy: PersonalDataPolicy = PersonalDataPolicy(),
-) : Closeable {
+) : Closeable, BasicSkkDictionary {
     private data class Published(
-        val dictionary: CompositeSkkDictionary?,
+        val dictionary: BasicSkkDictionary?,
         val status: DictionaryManagerStatus,
     )
 
@@ -71,13 +72,21 @@ class DictionaryManager(
     val status: DictionaryManagerStatus get() = published.status
 
     /** メモリー上の公開済み辞書だけを検索します。 */
-    fun lookup(query: DictionaryQuery): List<DictionaryCandidate> {
+    override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> =
+        currentDictionary().lookup(query)
+
+    override fun registrationQuery(original: DictionaryQuery): DictionaryQuery =
+        currentDictionary().registrationQuery(original)
+
+    override fun prepareRegistration(original: DictionaryQuery, templateText: String) =
+        currentDictionary().prepareRegistration(original, templateText)
+
+    private fun currentDictionary(): BasicSkkDictionary {
         val current = published
-        val dictionary = current.dictionary ?: throw DictionaryUnavailableException(
+        return current.dictionary ?: throw DictionaryUnavailableException(
             (current.status as? DictionaryManagerStatus.Unavailable)?.reason
                 ?: DictionaryUnavailableReason.INITIALIZING,
         )
-        return dictionary.lookup(query)
     }
 
     /** 起動時または明示的な再読込時に全辞書を読み込みます。 */
@@ -246,8 +255,9 @@ class DictionaryManager(
         }
     }
 
-    private fun buildDictionary(snapshot: DictionaryLookupSnapshot): CompositeSkkDictionary =
-        CompositeSkkDictionary(snapshot.personal, snapshot.systems + fallbackSystems)
+    private fun buildDictionary(snapshot: DictionaryLookupSnapshot): BasicSkkDictionary {
+        return NumericSkkDictionary(snapshot.asComposite(fallbackSystems))
+    }
 
     private fun publishRefreshFailure() {
         val current = published

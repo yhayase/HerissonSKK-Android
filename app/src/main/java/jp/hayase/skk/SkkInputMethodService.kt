@@ -16,7 +16,6 @@ import jp.hayase.skk.input.EditorSession
 import jp.hayase.skk.input.HardwareKeyMapper
 import jp.hayase.skk.input.KeyPressLedger
 import jp.hayase.skk.core.InputMode
-import jp.hayase.skk.core.BasicSkkDictionary
 import jp.hayase.skk.dictionary.DictionaryRuntime
 import jp.hayase.skk.dictionary.DictionaryManager
 import jp.hayase.skk.dictionary.DictionaryManagerStatus
@@ -60,7 +59,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         val learningAllowed = !protected && info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING == 0
         session = EditorSession(generation, connection, protected,
             learningAllowed,
-            info.initialSelStart, info.initialSelEnd, BasicSkkDictionary(dictionaries::lookup),
+            info.initialSelStart, info.initialSelEnd, dictionaries,
             registrationSaver = { request, complete ->
                 dictionaries.savePersonalCandidate(request.readingKey,
                     SkkDictionaryCandidate(request.candidateText, okuriCondition = request.okuriCondition),
