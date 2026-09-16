@@ -16,6 +16,12 @@ import jp.hayase.skk.input.EditorSession
 import jp.hayase.skk.input.HardwareKeyMapper
 import jp.hayase.skk.input.KeyPressLedger
 import jp.hayase.skk.core.InputMode
+import jp.hayase.skk.core.BasicSkkDictionary
+import jp.hayase.skk.dictionary.DictionaryRuntime
+import jp.hayase.skk.dictionary.DictionaryManager
+import jp.hayase.skk.dictionary.DictionaryManagerStatus
+import jp.hayase.skk.dictionary.DictionaryManagerSubscription
+import jp.hayase.skk.dictionary.DictionaryFreshness
 
 class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceListener {
     private var generation = 0L
@@ -25,9 +31,13 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private var statusView: TextView? = null
     private var lastDevice: Int? = null
     private var requestedVisible = false
+    private lateinit var dictionaries: DictionaryManager
+    private var dictionarySubscription: DictionaryManagerSubscription? = null
 
     override fun onCreate() {
         super.onCreate()
+        dictionaries = DictionaryRuntime.get(this)
+        dictionarySubscription = dictionaries.observe { render() }
         getSystemService(InputManager::class.java).registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
     }
 
@@ -44,7 +54,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         val protected = isPassword(info.inputType) || info.inputType == InputType.TYPE_NULL
         session = EditorSession(generation, connection, protected,
             !protected && info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING == 0,
-            info.initialSelStart, info.initialSelEnd)
+            info.initialSelStart, info.initialSelEnd, BasicSkkDictionary(dictionaries::lookup))
         render()
     }
 
@@ -159,6 +169,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onDestroy() {
+        dictionarySubscription?.close()
+        dictionarySubscription = null
         session?.close()
         getSystemService(InputManager::class.java).unregisterInputDeviceListener(this)
         super.onDestroy()
@@ -196,7 +208,16 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 })
                 val candidate = current.view.candidate
                 val details = buildList {
-                    add(getString(R.string.limited_dictionary))
+                    add(getString(R.string.local_dictionary_status))
+                    when (val status = dictionaries.status) {
+                        DictionaryManagerStatus.Loading -> add(getString(R.string.dictionary_loading_status))
+                        is DictionaryManagerStatus.Unavailable -> add(getString(R.string.dictionary_failed_status))
+                        is DictionaryManagerStatus.Ready -> when (status.freshness) {
+                            DictionaryFreshness.REFRESHING -> add(getString(R.string.dictionary_refreshing_status))
+                            DictionaryFreshness.STALE -> add(getString(R.string.dictionary_stale_status))
+                            DictionaryFreshness.CURRENT -> Unit
+                        }
+                    }
                     candidate?.let {
                         add("${it.index + 1}/${it.total} ${it.selected.text}")
                         it.selected.annotation?.let(::add)

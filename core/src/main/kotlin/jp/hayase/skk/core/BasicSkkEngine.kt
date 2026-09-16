@@ -2,6 +2,8 @@ package jp.hayase.skk.core
 
 import jp.hayase.skk.core.romaji.KanaTransforms
 import jp.hayase.skk.core.romaji.Romanizer
+import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
+import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 
 /** フェーズ 2 の基本入力で利用する入力モードです。 */
 enum class InputMode { HIRAGANA, KATAKANA, HALFWIDTH, DIRECT, FULLWIDTH }
@@ -375,7 +377,16 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
             okuri = okuriText().nullIfEmpty(),
             abbrev = phase == InputPhase.ABBREV,
         )
-        candidates = dictionary.lookup(query).toList()
+        candidates = try {
+            dictionary.lookup(query).toList()
+        } catch (unavailable: DictionaryUnavailableException) {
+            selectionReturnState = returnState
+            restoreSelectionReturnState()
+            return Outcome(true, notice = when (unavailable.reason) {
+                DictionaryUnavailableReason.INITIALIZING -> "辞書を準備しています。読みを保持しました。準備後にもう一度変換してください"
+                DictionaryUnavailableReason.FAILED -> "辞書を読み込めません。読みを保持しました。設定から再読込してください"
+            })
+        }
         candidateIndex = 0
         selectionReturnState = returnState
         return if (candidates.isEmpty()) {

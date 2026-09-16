@@ -5,9 +5,8 @@ import jp.hayase.skk.core.BasicSkkAction
 import jp.hayase.skk.core.BasicSkkDictionary
 import jp.hayase.skk.core.BasicSkkEngine
 import jp.hayase.skk.core.BasicSkkView
-import jp.hayase.skk.core.DictionaryCandidate
-import jp.hayase.skk.core.DictionaryQuery
 import jp.hayase.skk.core.InputPhase
+import jp.hayase.skk.dictionary.BuiltinDictionary
 
 /** 入力接続をセッションに固定し、後から別の入力欄へ出力しません。 */
 class EditorSession(
@@ -17,8 +16,9 @@ class EditorSession(
     val learningAllowed: Boolean,
     initialStart: Int,
     initialEnd: Int,
+    dictionary: BasicSkkDictionary = BuiltinDictionary.dictionary,
 ) {
-    val engine = BasicSkkEngine(PHASE_TWO_DICTIONARY)
+    val engine = BasicSkkEngine(dictionary)
     var view = BasicSkkView(null, null, null)
         private set
     var notice: String? = null
@@ -170,22 +170,4 @@ class EditorSession(
         return true
     }
 
-    private companion object {
-        val PHASE_TWO_DICTIONARY = BasicSkkDictionary { query ->
-            when (query) {
-                DictionaryQuery("にほん") -> listOf(
-                    DictionaryCandidate("日本", "国名・限定試験辞書"),
-                    DictionaryCandidate("二本", "本数・限定試験辞書"),
-                )
-                DictionaryQuery("かk", "く") -> listOf(DictionaryCandidate("書", okuriCondition = "く"))
-                DictionaryQuery("API", abbrev = true) -> listOf(DictionaryCandidate("エーピーアイ"))
-                DictionaryQuery("だい>") -> listOf(DictionaryCandidate("第"))
-                DictionaryQuery(">かい") -> listOf(DictionaryCandidate("回"))
-                DictionaryQuery("てすと") -> (1..10).map { index ->
-                    DictionaryCandidate("候補$index", "注釈$index")
-                }
-                else -> emptyList()
-            }
-        }
-    }
 }

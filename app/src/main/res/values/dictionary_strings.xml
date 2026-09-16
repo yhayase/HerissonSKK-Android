@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dictionary_settings_open">辞書を管理する</string>
+    <string name="dictionary_settings_title">辞書の管理</string>
+    <string name="dictionary_settings_description">個人辞書と追加辞書を端末内で管理します。ファイルは内容を確認してから適用します。</string>
+    <string name="dictionary_encoding_label">読み込む文字コード</string>
+    <string-array name="dictionary_encoding_choices">
+        <item>自動判定（UTF-8、EUC-JP）</item>
+        <item>UTF-8</item>
+        <item>EUC-JP</item>
+    </string-array>
+    <string name="dictionary_encoding_auto">自動判定</string>
+    <string name="dictionary_encoding_utf8">UTF-8</string>
+    <string name="dictionary_encoding_eucjp">EUC-JP</string>
+    <string name="dictionary_add_system">追加辞書を読み込む</string>
+    <string name="dictionary_merge_personal">個人辞書へ追加・更新する</string>
+    <string name="dictionary_replace_personal">個人辞書をファイルの内容で置き換える</string>
+    <string name="dictionary_export_personal">個人辞書を書き出す</string>
+    <string name="dictionary_reload">辞書を読み込み直す</string>
+    <string name="dictionary_builtin_heading">内蔵辞書</string>
+    <string name="dictionary_builtin_fixture">限定試験辞書（読み取り専用）</string>
+    <string name="dictionary_sources_heading">保存した辞書</string>
+    <string name="dictionary_loading">辞書の状態を確認しています…</string>
+    <string name="dictionary_ready">辞書を管理できます。</string>
+    <string name="dictionary_reload_stale">新しい内容を反映できませんでした。保存済みの辞書を読み込み直してください。</string>
+    <string name="dictionary_reload_failed">辞書を読み込めませんでした。保存済みの辞書を読み込み直してください。</string>
+    <string name="dictionary_reading">ファイルを確認しています…</string>
+    <string name="dictionary_unnamed_file">名前のない辞書</string>
+    <string name="dictionary_preview_title">適用前の確認</string>
+    <string name="dictionary_preview_operation">操作: %1$s</string>
+    <string name="dictionary_operation_add_system">追加辞書として追加</string>
+    <string name="dictionary_operation_update_system">「%1$s」を更新</string>
+    <string name="dictionary_operation_merge_personal">個人辞書へ追加・更新</string>
+    <string name="dictionary_operation_replace_personal">個人辞書全体を置換</string>
+    <string name="dictionary_preview_file">ファイル: %1$s</string>
+    <string name="dictionary_preview_encoding">文字コード: %1$s</string>
+    <string name="dictionary_preview_entries">見出し語: %1$d 件</string>
+    <string name="dictionary_preview_candidates">候補: %1$d 件</string>
+    <string name="dictionary_preview_duplicates">まとめた重複候補: %1$d 件</string>
+    <string name="dictionary_preview_conflicts">注釈の競合: %1$d 件</string>
+    <string name="dictionary_replace_warning">現在の個人辞書をこの内容で置き換えます。既存の登録・学習内容は残りません。</string>
+    <string name="dictionary_apply">適用する</string>
+    <string name="dictionary_import_invalid">このファイルは読み込めません。形式と文字コードを確認してください。</string>
+    <string name="dictionary_applying">辞書を適用しています…</string>
+    <string name="dictionary_apply_complete">辞書を適用しました。</string>
+    <string name="dictionary_saved_not_applied">保存しましたが、現在の変換には反映できませんでした。設定画面を開き直すか、入力方法を再起動して読み込み直してください。</string>
+    <string name="dictionary_apply_failed">辞書を変更できませんでした。現在の内容は保持されています。</string>
+    <string name="dictionary_exporting">個人辞書を書き出しています…</string>
+    <string name="dictionary_export_complete">個人辞書を書き出しました。</string>
+    <string name="dictionary_export_failed">個人辞書を書き出せませんでした。</string>
+    <string name="dictionary_list_failed">辞書の一覧を確認できませんでした。</string>
+    <string name="dictionary_personal_summary">個人辞書</string>
+    <string name="dictionary_no_system_sources">追加した辞書はありません。</string>
+    <string name="dictionary_system_summary">%1$s</string>
+    <string name="dictionary_move_up">上へ</string>
+    <string name="dictionary_move_down">下へ</string>
+    <string name="dictionary_update">ファイルから更新</string>
+</resources>

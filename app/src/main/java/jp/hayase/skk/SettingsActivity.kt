@@ -26,6 +26,9 @@ class SettingsActivity : Activity() {
         label(R.string.setup_description)
         button(R.string.enable_ime) { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
         button(R.string.select_ime) { getSystemService(InputMethodManager::class.java).showInputMethodPicker() }
+        button(R.string.dictionary_settings_open) {
+            startActivity(Intent(this, DictionarySettingsActivity::class.java))
+        }
         val preferences = getSharedPreferences("settings", MODE_PRIVATE)
         layout.addView(Switch(this).apply {
             setText(R.string.show_status)

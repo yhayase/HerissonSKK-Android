@@ -1,0 +1,7 @@
+<resources>
+    <string name="local_dictionary_status">ローカル辞書・限定試験辞書</string>
+    <string name="dictionary_loading_status">辞書を準備しています</string>
+    <string name="dictionary_failed_status">辞書を読み込めません。設定から再読込してください</string>
+    <string name="dictionary_refreshing_status">辞書の更新中です。現在の辞書で入力できます</string>
+    <string name="dictionary_stale_status">新しい辞書を反映できません。以前の辞書で入力しています</string>
+</resources>
