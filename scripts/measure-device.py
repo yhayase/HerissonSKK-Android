@@ -8,11 +8,27 @@ import subprocess
 from datetime import datetime, timezone
 
 
+def bounded_count(name, maximum):
+    def parse(value):
+        try:
+            count = int(value)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(f"{name} は 1 以上 {maximum} 以下の整数で指定します") from error
+        if not 1 <= count <= maximum:
+            raise argparse.ArgumentTypeError(f"{name} は 1 以上 {maximum} 以下で指定します")
+        return count
+    return parse
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="測定する adb シリアル")
     parser.add_argument("--adb", default="adb", help="adb の実行ファイル")
     parser.add_argument("--skip-install", action="store_true", help="端末で APK を手動導入済みの場合に指定します")
+    parser.add_argument("--startup-samples", type=bounded_count("startup-samples", 30), default=30,
+                        help="初回起動と起動済みの測定回数（1〜30、既定30）")
+    parser.add_argument("--input-samples", type=bounded_count("input-samples", 1000), default=1000,
+                        help="準備入力後の打鍵測定回数（1〜1000、既定1000）")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     report_dir = root / "test-editor/build/reports/performance" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -40,9 +56,11 @@ def main():
         "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
         "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True)),
         "apk_sha256": {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in apks},
-        "dictionary": "PilotEngine の固定候補。外部辞書なし",
+        "dictionary": "BasicSkkEngine の限定試験辞書。外部辞書なし",
         "startup_boundary": "初回は IME 再選択要求、起動済みは入力確認 Activity の起動要求から IME 状態表示のアクセシビリティ観測まで",
         "input_boundary": "合成キー注入要求から入力欄の OnDraw まで。IME 受信時刻・画面への提示完了ではありません",
+        "startup_samples": args.startup_samples,
+        "input_samples": args.input_samples,
     }
     for prop in ("ro.product.model", "ro.build.version.release", "ro.build.version.sdk", "ro.build.display.id"):
         metadata[prop] = adb("shell", "getprop", prop).strip()
@@ -73,6 +91,8 @@ def main():
         result = adb("shell", "am", "instrument", "-w", "-r", "-e", "class",
                      "jp.hayase.skk.testeditor.PerformanceTest", "-e", "performance", "true",
                      "-e", "fallback_ime", fallback,
+                     "-e", "startup_samples", str(args.startup_samples),
+                     "-e", "input_samples", str(args.input_samples),
                      "jp.hayase.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner")
         (report_dir / "instrumentation.txt").write_text(result)
         print(result)

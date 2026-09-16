@@ -32,7 +32,8 @@ class PerformanceTest {
     @Test fun measure() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("performance") == "true")
         automation.serviceInfo = automation.serviceInfo.apply {
-            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
         val fallback = InstrumentationRegistry.getArguments().getString("fallback_ime") ?: error("待避用 IME が未指定です")
         require(fallback.matches(Regex("[A-Za-z0-9_.$/]+")) && fallback.substringBefore('/') != target)
@@ -43,8 +44,9 @@ class PerformanceTest {
         for ((name, samples) in listOf("cold" to cold, "warm" to warm)) {
             repeat(startupSamples) {
                 if (name == "cold") {
-                    // 選択中の IME を停止すると OS の自動切替と再選択が競合するため、先に待避します。
+                    // 選択変更の返却だけでは旧 IME の unbind は完了していないため、待避先の接続確立まで待ちます。
                     shell("ime set $fallback")
+                    awaitBoundIme(fallback)
                     shell("am force-stop $target")
                     assertTrue("初回起動の前に IME が起動しています", shell("pidof $target").isBlank())
                 } else {
@@ -168,18 +170,36 @@ class PerformanceTest {
     private fun diagnostic(command: String, keys: List<String>): String =
         shell(command).lineSequence().filter { line -> keys.any { it in line } }.joinToString("\n")
 
+    private fun awaitBoundIme(expected: String) {
+        val deadline = SystemClock.uptimeMillis() + 10000
+        var state = ""
+        while (SystemClock.uptimeMillis() < deadline) {
+            state = diagnostic("dumpsys input_method", listOf("mCurMethodId=", "mCurId=", "mCurMethod="))
+            val lines = state.lineSequence().map(String::trim).toList()
+            val selected = lines.any { it == "mCurMethodId=$expected" }
+            val connected = lines.any {
+                it.startsWith("mCurId=$expected ") &&
+                    "mHaveConnection=true" in it && "mBoundToMethod=true" in it
+            }
+            val methodCreated = lines.any { it.startsWith("mCurMethod=") && !it.endsWith("=null") }
+            if (selected && connected && methodCreated) return
+            SystemClock.sleep(10)
+        }
+        fail("待避用 IME の接続が確立しませんでした。\n$state")
+    }
+
     private fun awaitStatus(activity: InputTestActivity, editor: EditText) {
         val deadline = SystemClock.uptimeMillis() + 10000
         while (SystemClock.uptimeMillis() < deadline) {
             if (automation.windows.any { window ->
                     val root = window.root
                     root?.packageName?.toString() == target &&
-                        root.findAccessibilityNodeInfosByText("かな").isNotEmpty()
+                        root.findAccessibilityNodeInfosByViewId("$target:id/input_status").isNotEmpty()
                 }) return
             SystemClock.sleep(10)
         }
         val windows = automation.windows.joinToString { window ->
-            "type=${window.type}, package=${window.root?.packageName}, kana=${window.root?.findAccessibilityNodeInfosByText("かな")?.size}"
+            "type=${window.type}, package=${window.root?.packageName}, status=${window.root?.findAccessibilityNodeInfosByViewId("$target:id/input_status")?.size}"
         }
         val inputMethod = diagnostic("dumpsys input_method", listOf(
             "mCurMethodId=", "mInputStarted=", "mShowInputRequested=", "mDecorViewVisible=",
