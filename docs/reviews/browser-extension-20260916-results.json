@@ -1,0 +1,305 @@
+{
+  "referenceHead": "302baea80cb3be1572bee502401fb7890670514e",
+  "reference": "working-tree snapshot including uncommitted changes",
+  "snapshot": "/tmp/skk-browser-assessment-4ekwcor2",
+  "nodeVersion": "v24.1.0",
+  "tests": {
+    "files": 23,
+    "total": 487,
+    "passed": 487,
+    "failed": 0,
+    "pending": 0
+  },
+  "files": [
+    {
+      "file": "test/unit/browser-adapter.test.ts",
+      "passed": 55,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/candidate-metadata.test.ts",
+      "passed": 5,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/composite-jisyo-provider.test.ts",
+      "passed": 18,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/content-engine.test.ts",
+      "passed": 27,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/cooperative-dictionary-parser.test.ts",
+      "passed": 13,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/core-edge-cases.test.ts",
+      "passed": 20,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/core.test.ts",
+      "passed": 13,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/dictionary-loader.test.ts",
+      "passed": 22,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/editor-targets.test.ts",
+      "passed": 20,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/indexeddb-jisyo-store.test.ts",
+      "passed": 23,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/input-mode.test.ts",
+      "passed": 29,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/jisyo-buffer-decoder.test.ts",
+      "passed": 7,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/jisyo-parser.test.ts",
+      "passed": 51,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/json-jisyo-parser.test.ts",
+      "passed": 22,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/registration-modal.test.ts",
+      "passed": 16,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/registration-mode.test.ts",
+      "passed": 24,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/registration-state-transitions.test.ts",
+      "passed": 23,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/remote-stores.test.ts",
+      "passed": 9,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/romaji.test.ts",
+      "passed": 30,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/settings-model.test.ts",
+      "passed": 17,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/system-dictionary-manager.test.ts",
+      "passed": 17,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/system-dictionary-upload.test.ts",
+      "passed": 7,
+      "status": "passed"
+    },
+    {
+      "file": "test/unit/user-jisyo-store.test.ts",
+      "passed": 19,
+      "status": "passed"
+    }
+  ],
+  "diagnosticProbes": [
+    {
+      "name": "調査: 未消化 n の Enter は改行も挿入します",
+      "status": "passed"
+    },
+    {
+      "name": "調査: 未消化 n の C-j は残余を破棄します",
+      "status": "passed"
+    },
+    {
+      "name": "調査: 登録の内部文字列で絵文字を削除すると上位サロゲートが残ります",
+      "status": "passed"
+    },
+    {
+      "name": "調査: 登録内部の replaceRange は範囲を置換せず末尾に追加します",
+      "status": "passed"
+    },
+    {
+      "name": "調査: 送りブロック一致候補を標準候補より前へ移動しません",
+      "status": "passed"
+    }
+  ],
+  "workingTreeStatus": [
+    " M docs/roadmap.md",
+    " M entrypoints/popup/style.css",
+    " M src/core/skk/input-mode/henkan/InlineHenkanMode.ts",
+    " M src/core/skk/input-mode/henkan/MidashigoMode.ts",
+    " M src/core/skk/jisyo/okuri.ts",
+    " M test/unit/input-mode.test.ts",
+    " M test/unit/registration-state-transitions.test.ts",
+    " M test/unit/romaji.test.ts",
+    " M wxt.config.ts",
+    "?? docs/daily-trial.md"
+  ],
+  "sourceSha256": {
+    "docs/daily-trial.md": "8ec1d0430dfacc30dd62942dd001671d6af622fb83851461dcdb6415235e2e03",
+    ".gitignore": "d4aeebbf03f15665023d51b3056024ce804feb053894f3c16deb228a43854bb3",
+    "assets/typescript.svg": "3effca6015b0a3a71235b23087c4a82f3de28c048e8acbc29fa6442989c049cc",
+    "components/counter.ts": "06489bd943e1702c4c3068d4e0a1f547cb11d19226ab99e8e0f88094351d37ba",
+    "docs/architecture.md": "347b78b1d514fde580d17b5a5144f7978195058757c2e7e0f3729b01e1df5426",
+    "docs/benchmarks/phase31-layout.json": "946eaabe4ee64cafa5b5f69a08eac44a017d058efb253a9f1d887ce559dd3478",
+    "docs/benchmarks/phase31-production-candidate.json": "191353e61c12b0738fa5fd65f287474fe9ada98bd54a01312a49035a4607c616",
+    "docs/benchmarks/phase31-production-dictionary.json": "8973fc0786a5736777df6e50ccd3c1c191a17665da6514fd5c8f6ad10544dc85",
+    "docs/dictionary-storage-benchmark.md": "f1191f3bf3e74d9a5e3416060b60f96e1fb8f12bc2c642b78a7f2d3670d0e6f0",
+    "docs/phase31-production-verification.md": "c22050a5a6a7d5cf692ba9dda6fe911b1f5a161d6f00aaf729b2591fdbda4ba8",
+    "docs/roadmap.md": "b0890336146a411af11e6c8c0e4698da713915adecbaa1c679a9dce2eddf88c4",
+    "docs/specs/registration-state-transitions.md": "6fa235183080ae91234ebaeabbcd16c67f46087d51f449a1b150316cf147fc76",
+    "docs/system-dictionaries.md": "e9e5ac567bbe93edff1d37ccb3559385ad54f3bd6ce0479c70c482e384638933",
+    "entrypoints/background.ts": "dc1687c3466ed58ded37b8dcb9cb2a3c08bd1741805cef9ffd69a623f277c1ca",
+    "entrypoints/content.ts": "acbd86dd28e187dd3f0f7c5b1a0721cb2268ddb8a29453f67e0fd74034049493",
+    "entrypoints/diagnostics/index.html": "518d312f1bec5aa3f257b2b8c951b74d0645a66277408370bffcf2ab665a17c0",
+    "entrypoints/diagnostics/main.ts": "eb40c6794c56d8e454a5cb9196becae3182c676131a37d4449cbd7bedd3e0d74",
+    "entrypoints/monaco-compat.content.ts": "234c33cd790db54ca4bea4dee1cd24d340ac5798b54517b3f6c6cead50719489",
+    "entrypoints/options/index.html": "7abcc9fdc62069bec448815b743715e2a5203a16ef5976b8d4ead96a4274ec10",
+    "entrypoints/options/main.ts": "13692a9bebeba4c3fbfc6a41477ddae4c965498ce377e37cdf3f3fd6408e052e",
+    "entrypoints/options/style.css": "bc056ef059ddd5b794248761fc4ad426f9f78af178650820ea2d8caee14c5734",
+    "entrypoints/popup/index.html": "576ef3b87360f6bc2a4423bcfd5e9ac6909b77c58fbb58c19bcab827377ded6d",
+    "entrypoints/popup/main.ts": "c014ac14224c3f8bc7c51342fd49f038ba3a421dcbd2de391c82561a02f89406",
+    "entrypoints/popup/style.css": "19ff46cedfd997bb28c9e9dddf55c7271564105d6157d6d566219209a99ed5ab",
+    "firefox-verify-screenshot.png": "ca2234b54be6cb92382794d7dd9c9bd959db9de215f6f982d7455d5941e14e78",
+    "package-lock.json": "cc48a5907a1450f041494d0987fe42e5e2173f42fd9830a7dc7245d234b338a9",
+    "package.json": "4ec4159dfbe06e0dc04f7be742877282235e76d9f2cc90517ee852ffdd80b369",
+    "public/dict/SKK-JISYO.S": "3963726be1774a74f52e939dcb4fb736be534d572ffefcfa864b1be1db9d9f8e",
+    "public/dict/SKK-JISYO.S.json": "729e562f963ec06186c251c116510d6ed89aa525be78d6e2795920786741f0bc",
+    "public/icon/128.png": "9a51ba4154a72f2d6f3c36a1e018a6c1f3932d2748ba6b63339ce93b0ae870b2",
+    "public/icon/16.png": "58eddff80c85c1aaf6b6d0b4b65e99e3debacabe93c7083fb3ba2fa67d315236",
+    "public/icon/32.png": "df3d956fea6bd2a615515c31067cec039e707badb83a9501737572e45bc5e8dd",
+    "public/icon/48.png": "3c09dff4ead132afcbb2c6de4ad96d07e02ba4a09a4a7f3bdaa7a69736b638d8",
+    "public/icon/96.png": "209c124e64afca9f22663c53ebd16c438abae7ef020e65c989daf9b618b37452",
+    "public/test.html": "51181cb8798d7010369ea23d9473f58dfa1ae3a5fae17f1da643755509724660",
+    "public/wxt.svg": "e8b659fcd30b4f55427597cbcdcac33c9946d2e5f9e27ed78d6c5697a1d058e8",
+    "scripts/benchmark-dictionary.mjs": "4b31e6d4c43ccf1871cafe5b921fdf03898768d7a964060395cadd70a48122f3",
+    "scripts/dictionary-benchmark/browser.ts": "1ac018ab2dc6807222e4e2ded308a97f082059d22413900fd7020de3782d6693",
+    "scripts/launch-browser.mjs": "a583d7533d1a8de91864b31920c493fca80e85576be3f3763bb5fa585aaf14e8",
+    "scripts/launch-firefox.mjs": "ee1f720539a04df5bdd7f87396c5bdeb26407876c4b5c8399e999e5277d8e1d0",
+    "scripts/verify-production-dictionary.mjs": "ae9d920a57d82bed78c52afc58b9b1b572fed59bbeeb52f4edb40a88a61fb69c",
+    "src/adapter/BrowserEditorAdapter.ts": "d0d3a73975a30c4901217f0d2de95a8b80560f4fa442907b7508f362e9b71dc0",
+    "src/adapter/CaretPosition.ts": "4f5f9392b2b1160665dae49638b4f7ce4ae606919116732d1c8e44ee54f31a5b",
+    "src/adapter/DOMUtils.ts": "d854e0dbf83aa30443408a871259a8bf9ecbcc10b87c3122957ad2b04fec76b3",
+    "src/adapter/TextInserter.ts": "0ca34cbc2ca005eefe7eb794def3ae8002a105c54b7a0c2466304726d0524c31",
+    "src/adapter/targets/ContentEditableTarget.ts": "d9b3d70d652eff9bcb6e7f528c87a35990a77a872097d5c50841ee1933da92fb",
+    "src/adapter/targets/EditorTargetFactory.ts": "04813f1d415a781d1a3b304ae1a5aad3c2f4406397e019e72f72bed6bed6eecc",
+    "src/adapter/targets/IEditorTarget.ts": "1e695779863dfc758aef5ae0979ae6e55c1fcd8e3c023746be18744f7bb9f08c",
+    "src/adapter/targets/InputElementTarget.ts": "9b32dd89ae1d846d67714f6ae724392e9eb8459ea093521463167d0041fc23de",
+    "src/core/composite-map.ts": "6b53994ae31317e0109bd890bc23b8219b03f2caf584904fa7200b9514ce293c",
+    "src/core/romaji/RomKanaRule.ts": "c5f709e623b6af17ace5fd344a6ed2452cb7ee7333313b37e499ba754134d8f9",
+    "src/core/romaji/RomajiInput.ts": "1b7d7ff57a1bf526fcf52ab70760dd450c9e26f6c85268a3c605daca24304e87",
+    "src/core/skk/editor/EditorFactory.ts": "488fd06f0800152d316ae83de8ad349e20b5cd30a95f518a1de6e46845091831",
+    "src/core/skk/editor/IEditor.ts": "4567c7d28e658b43461e9aefe1c8f06f3641b8b441a1b957a1a5cd9c65094dbf",
+    "src/core/skk/input-mode/AbstractInputMode.ts": "d371d45d44f331ff0dc0d3103ede3b7d3ab04b1500f456ddff97225aee0f1885",
+    "src/core/skk/input-mode/AbstractKanaMode.ts": "c6f373c5c9e61dd23e3e443a146fd65acbbaf1402357ac387d037e927198e416",
+    "src/core/skk/input-mode/AsciiMode.ts": "40e0e1b4bf3018a9d9515fac869e8a74f7da020b7844e19315ceec59ab8f11ff",
+    "src/core/skk/input-mode/HiraganaMode.ts": "e2e9225927795e10acd2f746560688b2fba644fc1141608e552462f4dc84917b",
+    "src/core/skk/input-mode/IInputMode.ts": "b55bfb92a69c85f0b0a6f8c804608ae0c5504348c2b0f4568dee00303a9ec25b",
+    "src/core/skk/input-mode/KatakanaMode.ts": "20f38b90f95dba413f26c55dd4badae1f31e42ba66b2b702a2438f70b6d2ab4f",
+    "src/core/skk/input-mode/ZeneiMode.ts": "953db3fde455d11f2805ed2438f0f4d6ce4af81ae143502d8ada6a47e2cd227b",
+    "src/core/skk/input-mode/henkan/AbbrevMode.ts": "718c1e48889cc49f8f55472296fbb5b794629097c6008b9644237d0608473474",
+    "src/core/skk/input-mode/henkan/AbstractHenkanMode.ts": "5ef1c1e4627c73d1c4341ef1e4543fd2bbabbef38fe484d1a8e62298d6d9d9f3",
+    "src/core/skk/input-mode/henkan/AbstractMidashigoMode.ts": "c450185e13a1d418a6bf91abdda381e2f82d50bd5860f20d0c56c7db7d85bc39",
+    "src/core/skk/input-mode/henkan/CandidateDeletionMode.ts": "ff81fa8e706d0a00e81ffdad53666d42fd7633a214e8b126b5c9f67b9e9cd347",
+    "src/core/skk/input-mode/henkan/InlineHenkanMode.ts": "291b0756a8f9afddbf99375cf68e025458606b7488e8269d2705b45dc1d47a2c",
+    "src/core/skk/input-mode/henkan/KakuteiMode.ts": "e65335106a09b6e01f35d7fb5560d255c2b3b8a4c4428c9ba13f9ec34a3883c6",
+    "src/core/skk/input-mode/henkan/MenuHenkanMode.ts": "3df9858d46ba7c00f4cee8ee50630331725b9e763fedb80063ea4f5025ea0ff1",
+    "src/core/skk/input-mode/henkan/MidashigoMode.ts": "4f393a8e7f2bf10442a53d5fcabea60910bdbd18be7067a0c0b3708b44b742c9",
+    "src/core/skk/input-mode/henkan/RegistrationMode.ts": "81422f9b9a0b99d736bce7ab6f93fb6b1f6b54e4b704b8cb857322cbcbd6bb24",
+    "src/core/skk/jisyo/CompositeJisyoProvider.ts": "112170b7f9510bf570b3f7f0d0c5c324291083d72bcb9e1c81a3642d4a0ad178",
+    "src/core/skk/jisyo/IJisyoProvider.ts": "ec88a39f920ef070d3b580e1450e81adffa62f14deb843fb04bf69bf401e5bd7",
+    "src/core/skk/jisyo/IJisyoStorage.ts": "73ded250108b5708ede65d28a81aaa1549a2ed46302becda479afed694f9af18",
+    "src/core/skk/jisyo/JisyoParser.ts": "062f09271ef76e2967188eb77a5d62be0d6a9b10b20b75a362de3489f2283298",
+    "src/core/skk/jisyo/JsonJisyoParser.ts": "e91a6fef6e0902178e884448b244f6ec7c76f9328f27ffbc619bcdf44944115e",
+    "src/core/skk/jisyo/SimpleMemoryJisyoProvider.ts": "68c1d367605f2b044115bc1e5da88a903d65c55b5806c46b3e6cd45b6395e466",
+    "src/core/skk/jisyo/candidate.ts": "9259ecdd200c7433ede9f4ffd654b0df5ed03ea03a8abe6cf2a3efe1159f4f0c",
+    "src/core/skk/jisyo/entry.ts": "afa25b2dcdd05d3aa8c72cc8670887a4a5ef818658c5c4148539df99ef24cd7a",
+    "src/core/skk/jisyo/okuri.ts": "9fba2a1cc27f227578d5e0791fad2224e31a0bfa35109f1f4e0896b2fdc4cc28",
+    "src/core/skk/jisyo/types.ts": "bb2fded433c0c6f51e5619f71217a329df8192007028810f5713600f8ac46e2d",
+    "src/core/util/keyUtils.ts": "a5451a524f54d282ec15539b2d7b40ecd1d1c07e6fd0a0fd8cb7f80e80c6c3ad",
+    "src/hud/FloatingHUD.ts": "9d4ce4a8bb390901eb02ce341072a017eea5cf402d2bd3188d8ea891cf14abaa",
+    "src/hud/RegistrationModal.ts": "09cacb3d32821451127389ad7dc45b6b3db65861fbd5075a8cea1e0410bcd984",
+    "src/poc/PocEngine.ts": "132918fca38b5a579035a76348e4cb815325e2ee13c413060ab112ec0d967161",
+    "src/settings/model.ts": "ae9abcbba60afa8a51ce128c6cf0b8ee716b2e0a95f2f944bb6bcc3f5d79142c",
+    "src/storage/indexedDbSchema.ts": "61793c860ff74a8b76a54f558928c887baa9da42b8789ba7f7046c7d038915fa",
+    "src/storage/jisyo/CooperativeDictionaryParser.ts": "82a0dcd0f62c0cba6fd93e388f3b68fb1e2933b45d74b4ad480113522a5e0764",
+    "src/storage/jisyo/DictionaryLoader.ts": "bab83cb0d4a0370a4a43fa25c709f867f61f2cf1e5f714cd54009c1db65652a5",
+    "src/storage/jisyo/IndexedDbJisyoStore.ts": "73e58b82d5728ee5d619487f1d5c8c4226048d03dbacbd81335ed886f05be63b",
+    "src/storage/jisyo/JisyoBufferDecoder.ts": "c3b9ad607d89122c391762474c1f37e78f8fc4c75f7c8ab2fa3fc1ee299b9912",
+    "src/storage/jisyo/RemoteJisyoStore.ts": "2fe0f828cb9830432e04a252e4884660b56f5e22efb326e7ed86adfc9438ef1c",
+    "src/storage/jisyo/SystemDictionaryConfiguration.ts": "5c58ce23deddcdff46df6fde34c963f310db3f7e70c63c76d24e8efca9f28c2d",
+    "src/storage/jisyo/SystemDictionaryManager.ts": "9b0af0f87323b0cbf80a633dd4688f8044999dff99f91c6af4616b3681d83c21",
+    "src/storage/rpc/messages.ts": "133bcfe1738f64b6d9ee9fa2e6644a4e87858310b24f49da481b127e43b683f0",
+    "src/storage/rpc/runtimeClient.ts": "99eb90351d263f29af28d81fe819c4c3d8b5ac1207cccfa1e26f8bc5c07030c0",
+    "src/storage/rpc/systemDictionaryRpc.ts": "d901123e4f52f85e3c919fd0862bf61873248b0a48bfc8529aeb7ce088acfd29",
+    "src/storage/rpc/systemDictionaryUpload.ts": "ae3c3f4f2174c1b9666709eff5f7ec2ab24b01d00a224ef0e25c5ac9b6da62e9",
+    "src/storage/sync/BroadcastChannelSync.ts": "3de4600581d0aa08110d52d09bcca653817d86e200845712cf2bd2ab59b99737",
+    "src/storage/sync/RuntimeMessageSync.ts": "e8e141953375632a276f63f1dd3ef5c571becd8afda95e4ddb0295a8914f52a3",
+    "src/storage/user-jisyo/IndexedDbUserStore.ts": "8240eb73ad2020af8f4a089d85ee53940437af3173cbb65b12922daecc7b6781",
+    "src/storage/user-jisyo/RemoteUserStore.ts": "9e60dfb952e40dc5e461cfa548e4e099db62f80a5f865415241dc49c7abf571c",
+    "test/browser/baseline-v3-indexeddb-jisyo-store.ts": "9477c19eeee70a141035403a4e048605e9fad77188bdbc36ac2710bb2bfdf040",
+    "test/browser/production-dictionary.ts": "9465e9bc6380243307a30a41905fd7d4b74cc62129a24fec3a4afcefb6c74890",
+    "test/firefox-verify.mjs": "350af05a519be0018a28bc5938999551cf6419f26dc0890ab54a9dff96f6d65e",
+    "test/fixtures/dictionary-invalid.json": "06764a47f42b11b16125008f568bb9f49fa7d28a1762591582a480596c3f21c2",
+    "test/fixtures/dictionary-primary-v1.json": "57cf7310d0c7ab5a252de9bd8219ed92355020759cee37b602d11a1d5a5e6b3d",
+    "test/fixtures/dictionary-primary-v2.json": "c4d5b16a21398856a5ae2136f39c33abfd11fe962d39e7ea861968296ef6dc55",
+    "test/fixtures/dictionary-primary-v3.json": "953ae72e05e1e33c1582cf0d3967effa964c2ea56e7d0788b879299ac800898e",
+    "test/fixtures/dictionary-secondary.txt": "4e9dcf9e03ef17f5d17701e24545e44121b9106d54a13c701c98266c46fac907",
+    "test/poc-verify.mjs": "7a1c1dbe88ee53b49966bc804ea66af85dc1cf0d5595da3a7d69e6434949cd69",
+    "test/production-candidate-timing.mjs": "924d0f9b959efac74b2f039cf6913dc3d6e12d14bf18c12ef5d14023ed9ceef6",
+    "test/system-dictionary-e2e.mjs": "3db1f9407c61630b549fb58c4903498db310d9599968023abe3789adf12b5e31",
+    "test/unit/browser-adapter.test.ts": "608e03485d8e85c2fb7fe8bfda174bf485a1e8027e26b49bc834f4bbce535f3f",
+    "test/unit/candidate-metadata.test.ts": "36bbe11dedde7a0370b32a9b14cc7428ba3b7fb23d6dd790bab2b4d2cc9ecb61",
+    "test/unit/composite-jisyo-provider.test.ts": "70a4f372b4cc9d8e78a1104e6b389a88fa331a9d9bdeefa0e763fdb625ac39ba",
+    "test/unit/content-engine.test.ts": "f9a1df7d29c63ae44b7c5525e6407ce839382b0bbdfeed0cc4280917134e7017",
+    "test/unit/cooperative-dictionary-parser.test.ts": "abf470b20d00ce5500a73ab08bdf157c9fdc37b1e24f766a607dc8a2d2e30f2f",
+    "test/unit/core-edge-cases.test.ts": "1bd74a7ed0fc13337a0ecbfc9a3a6deaa8d355a801cbad0d23970aa57c36ea51",
+    "test/unit/core.test.ts": "91e67fb0fb08712448bdd010d45504d79eb31d02b1c7cfc0807bf26bb41ab7b1",
+    "test/unit/dictionary-loader.test.ts": "1642e8067d17641731968984ff4a432216347e787f227cef51ed87cd25cdba15",
+    "test/unit/editor-targets.test.ts": "8cb2e658de508c7e8c5d790932ca3ac9c300b3a2aa035f509f7c1ca40654eae1",
+    "test/unit/indexeddb-jisyo-store.test.ts": "5031519038351097b33cda99a38cb633d1abb63d57d5fc567bca39a5d2f8681d",
+    "test/unit/input-mode.test.ts": "4e949c6de3c1678c9e019d6abd631ebaaa679d5ee32fb467216d8f028d3212cb",
+    "test/unit/jisyo-buffer-decoder.test.ts": "a129007e253366e749446eea827087e28feb6a5c44f2dd9ea88511f483de6d6d",
+    "test/unit/jisyo-parser.test.ts": "b960aa57f01880cf68ae1f4268e59cc37174a463aa6cc5244f0884348fea2fdf",
+    "test/unit/json-jisyo-parser.test.ts": "726f3cade1b5fb2c8c103693474526160b72de4eea15c872e78ada8d0eaedbfb",
+    "test/unit/mocks/MockEditor.ts": "72acc6886c756fe6ef891517b8b2d94a13d986b93c2835fc507f3ffdf85edf87",
+    "test/unit/registration-modal.test.ts": "f6c0907159d3c8de038cb49be083116a82bc54b527d4f1f3917718a90769a1a4",
+    "test/unit/registration-mode.test.ts": "54dd05090e2e481196d948ac23136dfa3778a96e562a64ffa579f425a61db2ab",
+    "test/unit/registration-state-transitions.test.ts": "c315a3675c924ab73f823a334842cd1354bfe2956ad2735fad16ff4d76db36d8",
+    "test/unit/remote-stores.test.ts": "ec80e7e98cfd119ead83abd9be1ad1d023982ebda9b6aa70204661b8344d06f3",
+    "test/unit/romaji.test.ts": "6fa8d9d9f9aa97ff3bc04b1623c1933a09f6e19499f7240717dcc654e8fa9307",
+    "test/unit/settings-model.test.ts": "668713634a182322ef7154af8a46f37595c1e4e104d9ca4fa5b0a74a78fba245",
+    "test/unit/system-dictionary-manager.test.ts": "dd94947158427a17be61e4a03ab4ed13eb0d15fd0866b7c37487abbd62440f6d",
+    "test/unit/system-dictionary-upload.test.ts": "a8928a976591eab5316ea301902fb5a2bd1e980b4fe39cf83abcce49dc88b736",
+    "test/unit/user-jisyo-store.test.ts": "a1439a1012122ff8858b05780f565fafd0200c7640d5b9c41bff25da25de6cc8",
+    "tsconfig.json": "2bea7c45c026541ece36273df7760f84ad9fa9c1e0a2935eef34e7a79e5dd836",
+    "vitest.config.ts": "9b14add1d4a9e79e9d38402117d79c0ceeb5e71cfbdd1fa1f0af759996a9343f",
+    "wxt.config.ts": "149eb03e15cce6ef48099005b91f37f91a47248ed44eac53a87356219582d935"
+  }
+}
