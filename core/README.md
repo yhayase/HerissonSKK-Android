@@ -1,0 +1,22 @@
+# 純 Kotlin コア
+
+Android・画面・実DBなしで入力状態を検証するJVMモジュールです。現在は内部編集とローマ字処理を実装中であり、製品要件全体の完成を示しません。
+
+## Unicode の境界
+
+編集単位は ICU4J `77.1` の character break、Unicode `16.0` に固定します。OS内蔵のUnicode版に依存して端末ごとに挙動が変わることを避けます。削除による隣接クラスタの結合も再評価し、カーソルは同じ位置以降の最初の境界へ置きます。不正なUTF-16は変更前に拒否します。
+
+独自の境界規則ではHangul結合、CRLF、かなとZWJ、絵文字タグ、インド文字で不具合が再現したため、ICUへ置き換えました。ICU4JのJARは14,663,227バイトです。APKへの容量影響・Android API26での実行は接続時に検証し、JVMでの成功だけで対応済みとしません。
+
+- [ICU 77の説明](https://unicode-org.github.io/icu/download/77.html)
+- ライセンス原文: `src/main/resources/META-INF/icu-LICENSE.txt`。配布物にも同梱します。
+- ライセンス取得元: `https://raw.githubusercontent.com/unicode-org/icu/release-77-1/LICENSE`
+- 同SHA-256: `451167c55c0fa447cc2d5632714f5e3c567fe4f1e1badefab2c1333852198aca`
+- 公式境界テスト: `https://www.unicode.org/Public/16.0.0/ucd/auxiliary/GraphemeBreakTest.txt`
+- 同SHA-256: `ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5`
+
+公式テストデータのヘッダーと利用条件の参照を保持しています。取得したデータは変更せず、期待する境界を読んで前後移動を検証します。これは文字列の変異を伴う独自編集テストとは別の試験です。
+
+```sh
+./gradlew :core:test
+```

@@ -8,6 +8,10 @@
 - [Android 検証計画と未決事項](docs/validation-plan.md)
 - [フェーズ 1 の実装・検証記録](docs/phase1.md)
 - [ブラウザ版の実装・テストの活用評価](docs/reviews/browser-extension-20260916.md)
+- [自律開発の手順と品質判定](docs/development-plan.md)
+- [要件とテストの対応](docs/test-coverage.md)
+- [コア設計](docs/core-design.md)
+- [現在の作業と検証結果](docs/work-status.md)
 
 開発・手元の端末での利用は、開発者登録なしの ADB 導入から始めます。一般公開と配布手続きは別の到達点として扱います。
 

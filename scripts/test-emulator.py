@@ -48,7 +48,7 @@ def main():
         print(adb("shell", "ime", "enable", ime), end="")
         print(adb("shell", "ime", "set", ime), end="")
         result = adb("shell", "am", "instrument", "-w", "-r", "-e", "class",
-                     "jp.hayase.skk.testeditor.PhysicalInputTest",
+                     "jp.hayase.skk.testeditor.PhysicalInputTest,jp.hayase.skk.testeditor.CoreUnicodeTest",
                      "jp.hayase.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner")
         report = root / "test-editor/build/reports/emulator-instrumentation.txt"
         report.parent.mkdir(parents=True, exist_ok=True)

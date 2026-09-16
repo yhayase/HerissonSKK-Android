@@ -8,3 +8,4 @@ dependencyResolutionManagement {
 rootProject.name = "skk-android"
 include(":app")
 include(":test-editor")
+include(":core")
