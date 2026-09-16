@@ -5,7 +5,6 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
-import android.view.MotionEvent
 import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
@@ -13,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.EditText
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
@@ -36,10 +36,12 @@ class PerformanceTest {
         }
         val fallback = InstrumentationRegistry.getArguments().getString("fallback_ime") ?: error("待避用 IME が未指定です")
         require(fallback.matches(Regex("[A-Za-z0-9_.$/]+")) && fallback.substringBefore('/') != target)
+        val startupSamples = sampleCount("startup_samples", 30, 30)
+        val inputSamples = sampleCount("input_samples", 1000, 1000)
         val cold = mutableListOf<Double>()
         val warm = mutableListOf<Double>()
         for ((name, samples) in listOf("cold" to cold, "warm" to warm)) {
-            repeat(30) {
+            repeat(startupSamples) {
                 if (name == "cold") {
                     // 選択中の IME を停止すると OS の自動切替と再選択が競合するため、先に待避します。
                     shell("ime set $fallback")
@@ -57,8 +59,8 @@ class PerformanceTest {
                     instrumentation.runOnMainSync {
                         editor = descendants(activity.window.decorView).filterIsInstance<EditText>().first()
                     }
-                    focus(editor)
-                    awaitStatus()
+                    focus(activity, editor)
+                    awaitStatus(activity, editor)
                     samples += (SystemClock.elapsedRealtimeNanos() - started) / 1e6
                 }
             }
@@ -70,11 +72,11 @@ class PerformanceTest {
                 editor = descendants(activity.window.decorView).filterIsInstance<EditText>()
                     .first { it.hint.toString().startsWith("検索") }
             }
-            focus(editor)
-            awaitStatus()
+            focus(activity, editor)
+            awaitStatus(activity, editor)
             key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
             val samples = mutableListOf<Double>()
-            repeat(1020) { index ->
+            repeat(20 + inputSamples) { index ->
                 val drawn = CountDownLatch(1)
                 var elapsed = 0.0
                 var started = 0L
@@ -109,36 +111,64 @@ class PerformanceTest {
     private fun withEditor(block: (InputTestActivity) -> Unit) {
         val intent = Intent(instrumentation.targetContext, InputTestActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        val activity = instrumentation.startActivitySync(intent) as InputTestActivity
-        try {
+        ActivityScenario.launch<InputTestActivity>(intent).use { scenario ->
+            lateinit var activity: InputTestActivity
+            scenario.onActivity { activity = it }
             block(activity)
-        } finally {
-            instrumentation.runOnMainSync { activity.finish() }
-            instrumentation.waitForIdleSync()
-        }
-    }
-
-    private fun focus(editor: EditText) {
-        val position = IntArray(2)
-        instrumentation.runOnMainSync {
-            editor.getLocationOnScreen(position)
-            position[0] += editor.width / 2
-            position[1] += editor.height / 2
-        }
-        val now = SystemClock.uptimeMillis()
-        for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
-            val event = MotionEvent.obtain(now, SystemClock.uptimeMillis(), action,
-                position[0].toFloat(), position[1].toFloat(), 0)
-            try {
-                instrumentation.sendPointerSync(event)
-            } finally {
-                event.recycle()
-            }
         }
         instrumentation.waitForIdleSync()
     }
 
-    private fun awaitStatus() {
+    private fun focus(activity: InputTestActivity, editor: EditText) {
+        instrumentation.runOnMainSync { editor.requestFocus() }
+        val deadline = SystemClock.uptimeMillis() + 10000
+        var state = editorState(activity, editor)
+        while (SystemClock.uptimeMillis() < deadline && !state.ready) {
+            SystemClock.sleep(10)
+            state = editorState(activity, editor)
+        }
+        assertTrue("入力欄のウィンドウとフォーカスが準備できませんでした。$state", state.ready)
+    }
+
+    private data class EditorState(
+        val windowFocus: Boolean,
+        val attached: Boolean,
+        val shown: Boolean,
+        val editorFocus: Boolean,
+        val width: Int,
+        val height: Int,
+        val finishing: Boolean,
+        val destroyed: Boolean,
+    ) {
+        val ready: Boolean
+            get() = windowFocus && attached && shown && editorFocus && width > 0 && height > 0 &&
+                !finishing && !destroyed
+    }
+
+    private fun editorState(activity: InputTestActivity, editor: EditText): EditorState {
+        lateinit var state: EditorState
+        instrumentation.runOnMainSync {
+            state = EditorState(
+                activity.hasWindowFocus(), editor.isAttachedToWindow, editor.isShown, editor.hasFocus(),
+                editor.width, editor.height, activity.isFinishing, activity.isDestroyed,
+            )
+        }
+        return state
+    }
+
+    private fun sampleCount(name: String, default: Int, maximum: Int): Int {
+        val value = InstrumentationRegistry.getArguments().getString(name) ?: return default
+        return requireNotNull(value.toIntOrNull()) {
+            "$name は 1 以上 $maximum 以下の整数で指定します"
+        }.also {
+            require(it in 1..maximum) { "$name は 1 以上 $maximum 以下で指定します" }
+        }
+    }
+
+    private fun diagnostic(command: String, keys: List<String>): String =
+        shell(command).lineSequence().filter { line -> keys.any { it in line } }.joinToString("\n")
+
+    private fun awaitStatus(activity: InputTestActivity, editor: EditText) {
         val deadline = SystemClock.uptimeMillis() + 10000
         while (SystemClock.uptimeMillis() < deadline) {
             if (automation.windows.any { window ->
@@ -151,11 +181,18 @@ class PerformanceTest {
         val windows = automation.windows.joinToString { window ->
             "type=${window.type}, package=${window.root?.packageName}, kana=${window.root?.findAccessibilityNodeInfosByText("かな")?.size}"
         }
-        val state = shell("dumpsys input_method").lineSequence().filter { line ->
-            listOf("mCurMethodId=", "mInputStarted=", "mShowInputRequested=", "hintText=",
-                "mDecorViewVisible=", "mCandidatesVisibility=", "mSelectedMethodId=").any { it in line }
-        }.joinToString("\n")
-        fail("測定用 IME の状態表示が現れませんでした。$windows\n$state")
+        val inputMethod = diagnostic("dumpsys input_method", listOf(
+            "mCurMethodId=", "mInputStarted=", "mShowInputRequested=", "mDecorViewVisible=",
+            "mCandidatesVisibility=", "mSelectedMethodId=", "mCurFocusedWindow=",
+        ))
+        val activities = diagnostic("dumpsys activity activities", listOf(
+            "topResumedActivity=", "mResumedActivity:", "ResumedActivity:", "jp.hayase.skk.testeditor",
+        ))
+        val window = diagnostic("dumpsys window", listOf(
+            "mCurrentFocus=", "mFocusedApp=", "mDreamingLockscreen=", "isStatusBarKeyguard=",
+        ))
+        fail("測定用 IME の状態表示が現れませんでした。${editorState(activity, editor)}\n" +
+            "$windows\n$inputMethod\n$activities\n$window")
     }
 
     private fun report(name: String, values: List<Double>) {
