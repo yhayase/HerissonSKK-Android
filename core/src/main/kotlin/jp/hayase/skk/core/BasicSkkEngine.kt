@@ -6,6 +6,10 @@ import jp.hayase.skk.core.romaji.RomanRuleSet
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 import jp.hayase.skk.core.dictionary.CandidateSelection
+import jp.hayase.skk.core.editing.EditCommand
+import jp.hayase.skk.core.editing.EditResult
+import jp.hayase.skk.core.editing.EditSnapshot
+import jp.hayase.skk.core.editing.Editing
 
 /** フェーズ 2 の基本入力で利用する入力モードです。 */
 enum class InputMode { HIRAGANA, KATAKANA, HALFWIDTH, DIRECT, FULLWIDTH }
@@ -71,7 +75,8 @@ fun interface BasicSkkDictionary {
 
 /** Android のキー表から正規化して渡す基本操作です。 */
 sealed interface BasicSkkAction {
-    data class Text(val text: String) : BasicSkkAction
+    data class Text(val text: String, val interpretCommands: Boolean = true) : BasicSkkAction
+    data class Edit(val command: EditCommand) : BasicSkkAction
     data object Enter : BasicSkkAction
     data object Kana : BasicSkkAction
     data object Cancel : BasicSkkAction
@@ -86,6 +91,15 @@ sealed interface BasicSkkAction {
     data object CompleteForward : BasicSkkAction
     data object CompleteBackward : BasicSkkAction
     data object AcceptDynamicCompletion : BasicSkkAction
+    data object ToggleKana : BasicSkkAction
+    data object StartReading : BasicSkkAction
+    data object StartAbbrev : BasicSkkAction
+    data object StartSuffix : BasicSkkAction
+    data object ConvertNext : BasicSkkAction
+    data object PreviousCandidate : BasicSkkAction
+    data object ToDirect : BasicSkkAction
+    data object ToFullwidth : BasicSkkAction
+    data object RegisterCandidate : BasicSkkAction
 }
 
 data class CandidateView(
@@ -119,6 +133,7 @@ data class BasicSkkState(
     val candidateIndex: Int?,
     val registrationDepth: Int = 0,
     val registrationSaving: Boolean = false,
+    val completionCycling: Boolean = false,
 )
 
 data class BasicSkkResult(
@@ -173,6 +188,8 @@ class BasicSkkEngine(
     private var deletion: DeletionState? = null
     private var completionCycle: CompletionCycle? = null
     private var dynamicCompletion: String? = null
+    private var preferredEditColumn: Int? = null
+    private var preferredEditTarget: String? = null
 
     val state: BasicSkkState
         get() {
@@ -188,6 +205,7 @@ class BasicSkkEngine(
                 candidateIndex = candidateIndex.takeIf { phase == InputPhase.SELECTING },
                 registrationDepth = registrations.size,
                 registrationSaving = registrations.lastOrNull()?.savingToken != null,
+                completionCycling = completionCycle != null,
             )
         }
 
@@ -195,8 +213,17 @@ class BasicSkkEngine(
     val currentView: BasicSkkView get() = view()
 
     fun dispatch(action: BasicSkkAction): BasicSkkResult {
-        if (deletion != null) return dispatchCandidateDeletion(action)
-        if (registrations.lastOrNull()?.savingToken != null) return dispatchRegistration(action)
+        if (action !is BasicSkkAction.Edit || action.command != EditCommand.UP && action.command != EditCommand.DOWN) {
+            clearPreferredEditColumn()
+        }
+        if (deletion != null) {
+            clearPreferredEditColumn()
+            return dispatchCandidateDeletion(action)
+        }
+        if (registrations.lastOrNull()?.savingToken != null) {
+            clearPreferredEditColumn()
+            return dispatchRegistration(action)
+        }
         completionCycle?.let { return dispatchCompletionCycle(action, it) }
         when (action) {
             BasicSkkAction.CompleteForward -> return result(startManualCompletion(forward = true))
@@ -204,11 +231,15 @@ class BasicSkkEngine(
             BasicSkkAction.AcceptDynamicCompletion -> return result(acceptDynamicCompletion())
             else -> Unit
         }
-        if (action is BasicSkkAction.Text) return afterInput(dispatchText(action.text))
+        if (action is BasicSkkAction.Text) return afterInput(dispatchText(action.text, action.interpretCommands))
         if (action == BasicSkkAction.DeleteCandidate) return afterInput(result(startCandidateDeletion()))
-        if (registrations.isNotEmpty()) return afterInput(dispatchRegistration(action))
+        if (registrations.isNotEmpty()) {
+            val registrationResult = dispatchRegistration(action)
+            return if (action is BasicSkkAction.Edit) registrationResult else afterInput(registrationResult)
+        }
         val outcome = when (action) {
             is BasicSkkAction.Text -> error("文字入力は先に処理済みです")
+            is BasicSkkAction.Edit -> onEdit(action.command)
             BasicSkkAction.Enter -> onEnter(false)
             BasicSkkAction.Kana -> onEnter(true)
             BasicSkkAction.Cancel -> onCancel()
@@ -219,17 +250,27 @@ class BasicSkkEngine(
             BasicSkkAction.Home -> onMove { it.moveHome() }
             BasicSkkAction.End -> onMove { it.moveEnd() }
             BasicSkkAction.Delete -> onDelete()
+            BasicSkkAction.ToggleKana,
+            BasicSkkAction.StartReading,
+            BasicSkkAction.StartAbbrev,
+            BasicSkkAction.StartSuffix,
+            BasicSkkAction.ConvertNext,
+            BasicSkkAction.PreviousCandidate,
+            BasicSkkAction.ToDirect,
+            BasicSkkAction.ToFullwidth,
+            BasicSkkAction.RegisterCandidate,
+            -> dispatchSemanticCommand(action)
             BasicSkkAction.DeleteCandidate -> error("候補削除は先に処理済みです")
             BasicSkkAction.CompleteForward,
             BasicSkkAction.CompleteBackward,
             BasicSkkAction.AcceptDynamicCompletion,
             -> error("補完操作は先に処理済みです")
         }
-        refreshDynamicCompletion()
+        if (action !is BasicSkkAction.Edit) refreshDynamicCompletion()
         return result(outcome)
     }
 
-    private fun dispatchText(text: String): BasicSkkResult {
+    private fun dispatchText(text: String, interpretCommands: Boolean): BasicSkkResult {
         // バッチ全体を先に検証し、不正な UTF-16 で途中まで状態を変更しません。
         EditableBuffer(text)
         var outcome = Outcome(true)
@@ -247,11 +288,11 @@ class BasicSkkEngine(
             }
             val value = text.substring(index, end)
             val part = if (deletion != null) {
-                dispatchCandidateDeletion(BasicSkkAction.Text(value)).asOutcome()
+                dispatchCandidateDeletion(BasicSkkAction.Text(value, interpretCommands)).asOutcome()
             } else if (registrations.isEmpty()) {
-                onText(value)
+                onText(value, interpretCommands)
             } else {
-                dispatchRegistration(BasicSkkAction.Text(value)).asOutcome()
+                dispatchRegistration(BasicSkkAction.Text(value, interpretCommands)).asOutcome()
             }
             if (part.notice == BODY_LIMIT_NOTICE) {
                 restoreRuntime(checkNotNull(registrationStart))
@@ -347,6 +388,7 @@ class BasicSkkEngine(
             }
             else -> {
                 completionCycle = null
+                clearPreferredEditColumn()
                 dispatch(action)
             }
         }
@@ -516,6 +558,7 @@ class BasicSkkEngine(
 
     /** 非同期保存の結果を、要求元のフレームがまだ生きている場合だけ適用します。 */
     fun completeRegistration(completion: RegistrationSaveCompletion): BasicSkkResult {
+        clearPreferredEditColumn()
         val frame = registrations.lastOrNull()
         if (frame == null || frame.savingToken != completion.token) return result(Outcome(false))
         return when (val outcome = completion.outcome) {
@@ -537,6 +580,7 @@ class BasicSkkEngine(
 
     /** 削除完了を、同じ入力セッションで待機中の要求へだけ適用します。 */
     fun completeCandidateDeletion(completion: CandidateDeletionCompletion): BasicSkkResult {
+        clearPreferredEditColumn()
         val current = deletion ?: return result(Outcome(false))
         if (current.token != completion.token) return result(Outcome(false))
         deletion = null
@@ -577,6 +621,7 @@ class BasicSkkEngine(
         }
         if (innerIsClean()) {
             when (action) {
+                is BasicSkkAction.Edit -> return editRegistrationBody(frame, action.command)
                 BasicSkkAction.Enter -> return if (frame.body.text.isEmpty()) {
                     restoreRegistrationReturn(frame)
                 } else {
@@ -596,12 +641,25 @@ class BasicSkkEngine(
                 BasicSkkAction.CompleteForward,
                 BasicSkkAction.CompleteBackward,
                 BasicSkkAction.AcceptDynamicCompletion,
+                BasicSkkAction.ToggleKana,
+                BasicSkkAction.StartReading,
+                BasicSkkAction.StartAbbrev,
+                BasicSkkAction.StartSuffix,
+                BasicSkkAction.ConvertNext,
+                BasicSkkAction.PreviousCandidate,
+                BasicSkkAction.ToDirect,
+                BasicSkkAction.ToFullwidth,
+                BasicSkkAction.RegisterCandidate,
                 -> Unit
             }
         }
 
         val targetFrameId = registrations.last().id
         val next = dispatchInner(action)
+        if (next.notice == BODY_LIMIT_NOTICE) {
+            restoreRuntime(before)
+            return result(next)
+        }
         if (!absorbRegistrationCommit(targetFrameId, next.commit)) {
             restoreRuntime(before)
             return result(Outcome(true, notice = BODY_LIMIT_NOTICE))
@@ -610,7 +668,8 @@ class BasicSkkEngine(
     }
 
     private fun dispatchInner(action: BasicSkkAction): Outcome = when (action) {
-        is BasicSkkAction.Text -> onText(action.text)
+        is BasicSkkAction.Text -> onText(action.text, action.interpretCommands)
+        is BasicSkkAction.Edit -> onEdit(action.command)
         BasicSkkAction.Enter -> onEnter(false)
         BasicSkkAction.Kana -> onEnter(true)
         BasicSkkAction.Cancel -> onCancel()
@@ -625,6 +684,16 @@ class BasicSkkEngine(
         BasicSkkAction.CompleteForward -> startManualCompletion(forward = true)
         BasicSkkAction.CompleteBackward -> startManualCompletion(forward = false)
         BasicSkkAction.AcceptDynamicCompletion -> acceptDynamicCompletion()
+        BasicSkkAction.ToggleKana,
+        BasicSkkAction.StartReading,
+        BasicSkkAction.StartAbbrev,
+        BasicSkkAction.StartSuffix,
+        BasicSkkAction.ConvertNext,
+        BasicSkkAction.PreviousCandidate,
+        BasicSkkAction.ToDirect,
+        BasicSkkAction.ToFullwidth,
+        BasicSkkAction.RegisterCandidate,
+        -> dispatchSemanticCommand(action)
     }
 
     private fun innerIsClean(): Boolean = phase == InputPhase.IDLE && romanizer.pending.isEmpty()
@@ -636,6 +705,9 @@ class BasicSkkEngine(
         if (edit(frame.body)) frame.revision++
         return result(Outcome(true))
     }
+
+    private fun editRegistrationBody(frame: RegistrationFrame, command: EditCommand): BasicSkkResult =
+        result(applyRegistrationEdit(frame, command))
 
     private fun absorbRegistrationCommit(frameId: Long, commit: String): Boolean {
         if (commit.isEmpty()) return true
@@ -741,7 +813,7 @@ class BasicSkkEngine(
         return Outcome(true)
     }
 
-    private fun onText(text: String): Outcome {
+    private fun onText(text: String, interpretCommands: Boolean = true): Outcome {
         // 先に全体を検証し、不正な UTF-16 で状態を部分更新しません。
         EditableBuffer(text)
         var outcome = Outcome(true)
@@ -749,7 +821,7 @@ class BasicSkkEngine(
         while (index < text.length) {
             val codePoint = text.codePointAt(index)
             if (codePoint <= 0x7f) {
-                outcome = outcome.then(onCharacter(codePoint.toChar()))
+                outcome = outcome.then(onCharacter(codePoint.toChar(), interpretCommands))
                 index++
             } else {
                 val start = index
@@ -787,35 +859,40 @@ class BasicSkkEngine(
         }
     }
 
-    private fun onCharacter(character: Char): Outcome {
+    private fun onCharacter(character: Char, interpretCommands: Boolean = true): Outcome {
         if (phase == InputPhase.SELECTING) {
-            if (character == 'X' && deletionEnabled) return startCandidateDeletion()
-            if (character == ' ') return selectNext()
-            if (character == 'x') return selectPrevious()
             menuIndexFor(character)?.let { return commitCandidate(it) }
-            if (character == '>') return commitCandidate(candidateIndex).then(startSuffix())
-            return commitCandidate(candidateIndex).then(onCharacter(character))
+            if (interpretCommands) {
+                if (character == 'X' && deletionEnabled) return startCandidateDeletion()
+                if (character == ' ') return selectNext()
+                if (character == 'x') return selectPrevious()
+                if (character == '>') return commitCandidate(candidateIndex).then(startSuffix())
+            }
+            return commitCandidate(candidateIndex).then(onCharacter(character, interpretCommands))
         }
         if (phase == InputPhase.ABBREV) {
-            if (character == ' ') return lookup()
+            if (interpretCommands && character == ' ') return lookup()
             insertBuffer(character.toString())
             return Outcome(true)
         }
         if (phase == InputPhase.READING) {
-            return when (character) {
-                ' ' -> lookup()
-                'q' -> commitReadingAsToggledKana()
-                'Q' -> commitRawReading().then(startReading())
-                '>' -> {
-                    finishPendingIntoBuffer()
-                    insertBuffer(">")
-                    lookup()
+            if (interpretCommands) {
+                return when (character) {
+                    ' ' -> lookup()
+                    'q' -> commitReadingAsToggledKana()
+                    'Q' -> commitRawReading().then(startReading())
+                    '>' -> {
+                        finishPendingIntoBuffer()
+                        insertBuffer(">")
+                        lookup()
+                    }
+                    else -> inputReadingCharacter(character, true)
                 }
-                else -> inputReadingCharacter(character)
             }
+            return inputReadingCharacter(character, false)
         }
         return when {
-            character == 'q' && mode.isKana -> {
+            interpretCommands && character == 'q' && mode.isKana -> {
                 val pending = finishIdlePending()
                 mode = when (mode) {
                     InputMode.HIRAGANA -> InputMode.KATAKANA
@@ -824,21 +901,21 @@ class BasicSkkEngine(
                 }
                 Outcome(true, pending)
             }
-            character == 'Q' && mode.isKana -> finishIdlePending().let { Outcome(true, it).then(startReading()) }
-            character == '/' && mode.isKana -> finishIdlePending().let { Outcome(true, it).then(startAbbrev()) }
-            character == '>' && mode.isKana -> finishIdlePending().let { Outcome(true, it).then(startSuffix()) }
-            character == 'l' && mode.isKana -> {
+            interpretCommands && character == 'Q' && mode.isKana -> finishIdlePending().let { Outcome(true, it).then(startReading()) }
+            interpretCommands && character == '/' && mode.isKana -> finishIdlePending().let { Outcome(true, it).then(startAbbrev()) }
+            interpretCommands && character == '>' && mode.isKana -> finishIdlePending().let { Outcome(true, it).then(startSuffix()) }
+            interpretCommands && character == 'l' && mode.isKana -> {
                 val commit = finishIdlePending(); mode = InputMode.DIRECT; Outcome(true, commit)
             }
-            character == 'L' && mode.isKana -> {
+            interpretCommands && character == 'L' && mode.isKana -> {
                 val commit = finishIdlePending(); mode = InputMode.FULLWIDTH; Outcome(true, commit)
             }
             character.isUpperCase() && mode.isKana -> finishIdlePending().let {
-                Outcome(true, it).then(startReading()).then(inputReadingCharacter(character))
+                Outcome(true, it).then(startReading()).then(inputReadingCharacter(character, interpretCommands))
             }
             mode == InputMode.DIRECT -> Outcome(true, character.toString())
             mode == InputMode.FULLWIDTH -> Outcome(true, KanaTransforms.toFullwidthAscii(character.toString()))
-            character.isRomajiInput || romanRuleSet.accepts(character.lowercaseChar()) -> {
+            romanRuleSet.accepts(character.lowercaseChar()) || interpretCommands && character.isRomajiInput -> {
                 val output = romanizer.feed(character.lowercaseChar().toString())
                 Outcome(true, renderKana(output, mode))
             }
@@ -846,14 +923,14 @@ class BasicSkkEngine(
         }
     }
 
-    private fun inputReadingCharacter(character: Char): Outcome {
+    private fun inputReadingCharacter(character: Char, interpretCommands: Boolean = true): Outcome {
         if (character.isUpperCase() && okuriBoundary == null && buffer.cursor > 0) {
             finishPendingIntoBuffer()
             okuriBoundary = buffer.cursor
             okuriConsonant = character.lowercaseChar()
             pendingTargetsOkuri = true
         }
-        if (character.isRomajiInput || romanRuleSet.accepts(character.lowercaseChar())) {
+        if (romanRuleSet.accepts(character.lowercaseChar()) || interpretCommands && character.isRomajiInput) {
             if (romanizer.pending.isEmpty()) {
                 pendingTargetsOkuri = okuriBoundary?.let { buffer.cursor >= it } == true
             }
@@ -905,6 +982,104 @@ class BasicSkkEngine(
         }
         if (buffer.text.isEmpty()) clearComposition()
         return Outcome(true)
+    }
+
+    /**
+     * 内部バッファの Emacs 編集を行います。BACKSPACE 以外は未消化ローマ字を先に終端化し、
+     * IDLE ではその確定だけで停止し、通常状態は入力先、登録中は登録本文を同じ一打で編集しません。
+     */
+    private fun onEdit(command: EditCommand): Outcome {
+        dynamicCompletion = null
+        if (phase == InputPhase.SELECTING) {
+            clearPreferredEditColumn()
+            return Outcome(true, notice = "候補選択中はこの編集操作を利用できません")
+        }
+        if (command == EditCommand.BACKSPACE && romanizer.backspacePending()) {
+            clearPreferredEditColumn()
+            return Outcome(true)
+        }
+        if (phase == InputPhase.IDLE) {
+            if (romanizer.pending.isEmpty()) return Outcome(false)
+            val committed = finishIdlePending()
+            val frame = registrations.lastOrNull()
+            if (frame == null) {
+                clearPreferredEditColumn()
+                return Outcome(true, commit = committed)
+            }
+            if (frame.body.text.length + committed.length > MAX_REGISTRATION_BODY) {
+                clearPreferredEditColumn()
+                return Outcome(true, notice = BODY_LIMIT_NOTICE)
+            }
+            frame.body.insert(committed)
+            frame.revision++
+            clearPreferredEditColumn()
+            return Outcome(true)
+        }
+        if (romanizer.pending.isNotEmpty()) finishPendingIntoBuffer()
+        return applyReadingEdit(command)
+    }
+
+    private fun applyReadingEdit(command: EditCommand): Outcome {
+        val target = "reading:${registrations.lastOrNull()?.id ?: 0}:${phase.name}"
+        val oldBoundary = okuriBoundary
+        val edit = Editing.plan(
+            EditSnapshot(buffer.text, buffer.cursor, targetId = target),
+            command,
+            preferredColumnFor(target),
+        )
+        val plan = when (edit) {
+            is EditResult.Ready -> edit.plan
+            is EditResult.Rejected -> {
+                clearPreferredEditColumn()
+                return Outcome(true, notice = INTERNAL_EDIT_NOTICE)
+            }
+        }
+        updatePreferredEditColumn(target, command, plan.preferredColumn)
+        if (plan.changed) {
+            buffer = EditableBuffer(plan.text, plan.cursor)
+            adjustBoundaryAfterEdit(oldBoundary, plan.deletedRange?.start, plan.deletedRange?.end)
+        }
+        return Outcome(true)
+    }
+
+    private fun applyRegistrationEdit(frame: RegistrationFrame, command: EditCommand): Outcome {
+        val target = "registration:${frame.id}"
+        val edit = Editing.plan(
+            EditSnapshot(frame.body.text, frame.body.cursor, targetId = target, revision = frame.revision),
+            command,
+            preferredColumnFor(target),
+            maxLength = MAX_REGISTRATION_BODY,
+        )
+        val plan = when (edit) {
+            is EditResult.Ready -> edit.plan
+            is EditResult.Rejected -> {
+                clearPreferredEditColumn()
+                return Outcome(true, notice = INTERNAL_EDIT_NOTICE)
+            }
+        }
+        updatePreferredEditColumn(target, command, plan.preferredColumn)
+        if (plan.changed) {
+            frame.body = EditableBuffer(plan.text, plan.cursor)
+            frame.revision++
+        }
+        return Outcome(true)
+    }
+
+    private fun preferredColumnFor(target: String): Int? =
+        preferredEditColumn.takeIf { preferredEditTarget == target }
+
+    private fun updatePreferredEditColumn(target: String, command: EditCommand, column: Int?) {
+        if (command == EditCommand.UP || command == EditCommand.DOWN) {
+            preferredEditTarget = target
+            preferredEditColumn = column
+        } else {
+            clearPreferredEditColumn()
+        }
+    }
+
+    private fun clearPreferredEditColumn() {
+        preferredEditTarget = null
+        preferredEditColumn = null
     }
 
     private fun onDelete(): Outcome {
@@ -969,6 +1144,119 @@ class BasicSkkEngine(
         startReading()
         insertBuffer(">")
         return Outcome(true)
+    }
+
+    /** キー配置から分離した意味操作です。対象外の状態では文字や候補を確定せず消費します。 */
+    private fun dispatchSemanticCommand(action: BasicSkkAction): Outcome = when (action) {
+        BasicSkkAction.ToggleKana -> when (phase) {
+            InputPhase.IDLE -> if (mode.isKana) {
+                val pending = finishIdlePending()
+                mode = when (mode) {
+                    InputMode.HIRAGANA -> InputMode.KATAKANA
+                    InputMode.KATAKANA, InputMode.HALFWIDTH -> InputMode.HIRAGANA
+                    else -> mode
+                }
+                Outcome(true, pending)
+            } else Outcome(true)
+            InputPhase.READING -> commitReadingAsToggledKana()
+            InputPhase.SELECTING -> commitCandidate(candidateIndex).then(dispatchSemanticCommand(action))
+            InputPhase.ABBREV -> Outcome(true)
+        }
+        BasicSkkAction.StartReading -> when (phase) {
+            InputPhase.IDLE -> if (mode.isKana) {
+                val pending = finishIdlePending()
+                Outcome(true, pending).then(startReading())
+            } else Outcome(true)
+            InputPhase.READING -> commitRawReading().then(startReading())
+            InputPhase.SELECTING -> commitCandidate(candidateIndex).then(startReading())
+            InputPhase.ABBREV -> Outcome(true)
+        }
+        BasicSkkAction.StartAbbrev ->
+            if (phase == InputPhase.SELECTING) {
+                commitCandidate(candidateIndex).then(startAbbrev())
+            } else if (phase == InputPhase.IDLE && mode.isKana) {
+                val pending = finishIdlePending()
+                Outcome(true, pending).then(startAbbrev())
+            } else Outcome(true)
+        BasicSkkAction.StartSuffix -> when (phase) {
+            InputPhase.IDLE -> if (mode.isKana) {
+                val pending = finishIdlePending()
+                Outcome(true, pending).then(startSuffix())
+            } else Outcome(true)
+            InputPhase.READING -> {
+                finishPendingIntoBuffer()
+                insertBuffer(">")
+                lookup()
+            }
+            InputPhase.SELECTING -> commitCandidate(candidateIndex).then(startSuffix())
+            InputPhase.ABBREV -> Outcome(true)
+        }
+        BasicSkkAction.ConvertNext -> when (phase) {
+            InputPhase.READING, InputPhase.ABBREV -> lookup()
+            InputPhase.SELECTING -> selectNext()
+            InputPhase.IDLE -> Outcome(true)
+        }
+        BasicSkkAction.PreviousCandidate ->
+            if (phase == InputPhase.SELECTING) selectPrevious() else Outcome(true)
+        BasicSkkAction.ToDirect ->
+            if (phase == InputPhase.SELECTING) {
+                commitCandidate(candidateIndex).then(dispatchSemanticCommand(action))
+            } else if (phase == InputPhase.IDLE && mode.isKana) {
+                val pending = finishIdlePending()
+                mode = InputMode.DIRECT
+                Outcome(true, pending)
+            } else Outcome(true)
+        BasicSkkAction.ToFullwidth ->
+            if (phase == InputPhase.SELECTING) {
+                commitCandidate(candidateIndex).then(dispatchSemanticCommand(action))
+            } else if (phase == InputPhase.IDLE && mode.isKana) {
+                val pending = finishIdlePending()
+                mode = InputMode.FULLWIDTH
+                Outcome(true, pending)
+            } else Outcome(true)
+        BasicSkkAction.RegisterCandidate -> startExplicitRegistration()
+        else -> error("意味操作ではありません: $action")
+    }
+
+    private fun startExplicitRegistration(): Outcome {
+        if (!registrationPolicy.enabled) return Outcome(true, notice = "単語登録はまだ利用できません")
+        if (registrations.size >= MAX_REGISTRATION_DEPTH) {
+            return Outcome(true, notice = "単語登録は16段までです")
+        }
+        if (phase == InputPhase.SELECTING) {
+            val query = selectionQuery ?: return Outcome(true)
+            val registrationQuery = selectionRegistrationQuery ?: return Outcome(true)
+            val editor = selectionReturnState?.let(::editorReadingView) ?: return Outcome(true)
+            return startRegistration(query, registrationQuery, snapshotEngine(), editor)
+        }
+        if (phase != InputPhase.READING && phase != InputPhase.ABBREV) return Outcome(true)
+
+        val returnReading = snapshotReading()
+        val returnEngine = snapshotEngine()
+        finishPendingIntoBuffer()
+        val stem = stemText()
+        if (stem.isEmpty()) {
+            restoreEngine(returnEngine)
+            return Outcome(true)
+        }
+        val query = DictionaryQuery(
+            readingKey = if (okuriBoundary == null) stem else stem + okuriConsonant,
+            okuri = okuriText().nullIfEmpty(),
+            abbrev = phase == InputPhase.ABBREV,
+        )
+        val registrationQuery = try {
+            dictionary.registrationQuery(query)
+        } catch (unavailable: DictionaryUnavailableException) {
+            restoreEngine(returnEngine)
+            return Outcome(true, notice = when (unavailable.reason) {
+                DictionaryUnavailableReason.INITIALIZING -> "辞書を準備しています。読みを保持しました。準備後にもう一度操作してください"
+                DictionaryUnavailableReason.FAILED -> "辞書を読み込めません。読みを保持しました。設定から再読込してください"
+            })
+        } catch (_: jp.hayase.skk.core.numeric.NumericLookupException) {
+            restoreEngine(returnEngine)
+            return Outcome(true, notice = NUMERIC_FAILURE_NOTICE)
+        }
+        return startRegistration(query, registrationQuery, returnEngine, editorReadingView(returnReading))
     }
 
     private fun lookup(): Outcome {
@@ -1141,10 +1429,20 @@ class BasicSkkEngine(
     private fun repairBoundaryAfterEdit() {
         val boundary = okuriBoundary ?: return
         if (buffer.text.length < boundary) okuriBoundary = buffer.text.length
-        if (okuriText().isEmpty()) {
+        if (checkNotNull(okuriBoundary) <= 0 || okuriText().isEmpty()) {
             okuriBoundary = null
             okuriConsonant = null
         }
+    }
+
+    private fun adjustBoundaryAfterEdit(oldBoundary: Int?, deletedStart: Int?, deletedEnd: Int?) {
+        if (oldBoundary == null || deletedStart == null || deletedEnd == null) return
+        okuriBoundary = when {
+            deletedEnd <= oldBoundary -> oldBoundary - (deletedEnd - deletedStart)
+            deletedStart < oldBoundary -> deletedStart
+            else -> oldBoundary
+        }
+        repairBoundaryAfterEdit()
     }
 
     private fun adjustBoundaryForDeletion(oldText: String, oldCursor: Int, delta: Int) {
@@ -1266,6 +1564,8 @@ class BasicSkkEngine(
         deletion = deletion?.frozenCopy(),
         completionCycle = completionCycle?.frozenCopy(),
         dynamicCompletion = dynamicCompletion,
+        preferredEditColumn = preferredEditColumn,
+        preferredEditTarget = preferredEditTarget,
     )
 
     private fun restoreEngine(snapshot: EngineSnapshot) {
@@ -1288,6 +1588,8 @@ class BasicSkkEngine(
         deletion = snapshot.deletion?.frozenCopy()
         completionCycle = snapshot.completionCycle?.frozenCopy()
         dynamicCompletion = snapshot.dynamicCompletion
+        preferredEditColumn = snapshot.preferredEditColumn
+        preferredEditTarget = snapshot.preferredEditTarget
     }
 
     private fun snapshotRuntime() = RuntimeSnapshot(
@@ -1320,6 +1622,7 @@ class BasicSkkEngine(
         deletion = null
         completionCycle = null
         dynamicCompletion = null
+        clearPreferredEditColumn()
     }
 
     private data class ReadingSnapshot(
@@ -1351,6 +1654,8 @@ class BasicSkkEngine(
         val deletion: DeletionState?,
         val completionCycle: CompletionCycle?,
         val dynamicCompletion: String?,
+        val preferredEditColumn: Int?,
+        val preferredEditTarget: String?,
     )
 
     private data class RegistrationFrame(
@@ -1359,7 +1664,7 @@ class BasicSkkEngine(
         val originalQuery: DictionaryQuery,
         val query: DictionaryQuery,
         val returnState: EngineSnapshot,
-        val body: EditableBuffer,
+        var body: EditableBuffer,
         val editorComposition: String,
         val editorCursor: Int,
         var revision: Long = 0,
@@ -1413,6 +1718,7 @@ class BasicSkkEngine(
         const val MAX_REGISTRATION_DEPTH = 16
         const val MAX_REGISTRATION_BODY = 65_536
         const val BODY_LIMIT_NOTICE = "登録本文は65,536 UTF-16コード単位までです"
+        const val INTERNAL_EDIT_NOTICE = "この未確定文字では編集操作を利用できません"
         const val NUMERIC_FAILURE_NOTICE = "数値を展開できません。読みを保持しました。入力を確認してください"
         const val DELETION_HELP_NOTICE = "候補を削除する場合は y、戻る場合は n または取消を押してください"
         const val COMPLETION_FAILURE_NOTICE = "見出し語を補完できません。読みを保持しました"

@@ -15,6 +15,10 @@ import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import jp.hayase.skk.settings.CustomizationRuntime
+import jp.hayase.skk.settings.CustomizationStore
+import jp.hayase.skk.settings.CustomizationStoreStatus
 import android.widget.TextView
 import jp.hayase.skk.input.EditorSession
 import jp.hayase.skk.input.HardwareKeyMapper
@@ -36,17 +40,20 @@ import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
 class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceListener {
     private var generation = 0L
     private var session: EditorSession? = null
+    private var sessionCustomization: jp.hayase.skk.settings.CustomizationSettings? = null
     private val mapper = HardwareKeyMapper()
     private val presses = KeyPressLedger()
     private var statusView: TextView? = null
     private var lastDevice: Int? = null
     private var requestedVisible = false
+    private lateinit var customization: CustomizationStore
     private lateinit var dictionaries: DictionaryManager
     private var dictionarySubscription: DictionaryManagerSubscription? = null
 
     override fun onCreate() {
         super.onCreate()
         dictionaries = DictionaryRuntime.get(this)
+        customization = CustomizationRuntime.get(this)
         dictionarySubscription = dictionaries.observe { render() }
         getSystemService(InputManager::class.java).registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
     }
@@ -61,6 +68,18 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         super.onStartInput(attribute, restarting)
         val connection = currentInputConnection ?: return
         val info = attribute ?: return
+        val requestedGeneration = generation
+        if (customization.status is CustomizationStoreStatus.Loading) {
+            // 設定の準備前には標準規則で処理せず、元のキーを入力先へ渡します。
+            customization.loadAsync {
+                if (generation == requestedGeneration) startEditorSession(connection, info)
+            }
+        } else startEditorSession(connection, info)
+    }
+
+    private fun startEditorSession(connection: InputConnection, info: EditorInfo) {
+        val custom = customization.snapshot
+        sessionCustomization = custom
         val protected = isPassword(info.inputType) || info.inputType == InputType.TYPE_NULL
         val learningAllowed = !protected && info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING == 0
         val completionConfig = jp.hayase.skk.core.CompletionConfig(
@@ -114,7 +133,15 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         })
                     })
                 }
-            }, completionConfig = completionConfig)
+            }, completionConfig = completionConfig, romanRuleSet = custom.romanRuleSet,
+            emacsEnabled = custom.emacsEnabled,
+            punctuationConfig = custom.punctuation, candidateDisplayConfig = custom.candidateDisplay,
+            candidatePageSizeProvider = {
+                custom.candidateDisplay.pageSize(
+                    resources.displayMetrics.widthPixels / resources.displayMetrics.density,
+                    resources.configuration.fontScale,
+                )
+            })
         render()
     }
 
@@ -173,8 +200,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     mapper.reset()
                 }
                 lastDevice = event.deviceId
-                when (val decoded = mapper.decode(event, current.engine.state.mode == InputMode.DIRECT,
-                    current.hasComposition, current.view.completion != null)) {
+                val config = checkNotNull(sessionCustomization)
+                when (val decoded = mapper.decodeConfigured(event, current.engine.state, current.view,
+                    config.keyBindings, config.emacsEnabled, config.romanRuleSet)) {
                     HardwareKeyMapper.Decoded.Pass -> {
                         if (!KeyEvent.isModifierKey(keyCode)) {
                             current.preserveText()
@@ -229,9 +257,12 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onDestroy() {
+        generation++
         dictionarySubscription?.close()
         dictionarySubscription = null
         session?.close()
+        session = null
+        mapper.reset()
         getSystemService(InputManager::class.java).unregisterInputDeviceListener(this)
         super.onDestroy()
     }

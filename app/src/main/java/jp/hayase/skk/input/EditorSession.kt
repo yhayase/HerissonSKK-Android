@@ -1,5 +1,9 @@
 package jp.hayase.skk.input
 
+import android.os.Handler
+import android.os.Looper
+import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicReference
 import android.view.inputmethod.InputConnection
 import jp.hayase.skk.core.BasicSkkAction
 import jp.hayase.skk.core.BasicSkkDictionary
@@ -8,6 +12,7 @@ import jp.hayase.skk.core.BasicSkkView
 import jp.hayase.skk.core.BasicSkkEffect
 import jp.hayase.skk.core.BasicSkkResult
 import jp.hayase.skk.core.CompletionConfig
+import jp.hayase.skk.core.editing.EditCommand
 import jp.hayase.skk.core.InputPhase
 import jp.hayase.skk.core.RegistrationPolicy
 import jp.hayase.skk.core.RegistrationSaveRequest
@@ -34,13 +39,25 @@ class EditorSession(
     private val candidateLearner: ((CandidateCommitRequest, (RegistrationSaveOutcome) -> Unit) -> Unit)? = null,
     private val candidateDeleter: ((CandidateDeletionRequest, (CandidateDeletionOutcome) -> Unit) -> Unit)? = null,
     completionConfig: CompletionConfig = CompletionConfig(),
+    romanRuleSet: jp.hayase.skk.core.romaji.RomanRuleSet = jp.hayase.skk.core.romaji.RomanRuleSet.standard,
+    punctuationConfig: jp.hayase.skk.core.PunctuationConfig = jp.hayase.skk.core.PunctuationConfig(),
+    candidateDisplayConfig: jp.hayase.skk.core.CandidateDisplayConfig = jp.hayase.skk.core.CandidateDisplayConfig(),
+    candidatePageSizeProvider: () -> Int = { candidateDisplayConfig.fixedPageSize },
+    private val emacsEnabled: Boolean = false,
+    private val callbackExecutor: Executor = Executor { Handler(Looper.getMainLooper()).post(it) },
+    editPortFactory: (InputConnection, Long, () -> EditorEditState, Executor,
+        (EditorEditState, Int) -> Boolean) -> EditorEditPort = { input, token, state, callbacks, before ->
+        EditorEditPort(input, token, state, callbacks, beforeRequest = before)
+    },
 ) {
     val engine = BasicSkkEngine(dictionary, RegistrationPolicy(
         enabled = registrationSaver != null,
         sessionGeneration = generation,
         savingAllowed = learningAllowed,
     ), learningEnabled = candidateLearner != null, deletionEnabled = candidateDeleter != null,
-        completionConfig = completionConfig)
+        completionConfig = completionConfig, romanRuleSet = romanRuleSet,
+        punctuationConfig = punctuationConfig, candidateDisplayConfig = candidateDisplayConfig,
+        candidatePageSizeProvider = candidatePageSizeProvider)
     var view = BasicSkkView(null, null, null)
         private set
     var notice: String? = null
@@ -57,6 +74,36 @@ class EditorSession(
     private data class Selection(val start: Int, val end: Int, val composingStart: Int, val composingEnd: Int)
     private val expectedSelections = ArrayDeque<Selection>()
 
+    private data class ExternalSelection(val revision: Long, val target: Int)
+    private val editState = AtomicReference(EditorEditState(true, generation, initialStart, initialEnd, 0,
+        protectedInput = protectedInput))
+    private val externalSelections = ArrayDeque<ExternalSelection>()
+    private var externalPending = false
+    private val queuedExternalCommands = ArrayDeque<EditCommand>()
+    private var editNoticeShown = false
+    private val editPort = editPortFactory(connection, generation, { editState.get() }, callbackExecutor) { initial, target ->
+        synchronized(externalSelections) {
+            if (editState.get() != initial) false else {
+                externalSelections.addLast(ExternalSelection(initial.revision, target))
+                // 遅延通知を次の操作まで保持し、通知のない入力先でも履歴を制限します。
+                while (externalSelections.size > 64) externalSelections.removeFirst()
+                true
+            }
+        }
+    }
+
+    private fun publishEditState(invalidate: Boolean = false) {
+        synchronized(externalSelections) {
+            if (invalidate) {
+                externalSelections.clear()
+                queuedExternalCommands.clear()
+            }
+            editState.updateAndGet { old -> EditorEditState(active && !failed, generation, selectionStart,
+                selectionEnd, old.revision + if (invalidate) 1 else 0, protectedInput,
+                hasComposition || expectedSelections.isNotEmpty()) }
+        }
+    }
+
     val displayedComposition: String
         get() = view.candidate?.committedText ?: view.composing.orEmpty()
     val hasComposition: Boolean
@@ -64,12 +111,60 @@ class EditorSession(
 
     fun handle(action: BasicSkkAction): Boolean {
         if (!active || protectedInput || failed) return false
+        if (action is BasicSkkAction.Edit && !emacsEnabled) return false
+        if (action is BasicSkkAction.Edit && !hasComposition) {
+            if (externalPending) {
+                // 事後確認中の連打は版を変えず、本文を持たないコマンドだけを待機させます。
+                if (queuedExternalCommands.size < MAX_QUEUED_EXTERNAL_COMMANDS) {
+                    queuedExternalCommands.addLast(action.command)
+                }
+            } else {
+                submitExternal(action.command)
+            }
+            return true
+        }
+        publishEditState(invalidate = true)
         val result = engine.dispatch(action)
-        return applyResult(result)
+        return applyResult(result).also { publishEditState() }
+    }
+
+    private fun submitExternal(command: EditCommand) {
+        publishEditState()
+        val revision = editState.get().revision
+        externalPending = true
+        editPort.submit(command) { result ->
+            externalPending = false
+            if (!active || failed) return@submit
+            when (result.outcome) {
+                EditorEditResult.Outcome.APPLIED, EditorEditResult.Outcome.NO_CHANGE -> {
+                    if (editState.get().revision != revision) {
+                        queuedExternalCommands.clear()
+                        return@submit
+                    }
+                    selectionStart = result.expectedSelectionStart ?: selectionStart
+                    selectionEnd = result.expectedSelectionEnd ?: selectionEnd
+                    publishEditState()
+                    // 選択を確定した後で次の一件を新しく取得・検証します。変更要求は再送しません。
+                    if (queuedExternalCommands.isNotEmpty()) {
+                        submitExternal(queuedExternalCommands.removeFirst())
+                    }
+                }
+                else -> {
+                    synchronized(externalSelections) { externalSelections.clear() }
+                    queuedExternalCommands.clear()
+                    if (!editNoticeShown) {
+                        editNoticeShown = true
+                        notice = "この入力欄ではこの編集操作を利用できません"
+                    }
+                }
+            }
+            onStateChanged()
+        }
     }
 
     private fun applyResult(result: BasicSkkResult): Boolean {
         if (!result.handled) return false
+        publishEditState(invalidate = true)
         view = result.view
         notice = result.notice
         connection.beginBatchEdit()
@@ -135,6 +230,7 @@ class EditorSession(
                 }
             }
         }
+        publishEditState()
         return true
     }
 
@@ -144,6 +240,23 @@ class EditorSession(
 
     fun onSelection(start: Int, end: Int, candidatesStart: Int, candidatesEnd: Int): Boolean {
         if (!active || failed) return false
+        synchronized(externalSelections) {
+            val revision = editState.get().revision
+            val index = if (candidatesStart == -1 && candidatesEnd == -1 && start == end)
+                externalSelections.indexOfFirst { it.revision == revision && it.target == start } else -1
+            if (index >= 0) {
+                val hasNewerRequest = index < externalSelections.lastIndex
+                repeat(index + 1) { externalSelections.removeFirst() }
+                // 古い要求の通知で、より新しい要求が使う選択位置を巻き戻しません。
+                if (!hasNewerRequest) {
+                    selectionStart = start
+                    selectionEnd = end
+                    publishEditState()
+                }
+                return false
+            }
+        }
+        publishEditState(invalidate = true)
         val observed = Selection(start, end, candidatesStart, candidatesEnd)
         if (selectionStart < 0 && hasEditorComposition && candidatesStart >= 0 &&
             start == end && end in candidatesStart..candidatesEnd &&
@@ -152,6 +265,7 @@ class EditorSession(
             selectionEnd = end
             composingStart = candidatesStart
             composingEnd = candidatesEnd
+            publishEditState()
             return false
         }
         val index = expectedSelections.indexOf(observed)
@@ -164,6 +278,7 @@ class EditorSession(
                 composingStart = candidatesStart
                 composingEnd = candidatesEnd
             }
+            publishEditState()
             return false
         }
         if (observed == Selection(selectionStart, selectionEnd, composingStart, composingEnd)) return false
@@ -171,11 +286,13 @@ class EditorSession(
         preserveText()
         selectionStart = start
         selectionEnd = end
+        publishEditState()
         return true
     }
 
     fun preserveText() {
         if (!active) return
+        publishEditState(invalidate = true)
         val finish = hasEditorComposition || composingStart >= 0
         clearCoreComposition()
         expectedSelections.clear()
@@ -183,12 +300,15 @@ class EditorSession(
         composingEnd = -1
         hasEditorComposition = false
         if (finish) connection.finishComposingText()
+        publishEditState()
     }
 
     fun close() {
         if (!active) return
         preserveText()
         active = false
+        publishEditState(invalidate = true)
+        editPort.close()
     }
 
     private fun placeInternalCursor(text: String): Boolean {
@@ -233,4 +353,7 @@ class EditorSession(
         return true
     }
 
+    companion object {
+        private const val MAX_QUEUED_EXTERNAL_COMMANDS = 64
+    }
 }

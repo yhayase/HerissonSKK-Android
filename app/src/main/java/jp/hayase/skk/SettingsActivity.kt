@@ -30,6 +30,10 @@ class SettingsActivity : Activity() {
         button(R.string.dictionary_settings_open) {
             startActivity(Intent(this, DictionarySettingsActivity::class.java))
         }
+        layout.addView(Button(this).apply {
+            text = "入力規則・句読点・候補を設定する"
+            setOnClickListener { startActivity(Intent(this@SettingsActivity, CustomizationSettingsActivity::class.java)) }
+        })
         val preferences = getSharedPreferences("settings", MODE_PRIVATE)
         layout.addView(Switch(this).apply {
             setText(R.string.save_personal_data)

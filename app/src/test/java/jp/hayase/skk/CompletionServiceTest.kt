@@ -9,6 +9,7 @@ import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.widget.TextView
+import java.io.File
 import java.util.concurrent.Executor
 import jp.hayase.skk.core.BasicSkkAction
 import jp.hayase.skk.dictionary.BuiltinDictionary
@@ -16,6 +17,7 @@ import jp.hayase.skk.dictionary.DictionaryManager
 import jp.hayase.skk.dictionary.SQLiteDictionaryRepository
 import jp.hayase.skk.core.dictionary.SkkDictionaryCodec
 import jp.hayase.skk.input.EditorSession
+import jp.hayase.skk.settings.CustomizationStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -48,9 +50,12 @@ class CompletionServiceTest {
             direct,
             fallbackSystems = listOf(BuiltinDictionary.source),
         ).also { it.loadAsync() }
+        val customizationPath = File(context.cacheDir, "completion-customization-${System.nanoTime()}.json")
+        val customization = CustomizationStore(customizationPath, direct, direct).also { it.loadAsync() }
         val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
         val service = controller.get()
         ReflectionHelpers.setField(service, "dictionaries", manager)
+        ReflectionHelpers.setField(service, "customization", customization)
         val status = service.onCreateCandidatesView() as TextView
 
         try {
@@ -87,6 +92,10 @@ class CompletionServiceTest {
             assertFalse(service.onShowInputRequested(0, false))
         } finally {
             controller.destroy()
+            customization.close()
+            customizationPath.delete()
+            File(customizationPath.path + ".bak").delete()
+            File(customizationPath.path + ".new").delete()
             manager.close()
             context.deleteDatabase(databaseName)
             preferences.edit().clear().commit()

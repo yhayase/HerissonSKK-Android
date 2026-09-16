@@ -16,6 +16,10 @@ class RomanRuleSet private constructor(
 
     fun accepts(character: Char): Boolean = character in inputCharacters
 
+    /** 未消化入力を完成へ進める文字を、途中のモード切替より先に判定します。 */
+    fun continues(pending: String, text: String): Boolean =
+        pending.isNotEmpty() && pending.length + text.length <= MAX_INPUT_LENGTH && pending + text in prefixes
+
     internal val maxRewrites: Int get() = ruleCount + 1
     internal fun exact(value: String): RomajiRule? = byInput[value]
     internal fun hasPrefix(value: String): Boolean = value in prefixes
