@@ -40,7 +40,7 @@ class CustomizationE2eTest {
         awaitAppText("入力規則・句読点・候補")
         // 既存の個人設定のまま標準規則を複製すると、以前の独自割当てが混ざります。
         clickAppText("入力設定を標準に戻す")
-        awaitAppText("ローマ字規則・句読点・候補設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
+        awaitAppText("ローマ字規則・句読点・候補設定・Emacs 編集キー・各コマンドのキー設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
         clickDialogPositive("標準に戻す")
         awaitAppText("入力設定を標準に戻しました。次の入力欄から反映します。")
 
@@ -66,7 +66,7 @@ class CustomizationE2eTest {
         assertEditorOutput("か゚．")
 
         clickAppText("入力設定を標準に戻す")
-        awaitAppText("ローマ字規則・句読点・候補設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
+        awaitAppText("ローマ字規則・句読点・候補設定・Emacs 編集キー・各コマンドのキー設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
         clickDialogPositive("標準に戻す")
         awaitAppText("入力設定を標準に戻しました。次の入力欄から反映します。")
 
@@ -84,7 +84,7 @@ class CustomizationE2eTest {
         assertAzikAndEmacsEditing()
 
         clickAppText("入力設定を標準に戻す")
-        awaitAppText("ローマ字規則・句読点・候補設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
+        awaitAppText("ローマ字規則・句読点・候補設定・Emacs 編集キー・各コマンドのキー設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
         clickDialogPositive("標準に戻す")
         awaitAppText("入力設定を標準に戻しました。次の入力欄から反映します。")
     }

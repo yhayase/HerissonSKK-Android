@@ -123,7 +123,7 @@ class CandidateDisplayE2eTest {
 
     private fun resetCustomizationWithKeyboard() {
         focusAndPressEnter("標準設定への復旧") { root -> button(root, "入力設定を標準に戻す") }
-        awaitAppText("ローマ字規則・句読点・候補設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
+        awaitAppText("ローマ字規則・句読点・候補設定・Emacs 編集キー・各コマンドのキー設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
         focusAndPressEnter("標準設定への復旧確認") { root -> button(root, "標準に戻す") }
         awaitAppText("入力設定を標準に戻しました。次の入力欄から反映します。")
     }

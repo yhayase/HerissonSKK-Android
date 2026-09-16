@@ -37,7 +37,13 @@ def main():
         data["commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
         data["dirty"] = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True))
         run(["java", "-version"], "java")
-        run(["python3", "-m", "unittest", "discover", "-s", "scripts", "-p", "test*test.py"], "host-tests")
+        host_runner = (
+            "import sys, unittest\n"
+            "suite = unittest.defaultTestLoader.discover('scripts', pattern='test*test.py')\n"
+            "result = unittest.TextTestRunner().run(suite)\n"
+            "sys.exit(0 if result.wasSuccessful() and result.testsRun > 0 and not result.skipped else 1)\n"
+        )
+        run(["python3", "-c", host_runner], "host-tests")
         command = ["./gradlew", ":core:test", ":app:testDebugUnitTest", ":app:lintDebug", ":app:lintRelease",
                    ":app:assembleDebug", ":app:assembleRelease", ":app:assembleBenchmark",
                    ":app:assembleDebugAndroidTest", ":test-editor:assembleDebug", ":test-editor:assembleDebugAndroidTest", ":test-editor:lintDebug"]
