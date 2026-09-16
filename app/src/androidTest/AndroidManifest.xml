@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="jp.hayase.skk" />
+    </queries>
+    <application>
+        <provider
+            android:name="jp.hayase.skk.CompleteBackupFaultProvider"
+            android:authorities="jp.hayase.skk.test.completebackupfault"
+            android:exported="true"
+            android:process=":complete_backup_fault" />
+    </application>
+</manifest>

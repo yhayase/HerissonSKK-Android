@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="physical_keyboard_layout_settings">物理キーボードの配列設定を開く</string>
+    <string name="physical_keyboard_layout_settings_fallback">この端末では物理キーボードの配列設定を直接開けないため、入力方法の設定を開きました。</string>
+    <string name="physical_keyboard_layout_settings_unavailable">物理キーボードの配列設定も入力方法の設定も開けませんでした。端末の設定アプリから入力方法を確認してください。</string>
+    <string name="save_personal_data_explanation">標準ではオンです。オフにすると新しい学習と待機中の書き込みを停止しますが、すでに受け付けた処理は完了することがあります。</string>
+    <string name="show_status_explanation">標準ではオンです。切り替えは次の入力操作または入力欄から反映します。変換中の文字とエラー表示は常に表示します。</string>
+    <string name="dynamic_completion_explanation">標準ではオフです。切り替えは次の入力欄から反映します。</string>
+</resources>

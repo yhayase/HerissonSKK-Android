@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="candidate_status_container" type="id" />
+    <item name="candidate_full_detail" type="id" />
+    <item name="candidate_detail_text" type="id" />
+    <item name="candidate_detail_previous" type="id" />
+    <item name="candidate_detail_next" type="id" />
+    <item name="candidate_detail_close" type="id" />
+    <string name="candidate_detail_page">%1$s（%2$d–%3$d / %4$d）\n%5$s%6$s</string>
+    <string name="candidate_detail_split_notice">\n［一文字が表示上限を超えたため、コードポイント境界で分割しています］</string>
+</resources>

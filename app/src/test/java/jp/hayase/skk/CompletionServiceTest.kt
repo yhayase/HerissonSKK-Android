@@ -56,7 +56,7 @@ class CompletionServiceTest {
         val service = controller.get()
         ReflectionHelpers.setField(service, "dictionaries", manager)
         ReflectionHelpers.setField(service, "customization", customization)
-        val status = service.onCreateCandidatesView() as TextView
+        val status = service.onCreateCandidatesView().findViewById<TextView>(R.id.input_status)
 
         try {
             attach(service, Connection())

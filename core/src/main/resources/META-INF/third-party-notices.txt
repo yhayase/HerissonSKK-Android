@@ -1,0 +1,22 @@
+このアプリの実行時依存関係
+
+org.jetbrains.kotlin:kotlin-stdlib:2.1.20
+提供元: JetBrains
+公開 POM が指定するライセンス: Apache License, Version 2.0
+https://github.com/JetBrains/kotlin
+ライセンス本文: META-INF/Apache-2.0.txt
+
+org.jetbrains:annotations:13.0
+提供元: JetBrains
+公開 POM が指定するライセンス: Apache License, Version 2.0
+https://github.com/JetBrains/java-annotations
+ライセンス本文: META-INF/Apache-2.0.txt
+
+com.ibm.icu:icu4j:77.1
+提供元: Unicode Consortium / ICU Project
+https://unicode-org.github.io/icu/
+ライセンスと第三者通知の原文: META-INF/icu-LICENSE.txt
+
+DDSKK と AndroidSKK は挙動調査の参考です。これらの実装コードは APK に同梱していません。
+同梱 SKK 辞書はこのプロジェクトで作成した限定的な試験用データです。
+利用者が追加する外部辞書は、この一覧の実行時依存関係には含まれません。

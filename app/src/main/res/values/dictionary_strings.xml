@@ -52,6 +52,13 @@
     <string name="dictionary_personal_summary">個人辞書</string>
     <string name="dictionary_no_system_sources">追加した辞書はありません。</string>
     <string name="dictionary_system_summary">%1$s</string>
+    <string name="dictionary_source_state">状態: %1$s\n有効状態: %2$s\n優先順: %3$d</string>
+    <string name="dictionary_source_available">利用可能</string>
+    <string name="dictionary_source_unknown">利用状態を確認できません</string>
+    <string name="dictionary_source_processing">この辞書を処理しています…</string>
+    <string name="dictionary_source_failed">この辞書の処理に失敗しました。現在の内容は保持されています。</string>
+    <string name="dictionary_source_enabled">有効</string>
+    <string name="dictionary_source_disabled">無効</string>
     <string name="dictionary_move_up">上へ</string>
     <string name="dictionary_move_down">下へ</string>
     <string name="dictionary_update">ファイルから更新</string>

@@ -64,6 +64,8 @@ class DictionarySettingsActivity : Activity() {
     private var systemSources: List<DictionarySourceInfo> = emptyList()
     private var sourcesLoadedOnce = false
     private var busy = false
+    private var sourceAvailability = DictionarySourceAvailability.UNKNOWN
+    private var sourceOperation: DictionarySourceOperation? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -339,8 +341,11 @@ class DictionarySettingsActivity : Activity() {
 
     private fun applyImport(name: String, request: ImportRequest, document: SkkDictionaryDocument) {
         setStatus(R.string.dictionary_applying)
+        val operationSourceId = request.id.takeIf { request.kind == ImportKind.UPDATE_SYSTEM }
+        operationSourceId?.let(::beginSourceOperation)
         val callback: (DictionaryManagerWriteResult<DictionarySourceInfo>) -> Unit = { result ->
             if (active) {
+                operationSourceId?.let { finishSourceOperation(it, result) }
                 setBusy(false)
                 showWriteResult(result)
                 refreshSources()
@@ -405,14 +410,20 @@ class DictionarySettingsActivity : Activity() {
             if (!active) return@listSources
             when (result) {
                 is DictionaryManagerWriteResult.Applied -> {
+                    sourceAvailability = managerSourceAvailability()
                     renderSources(result.value)
                     refreshSuppressions()
                 }
                 is DictionaryManagerWriteResult.SavedButNotApplied -> {
+                    sourceAvailability = managerSourceAvailability()
                     renderSources(result.value)
                     refreshSuppressions()
                 }
-                DictionaryManagerWriteResult.Failed -> setStatus(R.string.dictionary_list_failed)
+                DictionaryManagerWriteResult.Failed -> {
+                    sourceAvailability = DictionarySourceAvailability.UNKNOWN
+                    drawSources()
+                    setStatus(R.string.dictionary_list_failed)
+                }
             }
         }
     }
@@ -528,15 +539,25 @@ class DictionarySettingsActivity : Activity() {
     private fun sourceRow(source: DictionarySourceInfo, index: Int): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(0, 12, 0, 12)
+        addView(TextView(this@DictionarySettingsActivity).apply {
+            text = getString(
+                R.string.dictionary_source_state,
+                sourceRowStatusText(sourceRowStatus(source.id, sourceAvailability, sourceOperation)),
+                getString(if (source.enabled) R.string.dictionary_source_enabled else R.string.dictionary_source_disabled),
+                index + 1,
+            )
+        })
         addView(Switch(this@DictionarySettingsActivity).apply {
             text = getString(R.string.dictionary_system_summary, source.name)
             isChecked = source.enabled
             isEnabled = !busy
             setOnCheckedChangeListener { _, checked ->
                 if (busy) return@setOnCheckedChangeListener
+                beginSourceOperation(source.id)
                 setBusy(true)
                 manager.setSourceEnabled(source.id, checked) { result ->
                     if (!active) return@setSourceEnabled
+                    finishSourceOperation(source.id, result)
                     setBusy(false)
                     showWriteResult(result)
                     refreshSources()
@@ -597,8 +618,10 @@ class DictionarySettingsActivity : Activity() {
 
     private fun removeSystem(source: DictionarySourceInfo) {
         setStatus(R.string.dictionary_removing)
+        beginSourceOperation(source.id)
         manager.removeSystem(source.id, source.generation) { result ->
             if (!active) return@removeSystem
+            finishSourceOperation(source.id, result)
             setBusy(false)
             showWriteResult(result)
             refreshSources()
@@ -647,6 +670,8 @@ class DictionarySettingsActivity : Activity() {
     }
 
     private fun handleManagerStatus(status: DictionaryManagerStatus) {
+        sourceAvailability = sourceAvailabilityForStatus(status)
+        if (::sourceContainer.isInitialized && sourcesLoadedOnce) drawSources()
         when (status) {
             DictionaryManagerStatus.Loading -> if (!busy) setStatus(R.string.dictionary_loading)
             is DictionaryManagerStatus.Ready -> {
@@ -674,6 +699,30 @@ class DictionarySettingsActivity : Activity() {
         if (::sourceContainer.isInitialized && sourcesLoadedOnce) drawSources()
         if (::suppressionContainer.isInitialized) refreshSuppressions()
     }
+
+    private fun beginSourceOperation(sourceId: String) {
+        sourceOperation = DictionarySourceOperation.Processing(sourceId)
+        if (::sourceContainer.isInitialized && sourcesLoadedOnce) drawSources()
+    }
+
+    private fun finishSourceOperation(sourceId: String, result: DictionaryManagerWriteResult<*>) {
+        sourceOperation = when (result) {
+            DictionaryManagerWriteResult.Failed -> DictionarySourceOperation.Failed(sourceId)
+            is DictionaryManagerWriteResult.Applied, is DictionaryManagerWriteResult.SavedButNotApplied -> null
+        }
+        if (::sourceContainer.isInitialized && sourcesLoadedOnce) drawSources()
+    }
+
+    private fun sourceRowStatusText(status: DictionarySourceRowStatus): String = getString(
+        when (status) {
+            DictionarySourceRowStatus.AVAILABLE -> R.string.dictionary_source_available
+            DictionarySourceRowStatus.UNKNOWN -> R.string.dictionary_source_unknown
+            DictionarySourceRowStatus.PROCESSING -> R.string.dictionary_source_processing
+            DictionarySourceRowStatus.FAILED -> R.string.dictionary_source_failed
+        },
+    )
+
+    private fun managerSourceAvailability(): DictionarySourceAvailability = sourceAvailabilityForStatus(manager.status)
 
     private fun updatePrimaryControls() {
         if (!::addSystemButton.isInitialized) return
@@ -720,6 +769,38 @@ class DictionarySettingsActivity : Activity() {
         private const val STATE_GENERATION = "dictionary.import.generation"
         private const val STATE_PICKER = "dictionary.picker.operation"
     }
+}
+
+internal enum class DictionarySourceAvailability { AVAILABLE, UNKNOWN }
+
+internal fun sourceAvailabilityForStatus(status: DictionaryManagerStatus): DictionarySourceAvailability = when (status) {
+    is DictionaryManagerStatus.Ready -> if (status.freshness == DictionaryFreshness.CURRENT) {
+        DictionarySourceAvailability.AVAILABLE
+    } else {
+        DictionarySourceAvailability.UNKNOWN
+    }
+    DictionaryManagerStatus.Loading, is DictionaryManagerStatus.Unavailable -> DictionarySourceAvailability.UNKNOWN
+}
+
+internal sealed interface DictionarySourceOperation {
+    val sourceId: String
+
+    data class Processing(override val sourceId: String) : DictionarySourceOperation
+    data class Failed(override val sourceId: String) : DictionarySourceOperation
+}
+
+internal enum class DictionarySourceRowStatus { AVAILABLE, UNKNOWN, PROCESSING, FAILED }
+
+internal fun sourceRowStatus(
+    sourceId: String,
+    availability: DictionarySourceAvailability,
+    operation: DictionarySourceOperation?,
+): DictionarySourceRowStatus = when {
+    availability == DictionarySourceAvailability.UNKNOWN -> DictionarySourceRowStatus.UNKNOWN
+    operation?.sourceId != sourceId -> DictionarySourceRowStatus.AVAILABLE
+    operation is DictionarySourceOperation.Processing -> DictionarySourceRowStatus.PROCESSING
+    operation is DictionarySourceOperation.Failed -> DictionarySourceRowStatus.FAILED
+    else -> DictionarySourceRowStatus.AVAILABLE
 }
 
 internal enum class DictionaryPickerOperation { IMPORT, EXPORT }

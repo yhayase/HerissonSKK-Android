@@ -1,6 +1,8 @@
 package jp.hayase.skk
 
 import java.io.ByteArrayInputStream
+import jp.hayase.skk.dictionary.DictionaryFreshness
+import jp.hayase.skk.dictionary.DictionaryManagerStatus
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -47,5 +49,45 @@ class DictionarySettingsActivityTest {
         assertThrows(IllegalArgumentException::class.java) {
             readBounded(ByteArrayInputStream(bytes), 32)
         }
+    }
+
+    @Test
+    fun `処理中の辞書だけを処理中として表示する`() {
+        val operation = DictionarySourceOperation.Processing("updating")
+
+        assertEquals(
+            DictionarySourceRowStatus.PROCESSING,
+            sourceRowStatus("updating", DictionarySourceAvailability.AVAILABLE, operation),
+        )
+        assertEquals(
+            DictionarySourceRowStatus.AVAILABLE,
+            sourceRowStatus("older", DictionarySourceAvailability.AVAILABLE, operation),
+        )
+    }
+
+    @Test
+    fun `失敗した辞書だけを失敗表示し別の辞書の利用可能状態を保つ`() {
+        val operation = DictionarySourceOperation.Failed("broken")
+
+        assertEquals(
+            DictionarySourceRowStatus.FAILED,
+            sourceRowStatus("broken", DictionarySourceAvailability.AVAILABLE, operation),
+        )
+        assertEquals(
+            DictionarySourceRowStatus.AVAILABLE,
+            sourceRowStatus("older", DictionarySourceAvailability.AVAILABLE, operation),
+        )
+        assertEquals(
+            DictionarySourceRowStatus.UNKNOWN,
+            sourceRowStatus("older", DictionarySourceAvailability.UNKNOWN, operation),
+        )
+    }
+
+    @Test
+    fun `古い世代しか公開されていない準備完了状態では辞書を利用可能と表示しない`() {
+        assertEquals(
+            DictionarySourceAvailability.UNKNOWN,
+            sourceAvailabilityForStatus(DictionaryManagerStatus.Ready(DictionaryFreshness.STALE)),
+        )
     }
 }

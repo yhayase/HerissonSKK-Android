@@ -20,8 +20,10 @@
 JDK 17 以上（検証環境は JDK 21）、Android SDK Platform 35、Build Tools 35.0.0 を用意します。SDK の場所は `ANDROID_HOME` または Git 管理外の `local.properties` の `sdk.dir` に指定します。
 
 ```sh
-./gradlew :core:test :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+python3 scripts/verify-local.py
 ```
+
+単体試験・ホスト試験・lint・APK の通知と権限を検査し、結果を `build/reports/local-verification/` へ保存します。既存キャッシュだけを使う場合は `--offline` を指定します。[配布・更新手順](docs/distribution.md) と [旧版からの更新検証](docs/upgrade-validation.md) も参照します。
 
 APK は `app/build/outputs/apk/debug/app-debug.apk` に生成します。Gradle 8.11.1、Android Gradle Plugin 8.9.2、Kotlin 2.1.20 を固定しています。対応下限は Android 8.0（API 26）、compileSdk／targetSdk は 35 です。一般公開時の targetSdk は公開要件に合わせて別途見直します。
 
@@ -79,6 +81,8 @@ SAF画面・実IMEを通る退避付きE2Eは `scripts/test-saf-dictionary-emula
 Emacs 編集は既定で無効です。有効時は Ctrl+a/e/b/f/n/p/h/d/k、Alt+b/f で内部編集または入力先の編集を行います。保護欄では迂回します。入力先から必要な本文・選択範囲を取得できない場合は編集せず、同じ削除を再送しません。入力先との同時編集を原子的に保証できない制約は [編集設計](docs/emacs-editing-design.md) に記載しています。
 
 設定画面から実入力までの自動試験は `scripts/test-customization-emulator.py` で実行します。開始時の設定を退避し、終了時にファイルの有無と内容を照合して復元します。
+
+候補と注釈の通常表示は省略付きのプレビューです。「候補の全文」から IME 内でページを移動できます。全文表示中の左右キーはページ移動、Enter は候補の一回確定です。狭い画面と大きい文字での操作・キーボードだけの設定操作は `scripts/test-display-emulator.py`、巨大候補の Android 描画は `scripts/test-view-emulator.py` で検証します。[候補表示設計](docs/candidate-display-design.md) を参照します。
 
 ## 完全辞書バックアップ
 

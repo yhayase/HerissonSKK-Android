@@ -43,6 +43,9 @@ def load_completion_parser(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="専用エミュレーターの adb シリアル")
+    parser.add_argument("--test-class", default="jp.hayase.skk.testeditor.CustomizationE2eTest",
+                        choices=("jp.hayase.skk.testeditor.CustomizationE2eTest",
+                                 "jp.hayase.skk.testeditor.CandidateDisplayE2eTest"))
     args = parser.parse_args()
     if not re.fullmatch(r"emulator-[0-9]+", args.serial):
         parser.error("設定ファイルを一時変更するため、専用エミュレーターを指定してください")
@@ -103,7 +106,7 @@ def main():
         print(adb("shell", "ime", "set", IME), end="")
         result = adb(
             "shell", "am", "instrument", "-w", "-r", "-e", "class",
-            "jp.hayase.skk.testeditor.CustomizationE2eTest",
+            args.test_class,
             "jp.hayase.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner",
         )
         report_root.mkdir(parents=True, exist_ok=True)
@@ -111,6 +114,7 @@ def main():
         (history / "instrumentation.txt").write_text(result)
         metadata = {
             "serial": args.serial,
+            "test_class": args.test_class,
             "api": adb("shell", "getprop", "ro.build.version.sdk").strip(),
             "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
             "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True)),
@@ -121,7 +125,6 @@ def main():
         print(result)
         if not succeeded(result):
             raise SystemExit("入力設定 E2E が失敗・スキップ、または完了しませんでした。復元用 state を確認してください")
-        print(f"入力設定 E2E 結果: {history}")
     except BaseException as error:
         primary_failure = error
     finally:
@@ -149,6 +152,7 @@ def main():
             ) from recovery_error
     if primary_failure is not None:
         raise primary_failure
+    print(f"入力設定 E2E 結果: {history}")
 
 
 def capture_state(adb_bytes, backup_dir):

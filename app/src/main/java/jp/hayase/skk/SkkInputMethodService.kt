@@ -7,19 +7,15 @@ import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Build
 import android.os.Looper
-import android.graphics.Typeface
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.StyleSpan
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.widget.TextView
 import jp.hayase.skk.settings.CustomizationRuntime
 import jp.hayase.skk.settings.CustomizationStore
 import jp.hayase.skk.settings.CustomizationStoreStatus
-import android.widget.TextView
 import jp.hayase.skk.input.EditorSession
 import jp.hayase.skk.input.HardwareKeyMapper
 import jp.hayase.skk.input.KeyPressLedger
@@ -48,6 +44,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private val mapper = HardwareKeyMapper()
     private val presses = KeyPressLedger()
     private var statusView: TextView? = null
+    private var candidateStatusView: CandidateStatusView? = null
     private var lastDevice: Int? = null
     private var requestedVisible = false
     private lateinit var customization: CustomizationStore
@@ -147,7 +144,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             punctuationConfig = custom.punctuation, candidateDisplayConfig = custom.candidateDisplay,
             candidatePageSizeProvider = {
                 custom.candidateDisplay.pageSize(
-                    resources.displayMetrics.widthPixels / resources.displayMetrics.density,
+                    candidateStatusView?.availableContentWidthDp()
+                        ?: resources.configuration.screenWidthDp.toFloat(),
                     resources.configuration.fontScale,
                 )
             })
@@ -185,15 +183,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         super.onWindowHidden()
     }
 
-    override fun onCreateCandidatesView(): View = TextView(this).apply {
-        id = R.id.input_status
-        textSize = 18f
-        setPadding(dp(16), dp(8), dp(16), dp(8))
-        setTextColor(0xff202124.toInt())
-        setBackgroundColor(0xfff1f3f4.toInt())
-        isFocusable = false
-        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-        statusView = this
+    override fun onCreateCandidatesView(): View = CandidateStatusView(this).apply {
+        candidateStatusView = this
+        statusView = statusTextView
         updateStatus()
     }
 
@@ -204,6 +196,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             val current = session
             if (current == null || current.protectedInput || current.failed) false
             else {
+                if (candidateStatusView?.handleDetailPaging(event) == true) return@down true
+                if (!KeyEvent.isModifierKey(keyCode)) candidateStatusView?.closeDetail()
                 if (lastDevice != null && lastDevice != event.deviceId) {
                     current.preserveText()
                     mapper.reset()
@@ -246,6 +240,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         session?.preserveText()
         mapper.reset()
         super.onConfigurationChanged(newConfig)
+        candidateStatusView?.requestLayout()
     }
 
     override fun onInputDeviceAdded(deviceId: Int) = Unit
@@ -295,22 +290,23 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         val enabled = getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("show_status", true)
         val show = current != null && !current.protectedInput &&
             (enabled || current.hasComposition || current.failed)
-        setCandidatesViewShown(show)
         if (show && !requestedVisible) {
             requestedVisible = true
+            setCandidatesViewShown(true)
             // Android のウィンドウ管理にも表示を要求します。文字キーの画面は作りません。
             if (Build.VERSION.SDK_INT >= 28) requestShowSelf(0)
         } else if (!show && requestedVisible) {
             requestedVisible = false
+            setCandidatesViewShown(false)
             requestHideSelf(0)
         }
     }
 
     private fun updateStatus() {
         val current = session
-        statusView?.text = when {
-            current == null || current.protectedInput -> ""
-            current.failed -> getString(R.string.input_failed)
+        val presentation = when {
+            current == null || current.protectedInput -> CandidateStatusPresentation("")
+            current.failed -> CandidateStatusPresentation(getString(R.string.input_failed))
             else -> {
                 val mode = getString(when (current.engine.state.mode) {
                     InputMode.HIRAGANA -> R.string.status_hiragana
@@ -321,7 +317,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 })
                 val registration = current.view.registration
                 val candidate = if (registration == null) current.view.candidate else registration.innerCandidate
-                val details = buildList {
+                var completionSuffixStart = -1
+                var completionSuffixLength = 0
+                val details = buildList<String> {
                     add(getString(R.string.local_dictionary_status))
                     when (val status = dictionaries.status) {
                         DictionaryManagerStatus.Loading -> add(getString(R.string.dictionary_loading_status))
@@ -333,50 +331,73 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         }
                     }
                     registration?.let {
-                        add(getString(R.string.registration_heading, it.depth, it.readingKey))
+                        add(getString(R.string.registration_heading, it.depth, preview(it.readingKey, 64)))
                         val cursor = it.cursor.coerceIn(0, it.body.length)
-                        add(it.body.substring(0, cursor) + "│" + it.body.substring(cursor))
-                        it.innerComposing?.takeIf(String::isNotEmpty)?.let { value -> add("▽$value") }
+                        add(previewAroundCursor(it.body, cursor))
+                        it.innerComposing?.takeIf(String::isNotEmpty)?.let { value -> add("▽${preview(value)}") }
                         add(getString(if (it.saving) R.string.registration_saving else R.string.registration_help))
                     }
                     current.view.completion?.let { completion ->
-                        add("補完候補: ${completion.prefix}【${completion.suffix}】\nRight: 受諾 / Tab: 通常補完")
+                        val prefix = preview(completion.prefix, 64)
+                        val suffix = preview(completion.suffix, 64)
+                        val line = "補完候補: $prefix【$suffix】"
+                        completionSuffixStart = detailsLength(this) + "補完候補: $prefix【".length
+                        completionSuffixLength = suffix.removeSuffix("…").length
+                        add("$line\nRight: 受諾 / Tab: 通常補完")
                     }
                     current.view.deletion?.let { deletion ->
-                        add("削除確認: ${deletion.readingKey} → ${deletion.candidateText}")
+                        add("削除確認: ${preview(deletion.readingKey, 64)} → ${preview(deletion.candidateText)}")
                         add("個人候補 ${deletion.personalOriginCount} 件を削除し、システム由来 ${deletion.systemOriginCount} 件を非表示にします")
-                        deletion.okuri?.let { add("送り: $it") }
+                        deletion.okuri?.let { add("送り: ${preview(it, 64)}") }
                         if (deletion.numericTemplate) add("元の数値テンプレートと、その展開候補すべてが対象です")
                         add(if (deletion.saving) "削除を保存しています" else "y: 削除する / n・Ctrl+g: 戻る")
                     }
                     candidate?.let {
-                        add("${it.index + 1}/${it.total} ${it.selected.text}")
-                        it.selected.annotation?.let(::add)
-                        if (it.menu.isNotEmpty()) add(it.menu.joinToString("  ") { item ->
-                            val annotation = item.candidate.annotation?.let { note -> "（$note）" }.orEmpty()
-                            "${item.label}: ${item.candidate.text}$annotation"
+                        add("${it.index + 1}/${it.total} ${preview(it.committedText)}")
+                        it.selected.annotation?.let { note -> add(preview(note, 64)) }
+                        if (it.menu.isNotEmpty()) add(it.menu.joinToString("\n") { item ->
+                            val annotation = item.candidate.annotation?.let { note -> "（${preview(note, 32)}）" }.orEmpty()
+                            "${item.label}: ${preview(item.committedText, 48)}$annotation"
                         })
                     }
-                    current.notice?.let(::add)
-                    dictionaryRestoreNotice?.let(::add)
+                    current.notice?.let { add(preview(it, 64)) }
+                    dictionaryRestoreNotice?.let { add(preview(it, 64)) }
                 }
                 val text = "$mode  ${details.joinToString("\n")}"
-                SpannableString(text).apply {
-                    current.view.completion?.let { completion ->
-                        val label = "補完候補: ${completion.prefix}【"
-                        val labelStart = text.indexOf(label)
-                        if (labelStart >= 0) {
-                            val start = labelStart + label.length
-                            setSpan(StyleSpan(Typeface.BOLD_ITALIC), start,
-                                start + completion.suffix.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                val styled = if (completionSuffixStart >= 0) {
+                    // mode と区切りの長さを加え、通常表示に残った範囲だけを強調します。
+                    styledCompletionText(text, mode.length + 2 + completionSuffixStart, completionSuffixLength)
+                } else text
+                val identity = candidate?.let {
+                    CandidateDetailIdentity(it.index, it.selected.text, it.selected.annotation)
+                }
+                CandidateStatusPresentation(styled, identity, buildList {
+                    candidate?.let {
+                        add(CandidateDetailSection("候補本文", it.committedText))
+                        it.selected.annotation?.let { annotation ->
+                            add(CandidateDetailSection("注釈", annotation))
                         }
                     }
-                }
+                })
             }
         }
+        candidateStatusView?.show(presentation) ?: run { statusView?.text = presentation.text }
     }
 
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun preview(value: String, clusters: Int = CandidateTextBounds.NORMAL_CLUSTERS): String {
+        val bounded = CandidateTextBounds.preview(value, clusters)
+        return bounded.text + if (bounded.truncated && bounded.text != CandidateTextBounds.LONG_GRAPHEME_PLACEHOLDER) "…" else ""
+    }
+
+    private fun previewAroundCursor(value: String, cursor: Int): String {
+        val before = CandidateTextBounds.previewBeforeCursor(value, cursor, 48)
+        val after = CandidateTextBounds.preview(value.substring(cursor), 48)
+        return (if (before.truncated && before.text != CandidateTextBounds.LONG_GRAPHEME_PLACEHOLDER) "…" else "") +
+            before.text + "│" + after.text +
+            if (after.truncated && after.text != CandidateTextBounds.LONG_GRAPHEME_PLACEHOLDER) "…" else ""
+    }
+
+    private fun detailsLength(lines: List<String>): Int = lines.sumOf { it.length + 1 }
 
     companion object {
         internal fun isPassword(type: Int): Boolean {

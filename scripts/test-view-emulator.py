@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""専用エミュレーターで完全辞書バックアップの SAF E2E だけを実行します。"""
+"""専用エミュレーターで巨大候補の Android 表示試験を実行します。"""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -8,10 +8,6 @@ import json
 from pathlib import Path
 import re
 import subprocess
-import sys
-
-
-sys.dont_write_bytecode = True
 
 
 def load_completion_parser(root):
@@ -25,27 +21,20 @@ def load_completion_parser(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="専用エミュレーターの adb シリアル")
-    parser.add_argument("--provider-failure", action="store_true", help="実プロバイダーの読込障害を検証します")
     args = parser.parse_args()
     if not re.fullmatch(r"emulator-[0-9]+", args.serial):
-        parser.error("実機や共用端末を使わず、専用エミュレーターを指定してください")
-
+        parser.error("実機や共用端末のデータを変更しないため、専用エミュレーターを指定してください")
     root = Path(__file__).resolve().parents[1]
     succeeded = load_completion_parser(root)
 
     def adb(*arguments):
-        return subprocess.run(
-            ["adb", "-s", args.serial, *arguments],
-            check=True,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=600,
-        ).stdout
+        return subprocess.run(["adb", "-s", args.serial, *arguments], check=True,
+                              text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              timeout=300).stdout
 
     if adb("shell", "getprop", "ro.kernel.qemu").strip() != "1":
         raise RuntimeError("専用エミュレーターとして確認できません")
-    test_class = "jp.hayase.skk.CompleteBackupProviderFailureTest" if args.provider_failure else "jp.hayase.skk.CompleteBackupSafE2eTest"
+
     apks = (
         "app/build/outputs/apk/debug/app-debug.apk",
         "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
@@ -55,10 +44,10 @@ def main():
 
     result = adb(
         "shell", "am", "instrument", "-w", "-r", "-e", "class",
-        test_class,
+        "jp.hayase.skk.CandidateStatusAndroidTest",
         "jp.hayase.skk.test/androidx.test.runner.AndroidJUnitRunner",
     )
-    report_root = root / "app/build/reports" / ("complete-backup-provider-failure" if args.provider_failure else "complete-backup-saf-e2e")
+    report_root = root / "app/build/reports/candidate-view-instrumentation"
     report_root.mkdir(parents=True, exist_ok=True)
     (report_root / "latest.txt").write_text(result)
     history = report_root / args.serial / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -66,7 +55,6 @@ def main():
     (history / "instrumentation.txt").write_text(result)
     metadata = {
         "serial": args.serial,
-        "test_class": test_class,
         "api": adb("shell", "getprop", "ro.build.version.sdk").strip(),
         "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
         "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True)),
@@ -75,8 +63,8 @@ def main():
     (history / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
     print(result)
     if not succeeded(result):
-        raise SystemExit("完全辞書バックアップ SAF E2E が失敗・スキップ、または完了しませんでした")
-    print(f"完全辞書バックアップ SAF E2E 結果: {history}")
+        raise SystemExit("巨大候補 instrumentation が失敗・スキップ、または完了しませんでした")
+    print(f"巨大候補試験結果: {history}")
 
 
 if __name__ == "__main__":

@@ -91,16 +91,18 @@ class CustomizationSettingsActivity : Activity() {
         label("最初の3候補は単独表示です。表示中のラベルは画面幅が変わっても動かしません。")
         emacsEnabled = Switch(this).apply { text = "Emacs 編集キーを有効にする" }
         layout.addView(emacsEnabled); controls += emacsEnabled
+        label("標準ではオフです。保存後、次の入力欄から反映します。")
         label("キー表記は C-（Ctrl）、M-（Alt）、S-（Shift）、U-（Shift を区別しない）、<ENTER>、<TAB>、<SPACE> を使います。例: C-g、M-b、U-q、U-Q")
         SkkCommand.entries.forEach { command ->
             label(command.title)
             bindingFields[command] = keyField(command.title)
+            label("標準規則の初期キー: ${KeyGestureText.format(KeyBindings.defaults.getValue(command))}")
         }
         button("保存") { saveDraft() }
         button("変更を破棄して閉じる") { confirmDiscard() }
         button("入力設定を標準に戻す") {
             AlertDialog.Builder(this).setTitle("入力設定を標準に戻す")
-                .setMessage("ローマ字規則・句読点・候補設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
+                .setMessage("ローマ字規則・句読点・候補設定・Emacs 編集キー・各コマンドのキー設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
                 .setPositiveButton("標準に戻す") { _, _ ->
                     resetToDefaults()
                 }.setNegativeButton("戻る", null).show()
