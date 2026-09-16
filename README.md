@@ -2,6 +2,7 @@
 
 物理キーボードで使う Android 向け SKK 入力メソッドを Kotlin で開発します。現在はフェーズ 1 の接続確認用 IME を実装しています。完全な SKK 変換や辞書登録はまだ使えません。
 
+- [機能要件・非機能要件・設定要件](docs/requirements.md)
 - [ロードマップ](docs/roadmap.md)
 - [互換性と受入仕様](docs/compatibility.md)
 - [Android 検証計画と未決事項](docs/validation-plan.md)
