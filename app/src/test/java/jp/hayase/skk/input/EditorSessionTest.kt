@@ -17,10 +17,11 @@ class EditorSessionTest {
     private class Connection : BaseInputConnection(View(RuntimeEnvironment.getApplication()), true) {
         var commits = 0
         var rejectComposing = false
+        var rejectCommit = false
         init { Selection.setSelection(editable, 0) }
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
             commits++
-            return super.commitText(text, newCursorPosition)
+            return !rejectCommit && super.commitText(text, newCursorPosition)
         }
         override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean =
             !rejectComposing && super.setComposingText(text, newCursorPosition)
@@ -109,6 +110,51 @@ class EditorSessionTest {
         assertFalse(session.handle(InputAction.Text("a")))
         assertEquals(0, connection.commits)
         assertEquals("", connection.editable.toString())
+    }
+
+    /** N03・N04: 確定拒否後は同じキーを再配送せず、接続が回復しても旧セッションを再利用しません。 */
+    @Test fun rejectedCommitPreservesDisplayedTextAndStopsSession() {
+        val connection = Connection()
+        val session = session(connection)
+        session.type("Nihon ")
+        connection.rejectCommit = true
+        assertTrue(session.handle(InputAction.Enter))
+        assertTrue(session.failed)
+        assertEquals(1, connection.commits)
+        assertEquals("日本", connection.editable.toString())
+        assertEquals(-1, BaseInputConnection.getComposingSpanStart(connection.editable!!))
+        assertFalse(session.acceptsResult(1, ""))
+        connection.rejectCommit = false
+        assertFalse(session.handle(InputAction.Enter))
+        assertFalse(session.handle(InputAction.Text("a")))
+        assertEquals(1, connection.commits)
+        assertEquals("日本", connection.editable.toString())
+    }
+
+    /** I10: 通常のモード切替・変換・取消規則より、保護入力の迂回を優先します。 */
+    @Test fun protectedSessionPassesAllSkkActionsWithoutChangingExistingText() {
+        val connection = Connection()
+        connection.editable!!.append("existing")
+        Selection.setSelection(connection.editable, 8)
+        val session = EditorSession(1, connection, true, false, 8, 8)
+        val actions = listOf(InputAction.Kana, InputAction.Text("N"), InputAction.Text(" "),
+            InputAction.Enter, InputAction.Cancel, InputAction.Backspace)
+        actions.forEach { assertFalse(session.handle(it)) }
+        assertEquals("existing", connection.editable.toString())
+        assertEquals(0, connection.commits)
+        assertFalse(session.engine.hasComposition)
+    }
+
+    /** I10・K19 の変換側: 学習禁止だけでは通常欄の変換を禁止しません。保存抑止は辞書導入時に別途検証します。 */
+    @Test fun noLearningSessionStillAllowsConversion() {
+        val connection = Connection()
+        val session = EditorSession(1, connection, false, false, 0, 0)
+        assertFalse(session.learningAllowed)
+        session.type("Nihon ")
+        assertEquals("日本", connection.editable.toString())
+        assertTrue(session.handle(InputAction.Enter))
+        assertEquals(1, connection.commits)
+        assertEquals("日本", connection.editable.toString())
     }
 
     @Test fun backspacePendingRomanDoesNotDeleteCommittedPrefix() {
