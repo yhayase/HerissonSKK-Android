@@ -29,6 +29,16 @@ data class DictionarySourceInfo(
     val order: Int,
 )
 
+/** 同じ読み取り時点で固定した個人辞書書き出しと、テキストへ含めない抑止件数です。 */
+class PersonalDictionaryExport(bytes: ByteArray, val excludedSuppressionCount: Int) {
+    private val encoded = bytes.copyOf()
+    val bytes: ByteArray get() = encoded.copyOf()
+
+    init {
+        require(excludedSuppressionCount >= 0) { "非表示候補件数が不正です" }
+    }
+}
+
 /** 一回のキー検索で固定した、複合辞書へ渡す読み取り専用スナップショットです。 */
 class DictionaryLookupSnapshot(
     val personal: SkkDictionarySource?,
@@ -177,11 +187,22 @@ class SQLiteDictionaryRepository internal constructor(
     }
 
     /** 個人辞書を UTF-8、BOM なし、LF、末尾改行ありの SKK テキストへ書き出します。 */
+    @Synchronized fun exportPersonal(): ByteArray = exportPersonalWithMetadata().bytes
+
+    /** 個人候補行と、同じ読み取りトランザクションで数えた非出力の抑止件数を返します。 */
     @Synchronized
-    fun exportPersonal(): ByteArray {
+    fun exportPersonalWithMetadata(): PersonalDictionaryExport {
         val database = helper.readableDatabase
-        val entries = database.inReadTransaction { readEntries(database, PERSONAL_SOURCE_ID) }
-        return SkkDictionaryCodec.encodeUtf8(SkkDictionaryDocument(entries, SkkDictionaryEncoding.UTF8))
+        return database.inReadTransaction {
+            val entries = readEntries(database, PERSONAL_SOURCE_ID)
+            PersonalDictionaryExport(
+                SkkDictionaryCodec.encodeUtf8(SkkDictionaryDocument(entries, SkkDictionaryEncoding.UTF8)),
+                database.rawQuery("SELECT COUNT(*) FROM $TABLE_SUPPRESSIONS", null).use { cursor ->
+                    check(cursor.moveToFirst())
+                    Math.toIntExact(cursor.getLong(0))
+                },
+            )
+        }
     }
 
     @Synchronized

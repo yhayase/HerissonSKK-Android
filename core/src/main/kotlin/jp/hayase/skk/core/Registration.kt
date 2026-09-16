@@ -27,6 +27,7 @@ data class RegistrationSaveRequest(
 sealed interface BasicSkkEffect {
     data class SaveRegistration(val request: RegistrationSaveRequest) : BasicSkkEffect
     data class LearnCandidate(val request: CandidateCommitRequest) : BasicSkkEffect
+    data class DeleteCandidate(val request: CandidateDeletionRequest) : BasicSkkEffect
 }
 
 /** 入力先での確定成功後だけ学習する候補を、確定操作の時点で固定します。 */

@@ -14,6 +14,9 @@ import jp.hayase.skk.core.RegistrationSaveOutcome
 import jp.hayase.skk.core.RegistrationSaveCompletion
 import jp.hayase.skk.core.RegistrationSaveFailure
 import jp.hayase.skk.core.CandidateCommitRequest
+import jp.hayase.skk.core.CandidateDeletionRequest
+import jp.hayase.skk.core.CandidateDeletionOutcome
+import jp.hayase.skk.core.CandidateDeletionCompletion
 import jp.hayase.skk.dictionary.BuiltinDictionary
 
 /** 入力接続をセッションに固定し、後から別の入力欄へ出力しません。 */
@@ -28,12 +31,13 @@ class EditorSession(
     private val registrationSaver: ((RegistrationSaveRequest, (RegistrationSaveOutcome) -> Unit) -> Unit)? = null,
     private val onStateChanged: () -> Unit = {},
     private val candidateLearner: ((CandidateCommitRequest, (RegistrationSaveOutcome) -> Unit) -> Unit)? = null,
+    private val candidateDeleter: ((CandidateDeletionRequest, (CandidateDeletionOutcome) -> Unit) -> Unit)? = null,
 ) {
     val engine = BasicSkkEngine(dictionary, RegistrationPolicy(
         enabled = registrationSaver != null,
         sessionGeneration = generation,
         savingAllowed = learningAllowed,
-    ), learningEnabled = candidateLearner != null)
+    ), learningEnabled = candidateLearner != null, deletionEnabled = candidateDeleter != null)
     var view = BasicSkkView(null, null, null)
         private set
     var notice: String? = null
@@ -113,6 +117,16 @@ class EditorSession(
                                     onStateChanged()
                                 }
                             }
+                        }
+                    }
+                }
+                is BasicSkkEffect.DeleteCandidate -> {
+                    candidateDeleter?.invoke(effect.request) { outcome ->
+                        if (active && !failed && effect.request.token.sessionGeneration == generation) {
+                            val completion = engine.completeCandidateDeletion(
+                                CandidateDeletionCompletion(effect.request.token, outcome),
+                            )
+                            if (applyResult(completion)) onStateChanged()
                         }
                     }
                 }

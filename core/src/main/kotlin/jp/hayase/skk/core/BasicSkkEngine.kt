@@ -4,6 +4,7 @@ import jp.hayase.skk.core.romaji.KanaTransforms
 import jp.hayase.skk.core.romaji.Romanizer
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
+import jp.hayase.skk.core.dictionary.CandidateSelection
 
 /** フェーズ 2 の基本入力で利用する入力モードです。 */
 enum class InputMode { HIRAGANA, KATAKANA, HALFWIDTH, DIRECT, FULLWIDTH }
@@ -24,6 +25,7 @@ data class DictionaryCandidate(
     val annotation: String? = null,
     val okuriCondition: String? = null,
     val learningTarget: NumericLearningTarget? = null,
+    val selection: CandidateSelection? = null,
 )
 
 /** 数値展開後の表示候補を、永続化用の元辞書候補へ結びます。 */
@@ -67,6 +69,7 @@ sealed interface BasicSkkAction {
     data object Home : BasicSkkAction
     data object End : BasicSkkAction
     data object Delete : BasicSkkAction
+    data object DeleteCandidate : BasicSkkAction
 }
 
 data class CandidateView(
@@ -85,6 +88,7 @@ data class BasicSkkView(
     val cursor: Int?,
     val candidate: CandidateView?,
     val registration: RegistrationView? = null,
+    val deletion: CandidateDeletionView? = null,
 )
 
 data class BasicSkkState(
@@ -117,6 +121,7 @@ class BasicSkkEngine(
     private val dictionary: BasicSkkDictionary,
     private val registrationPolicy: RegistrationPolicy,
     private val learningEnabled: Boolean = false,
+    private val deletionEnabled: Boolean = false,
 ) {
     constructor(dictionary: BasicSkkDictionary) : this(dictionary, RegistrationPolicy())
 
@@ -136,6 +141,7 @@ class BasicSkkEngine(
     private val registrations = mutableListOf<RegistrationFrame>()
     private var nextFrameId = 1L
     private var nextOperationId = 1L
+    private var deletion: DeletionState? = null
 
     val state: BasicSkkState
         get() {
@@ -158,7 +164,9 @@ class BasicSkkEngine(
     val currentView: BasicSkkView get() = view()
 
     fun dispatch(action: BasicSkkAction): BasicSkkResult {
+        if (deletion != null) return dispatchCandidateDeletion(action)
         if (action is BasicSkkAction.Text) return dispatchText(action.text)
+        if (action == BasicSkkAction.DeleteCandidate) return result(startCandidateDeletion())
         if (registrations.isNotEmpty()) return dispatchRegistration(action)
         val outcome = when (action) {
             is BasicSkkAction.Text -> error("文字入力は先に処理済みです")
@@ -172,6 +180,7 @@ class BasicSkkEngine(
             BasicSkkAction.Home -> onMove { it.moveHome() }
             BasicSkkAction.End -> onMove { it.moveEnd() }
             BasicSkkAction.Delete -> onDelete()
+            BasicSkkAction.DeleteCandidate -> error("候補削除は先に処理済みです")
         }
         return result(outcome)
     }
@@ -193,7 +202,9 @@ class BasicSkkEngine(
                 }
             }
             val value = text.substring(index, end)
-            val part = if (registrations.isEmpty()) {
+            val part = if (deletion != null) {
+                dispatchCandidateDeletion(BasicSkkAction.Text(value)).asOutcome()
+            } else if (registrations.isEmpty()) {
                 onText(value)
             } else {
                 dispatchRegistration(BasicSkkAction.Text(value)).asOutcome()
@@ -216,6 +227,94 @@ class BasicSkkEngine(
         effects = effects,
     )
 
+    private fun startCandidateDeletion(): Outcome {
+        if (phase != InputPhase.SELECTING) return Outcome(false)
+        if (!deletionEnabled) return Outcome(true, notice = "候補削除は利用できません")
+        if (!registrationPolicy.savingAllowed) {
+            return Outcome(true, notice = "この入力欄では候補を削除できません")
+        }
+        val candidate = candidates[candidateIndex]
+        val selection = candidate.selection
+            ?: return Outcome(true, notice = "この候補は削除できません")
+        deletion = DeletionState(
+            query = checkNotNull(selectionQuery) { "候補の検索条件がありません" },
+            candidate = candidate,
+            selection = selection,
+        )
+        return Outcome(true, notice = DELETION_HELP_NOTICE)
+    }
+
+    private fun dispatchCandidateDeletion(action: BasicSkkAction): BasicSkkResult {
+        val current = checkNotNull(deletion)
+        val pending = current.token != null
+        if (action == BasicSkkAction.Cancel) {
+            deletion = null
+            return if (pending) {
+                restoreSelectionReturnState()
+                result(Outcome(true, notice = "削除は完了する可能性があります"))
+            } else {
+                result(Outcome(true))
+            }
+        }
+        if (pending) return result(Outcome(true, notice = "候補を削除しています"))
+        if (action is BasicSkkAction.Text && action.text == "n") {
+            deletion = null
+            return result(Outcome(true))
+        }
+        if (action is BasicSkkAction.Text && action.text == "y") {
+            val token = CandidateDeletionToken(nextOperationId++, registrationPolicy.sessionGeneration)
+            current.token = token
+            val request = CandidateDeletionRequest(
+                token = token,
+                query = current.query,
+                displayedText = current.candidate.text,
+                annotation = current.candidate.annotation,
+                selection = current.selection,
+            )
+            return result(Outcome(true, effects = listOf(BasicSkkEffect.DeleteCandidate(request))))
+        }
+        return result(Outcome(true, notice = DELETION_HELP_NOTICE))
+    }
+
+    private fun refreshCandidatesAfterDeletion(current: DeletionState): BasicSkkResult {
+        val refreshed = try {
+            dictionary.lookup(current.query).toList()
+        } catch (_: Exception) {
+            return removeFrozenOrigins(
+                current,
+                "候補は削除されましたが、検索辞書を更新できません。辞書を再読込してください",
+            )
+        }
+        replaceCandidatesWithoutRegistration(refreshed)
+        return result(Outcome(true))
+    }
+
+    private fun refreshCandidatesAfterFailure(notice: String): BasicSkkResult {
+        val query = checkNotNull(selectionQuery)
+        val refreshed = runCatching { dictionary.lookup(query).toList() }.getOrNull()
+        if (refreshed != null) replaceCandidatesWithoutRegistration(refreshed)
+        return result(Outcome(true, notice = notice))
+    }
+
+    private fun removeFrozenOrigins(current: DeletionState, notice: String): BasicSkkResult {
+        val deleted = current.selection.origins.toSet()
+        val remaining = candidates.filter { candidate ->
+            candidate.selection?.origins?.none { it in deleted } ?: true
+        }
+        replaceCandidatesWithoutRegistration(remaining)
+        return result(Outcome(true, notice = notice))
+    }
+
+    private fun replaceCandidatesWithoutRegistration(replacement: List<DictionaryCandidate>) {
+        candidates = replacement
+        if (candidates.isEmpty()) {
+            restoreSelectionReturnState()
+        } else {
+            candidateIndex = candidateIndex.coerceAtMost(candidates.lastIndex)
+            phase = InputPhase.SELECTING
+        }
+    }
+
     /** 非同期保存の結果を、要求元のフレームがまだ生きている場合だけ適用します。 */
     fun completeRegistration(completion: RegistrationSaveCompletion): BasicSkkResult {
         val frame = registrations.lastOrNull()
@@ -237,8 +336,31 @@ class BasicSkkEngine(
         }
     }
 
+    /** 削除完了を、同じ入力セッションで待機中の要求へだけ適用します。 */
+    fun completeCandidateDeletion(completion: CandidateDeletionCompletion): BasicSkkResult {
+        val current = deletion ?: return result(Outcome(false))
+        if (current.token != completion.token) return result(Outcome(false))
+        deletion = null
+        return when (val outcome = completion.outcome) {
+            CandidateDeletionOutcome.Applied -> refreshCandidatesAfterDeletion(current)
+            CandidateDeletionOutcome.SavedButNotApplied -> removeFrozenOrigins(
+                current,
+                "候補は削除されましたが、検索辞書を更新できません。辞書を再読込してください",
+            )
+            is CandidateDeletionOutcome.Failed -> when (outcome.reason) {
+                CandidateDeletionFailure.CONFLICT -> refreshCandidatesAfterFailure(
+                    "辞書が更新されたため削除できません。候補を確認してもう一度操作してください",
+                )
+                CandidateDeletionFailure.CAPACITY -> result(Outcome(true, notice = "辞書の容量が不足しているため削除できません"))
+                CandidateDeletionFailure.POLICY_REJECTED -> result(Outcome(true, notice = "個人データを保存しない設定のため削除できません"))
+                CandidateDeletionFailure.GENERAL -> result(Outcome(true, notice = "候補を削除できませんでした"))
+            }
+        }
+    }
+
     /** セッション終了時に再帰登録と保存待ちを一度で破棄し、遅い完了を無効化します。 */
     fun resetComposition(): BasicSkkView {
+        deletion = null
         registrations.clear()
         clearComposition()
         return view()
@@ -271,6 +393,7 @@ class BasicSkkEngine(
                 BasicSkkAction.End -> return editRegistrationBody(frame) { it.moveEnd() }
                 is BasicSkkAction.Text -> Unit
                 BasicSkkAction.Halfwidth -> Unit
+                BasicSkkAction.DeleteCandidate -> Unit
             }
         }
 
@@ -295,6 +418,7 @@ class BasicSkkEngine(
         BasicSkkAction.Home -> onMove { it.moveHome() }
         BasicSkkAction.End -> onMove { it.moveEnd() }
         BasicSkkAction.Delete -> onDelete()
+        BasicSkkAction.DeleteCandidate -> startCandidateDeletion()
     }
 
     private fun innerIsClean(): Boolean = phase == InputPhase.IDLE && romanizer.pending.isEmpty()
@@ -459,6 +583,7 @@ class BasicSkkEngine(
 
     private fun onCharacter(character: Char): Outcome {
         if (phase == InputPhase.SELECTING) {
+            if (character == 'X' && deletionEnabled) return startCandidateDeletion()
             if (character == ' ') return selectNext()
             if (character == 'x') return selectPrevious()
             menuIndexFor(character)?.let { return commitCandidate(it) }
@@ -854,7 +979,20 @@ class BasicSkkEngine(
             InputPhase.ABBREV -> buffer.cursor + romanizer.pending.length
             InputPhase.READING, InputPhase.SELECTING -> renderedPrefix.length + romanizer.pending.length
         }
-        val inner = BasicSkkView(composing, cursor, candidate)
+        val deletionView = deletion?.let { current ->
+            val personal = current.selection.origins.count { it.personal }
+            CandidateDeletionView(
+                readingKey = current.query.readingKey,
+                candidateText = current.candidate.text,
+                okuri = current.query.okuri,
+                originCount = current.selection.origins.size,
+                personalOriginCount = personal,
+                systemOriginCount = current.selection.origins.size - personal,
+                numericTemplate = current.selection.numericTemplate,
+                saving = current.token != null,
+            )
+        }
+        val inner = BasicSkkView(composing, cursor, candidate, deletion = deletionView)
         val frame = registrations.lastOrNull() ?: return inner
         val root = registrations.first()
         return BasicSkkView(
@@ -871,6 +1009,7 @@ class BasicSkkEngine(
                 innerCandidate = inner.candidate,
                 saving = frame.savingToken != null,
             ),
+            deletion = deletionView,
         )
     }
 
@@ -903,6 +1042,7 @@ class BasicSkkEngine(
         selectionReturnState = selectionReturnState,
         selectionQuery = selectionQuery,
         selectionRegistrationQuery = selectionRegistrationQuery,
+        deletion = deletion?.frozenCopy(),
     )
 
     private fun restoreEngine(snapshot: EngineSnapshot) {
@@ -921,6 +1061,7 @@ class BasicSkkEngine(
         selectionReturnState = snapshot.selectionReturnState
         selectionQuery = snapshot.selectionQuery
         selectionRegistrationQuery = snapshot.selectionRegistrationQuery
+        deletion = snapshot.deletion?.frozenCopy()
     }
 
     private fun snapshotRuntime() = RuntimeSnapshot(
@@ -950,6 +1091,7 @@ class BasicSkkEngine(
         selectionReturnState = null
         selectionQuery = null
         selectionRegistrationQuery = null
+        deletion = null
     }
 
     private data class ReadingSnapshot(
@@ -977,6 +1119,7 @@ class BasicSkkEngine(
         val selectionReturnState: ReadingSnapshot?,
         val selectionQuery: DictionaryQuery?,
         val selectionRegistrationQuery: DictionaryQuery?,
+        val deletion: DeletionState?,
     )
 
     private data class RegistrationFrame(
@@ -993,6 +1136,15 @@ class BasicSkkEngine(
         var savingCommittedText: String? = null,
     ) {
         fun frozenCopy() = copy(body = EditableBuffer(body.text, body.cursor))
+    }
+
+    private data class DeletionState(
+        val query: DictionaryQuery,
+        val candidate: DictionaryCandidate,
+        val selection: CandidateSelection,
+        var token: CandidateDeletionToken? = null,
+    ) {
+        fun frozenCopy() = copy()
     }
 
     private data class EditorReadingView(val text: String, val cursor: Int)
@@ -1024,6 +1176,7 @@ class BasicSkkEngine(
         const val MAX_REGISTRATION_BODY = 65_536
         const val BODY_LIMIT_NOTICE = "登録本文は65,536 UTF-16コード単位までです"
         const val NUMERIC_FAILURE_NOTICE = "数値を展開できません。読みを保持しました。入力を確認してください"
+        const val DELETION_HELP_NOTICE = "候補を削除する場合は y、戻る場合は n または取消を押してください"
         val InputMode.isKana: Boolean get() = this == InputMode.HIRAGANA || this == InputMode.KATAKANA || this == InputMode.HALFWIDTH
         val Char.isRomajiInput: Boolean get() = this == '\'' || isLetter() && code < 128
 

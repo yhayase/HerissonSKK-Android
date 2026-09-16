@@ -16,6 +16,7 @@ import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 import jp.hayase.skk.core.dictionary.SkkDictionaryDocument
 import jp.hayase.skk.core.dictionary.SkkDictionarySource
 import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
+import jp.hayase.skk.core.dictionary.CandidateSelection
 import jp.hayase.skk.core.numeric.NumericSkkDictionary
 
 /** 公開済み辞書と再読込の状態です。 */
@@ -61,6 +62,7 @@ class DictionaryManager(
 
     private val observers = linkedMapOf<Long, (DictionaryManagerStatus) -> Unit>()
     private val fallbackSystems = fallbackSystems.toList()
+    private val immutableApprovals = this.fallbackSystems.associate { it.id to it.generation }
     private var nextObserverId = 0L
     @Volatile
     private var closed = false
@@ -185,6 +187,86 @@ class DictionaryManager(
         }
     }
 
+    /** 入力中の候補削除を、登録と同じ個人データ方針と直列キューで実行します。 */
+    @Synchronized
+    fun deleteCandidate(
+        request: DeleteCandidateRequest,
+        originAllowsSaving: Boolean,
+        callback: (PersonalWriteResult) -> Unit,
+    ) {
+        check(!closed) { "辞書管理器は閉じています" }
+        val permit = personalDataPolicy.request(originAllowsSaving)
+        if (permit == null) {
+            deliver(callback, PersonalWriteResult.Failed(PersonalWriteFailure.POLICY_REJECTED))
+            return
+        }
+        serialExecutor.execute {
+            val saved = runCatching {
+                repository.deleteCandidate(request, immutableApprovals) { personalDataPolicy.accepts(permit) }
+            }
+            val error = saved.exceptionOrNull()
+            if (error != null) {
+                deliver(callback, PersonalWriteResult.Failed(personalWriteFailure(error)))
+                return@execute
+            }
+            val loaded = runCatching { buildDictionary(loadSnapshot()) }
+            if (loaded.isSuccess) {
+                publish(Published(loaded.getOrThrow(), DictionaryManagerStatus.Ready()))
+                deliver(callback, PersonalWriteResult.Applied)
+            } else {
+                publishRefreshFailure()
+                deliver(callback, PersonalWriteResult.SavedButNotApplied)
+            }
+        }
+    }
+
+    /** コアが固定した候補由来を、管理器が保持する組み込み辞書承認表で削除要求へ変換します。 */
+    fun deleteSelection(
+        selection: CandidateSelection,
+        originAllowsSaving: Boolean,
+        callback: (PersonalWriteResult) -> Unit,
+    ) = deleteCandidate(
+        DeleteCandidateRequest(
+            selection.personalGeneration,
+            selection.origins.map { origin ->
+                StoredCandidateOriginRef(
+                    sourceId = origin.dictionaryId,
+                    sourceGeneration = origin.generation,
+                    kind = when {
+                        origin.personal -> CandidateOriginKind.PERSONAL
+                        origin.dictionaryId in immutableApprovals -> CandidateOriginKind.IMMUTABLE_SYSTEM
+                        else -> CandidateOriginKind.STORED_SYSTEM
+                    },
+                    entryKey = origin.entryKey,
+                    templateText = origin.text,
+                    okuriCondition = origin.okuriCondition,
+                )
+            },
+        ),
+        originAllowsSaving,
+        callback,
+    )
+
+    /** 抑止行と、その行を取得した個人辞書世代をバックグラウンドで返します。 */
+    @Synchronized
+    fun listSuppressions(callback: (DictionaryManagerWriteResult<CandidateSuppressionSnapshot>) -> Unit) {
+        check(!closed) { "辞書管理器は閉じています" }
+        serialExecutor.execute {
+            val result = runCatching { repository.listCandidateSuppressions() }
+            deliver(callback, result.fold(
+                onSuccess = { DictionaryManagerWriteResult.Applied(it) },
+                onFailure = { DictionaryManagerWriteResult.Failed },
+            ))
+        }
+    }
+
+    /** 設定画面から一件の抑止だけを復元します。入力由来の保存方針は適用しません。 */
+    fun restoreCandidateSuppression(
+        key: CandidateSuppressionKey,
+        expectedGeneration: Long,
+        callback: (DictionaryManagerWriteResult<DictionarySourceInfo>) -> Unit,
+    ) = writeThenReload(callback) { repository.restoreCandidateSuppression(key, expectedGeneration) }
+
     fun setSourceEnabled(id: String, enabled: Boolean, callback: (DictionaryManagerWriteResult<Unit>) -> Unit) =
         writeThenReload(callback) { repository.setSourceEnabled(id, enabled) }
 
@@ -212,6 +294,19 @@ class DictionaryManager(
         check(!closed) { "辞書管理器は閉じています" }
         serialExecutor.execute {
             val result = runCatching { repository.exportPersonal() }
+            deliver(callback, result.fold(
+                onSuccess = { DictionaryManagerWriteResult.Applied(it) },
+                onFailure = { DictionaryManagerWriteResult.Failed },
+            ))
+        }
+    }
+
+    /** 書き出し本文と、互換 SKK テキストへ含めない抑止件数を直列 I/O で取得します。 */
+    @Synchronized
+    fun exportPersonalWithMetadata(callback: (DictionaryManagerWriteResult<PersonalDictionaryExport>) -> Unit) {
+        check(!closed) { "辞書管理器は閉じています" }
+        serialExecutor.execute {
+            val result = runCatching { repository.exportPersonalWithMetadata() }
             deliver(callback, result.fold(
                 onSuccess = { DictionaryManagerWriteResult.Applied(it) },
                 onFailure = { DictionaryManagerWriteResult.Failed },
@@ -257,6 +352,14 @@ class DictionaryManager(
 
     private fun buildDictionary(snapshot: DictionaryLookupSnapshot): BasicSkkDictionary {
         return NumericSkkDictionary(snapshot.asComposite(fallbackSystems))
+    }
+
+    private fun personalWriteFailure(error: Throwable): PersonalWriteFailure = when (error) {
+        is SQLiteFullException -> PersonalWriteFailure.CAPACITY
+        is StaleDictionaryGenerationException,
+        is CandidateOriginMismatchException -> PersonalWriteFailure.CONFLICT
+        is PersonalDataPolicyRejectedException -> PersonalWriteFailure.POLICY_REJECTED
+        else -> PersonalWriteFailure.GENERAL
     }
 
     private fun publishRefreshFailure() {

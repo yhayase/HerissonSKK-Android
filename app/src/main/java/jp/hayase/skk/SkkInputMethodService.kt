@@ -25,6 +25,8 @@ import jp.hayase.skk.dictionary.PersonalWriteResult
 import jp.hayase.skk.dictionary.PersonalWriteFailure
 import jp.hayase.skk.core.RegistrationSaveOutcome
 import jp.hayase.skk.core.RegistrationSaveFailure
+import jp.hayase.skk.core.CandidateDeletionOutcome
+import jp.hayase.skk.core.CandidateDeletionFailure
 import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
 
 class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceListener {
@@ -88,6 +90,19 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                             PersonalWriteFailure.CONFLICT -> RegistrationSaveFailure.CONFLICT
                             PersonalWriteFailure.POLICY_REJECTED -> RegistrationSaveFailure.POLICY_REJECTED
                             PersonalWriteFailure.GENERAL -> RegistrationSaveFailure.GENERAL
+                        })
+                    })
+                }
+            }, candidateDeleter = { request, complete ->
+                dictionaries.deleteSelection(request.selection, learningAllowed) { result ->
+                    complete(when (result) {
+                        PersonalWriteResult.Applied -> CandidateDeletionOutcome.Applied
+                        PersonalWriteResult.SavedButNotApplied -> CandidateDeletionOutcome.SavedButNotApplied
+                        is PersonalWriteResult.Failed -> CandidateDeletionOutcome.Failed(when (result.reason) {
+                            PersonalWriteFailure.CAPACITY -> CandidateDeletionFailure.CAPACITY
+                            PersonalWriteFailure.CONFLICT -> CandidateDeletionFailure.CONFLICT
+                            PersonalWriteFailure.POLICY_REJECTED -> CandidateDeletionFailure.POLICY_REJECTED
+                            PersonalWriteFailure.GENERAL -> CandidateDeletionFailure.GENERAL
                         })
                     })
                 }
@@ -262,6 +277,13 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         add(it.body.substring(0, cursor) + "│" + it.body.substring(cursor))
                         it.innerComposing?.takeIf(String::isNotEmpty)?.let { value -> add("▽$value") }
                         add(getString(if (it.saving) R.string.registration_saving else R.string.registration_help))
+                    }
+                    current.view.deletion?.let { deletion ->
+                        add("削除確認: ${deletion.readingKey} → ${deletion.candidateText}")
+                        add("個人候補 ${deletion.personalOriginCount} 件を削除し、システム由来 ${deletion.systemOriginCount} 件を非表示にします")
+                        deletion.okuri?.let { add("送り: $it") }
+                        if (deletion.numericTemplate) add("元の数値テンプレートと、その展開候補すべてが対象です")
+                        add(if (deletion.saving) "削除を保存しています" else "y: 削除する / n・Ctrl+g: 戻る")
                     }
                     candidate?.let {
                         add("${it.index + 1}/${it.total} ${it.selected.text}")

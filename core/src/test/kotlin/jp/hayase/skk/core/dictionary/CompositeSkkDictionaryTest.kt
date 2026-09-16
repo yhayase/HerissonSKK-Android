@@ -82,4 +82,55 @@ class CompositeSkkDictionaryTest {
         val entry = SkkDictionaryEntry("にほん", listOf(SkkDictionaryCandidate("日本")))
         assertThrows(IllegalArgumentException::class.java) { SkkDictionarySource("a", 0, listOf(entry, entry)) }
     }
+
+    @Test fun `表示本文にまとまった全辞書と送り条件を個人世代付きで固定する`() {
+        val personal = SkkDictionarySource(
+            "personal",
+            8,
+            SkkDictionaryCodec.parseText("かk /[く/書/]/[け/書/]/").entries,
+        )
+        val system = SkkDictionarySource(
+            "system",
+            3,
+            SkkDictionaryCodec.parseText("かk /書/[く/書/]/").entries,
+        )
+
+        val candidate = CompositeSkkDictionary(personal, listOf(system))
+            .lookup(DictionaryQuery("かk", "く")).single()
+
+        assertEquals(8L, candidate.selection?.personalGeneration)
+        assertEquals(listOf("personal", "personal", "system", "system"),
+            candidate.selection?.origins?.map { it.dictionaryId })
+        assertEquals(listOf("く", "け", "く", null),
+            candidate.selection?.origins?.map { it.okuriCondition })
+        assertEquals(listOf("かk", "かk", "かk", "かk"),
+            candidate.selection?.origins?.map { it.entryKey })
+    }
+
+    @Test fun `抑止した保存由来を選択対象から除き個人なしでは削除対象を作らない`() {
+        val personal = source("personal", "かk /書/")
+        val system = source("system", "かk /書/[く/書/]/")
+        val suppression = SuppressedDictionaryCandidate("system", "かk", "書", "く")
+        val selected = CompositeSkkDictionary(personal, listOf(system), listOf(suppression))
+            .lookup(DictionaryQuery("かk", "く")).single().selection!!
+        assertEquals(listOf("personal", "system"), selected.origins.map { it.dictionaryId })
+        assertEquals(listOf(null, null), selected.origins.map { it.okuriCondition })
+
+        assertEquals(null, CompositeSkkDictionary(systems = listOf(system))
+            .lookup(DictionaryQuery("かk")).first().selection)
+    }
+
+    @Test fun `候補選択は入力リストの変更を受けず公開リストも変更できない`() {
+        val origins = mutableListOf(
+            SelectedCandidateOrigin("personal", 4, true, "かな", "仮名", null),
+        )
+        val selection = CandidateSelection(4, origins)
+        origins.clear()
+
+        assertEquals(1, selection.origins.size)
+        assertThrows(UnsupportedOperationException::class.java) {
+            @Suppress("UNCHECKED_CAST")
+            (selection.origins as MutableList<SelectedCandidateOrigin>).clear()
+        }
+    }
 }

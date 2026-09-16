@@ -5,6 +5,8 @@ import jp.hayase.skk.core.DictionaryCandidate
 import jp.hayase.skk.core.DictionaryQuery
 import jp.hayase.skk.core.NumericLearningTarget
 import jp.hayase.skk.core.RegistrationPreparation
+import jp.hayase.skk.core.dictionary.CandidateSelection
+import jp.hayase.skk.core.dictionary.SelectedCandidateOrigin
 import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
 
 enum class NumericLookupFailure { EXTRACTION, EXPANSION }
@@ -23,20 +25,46 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
         val output = linkedMapOf<String, DictionaryCandidate>()
         var anySuccess = false
         var total = 0L
+        var totalOrigins = 0L
         for (template in templates) {
             val expanded = NumericConversion.expand(template.asSkk(), extraction.spans) { number ->
+                // #4 の内側候補は表示材料であり、削除対象は外側テンプレートだけです。
                 raw.lookup(DictionaryQuery(number)).map { it.asSkk() }
             }
             if (expanded.candidates.isEmpty()) continue
             anySuccess = true
             for (value in expanded.candidates) {
-                if (output.containsKey(value.text)) continue
-                total += value.text.length
-                if (output.size >= NumericConversion.MAX_VARIANTS || total > NumericConversion.MAX_TOTAL_OUTPUT_CHARS) {
-                    throw NumericLookupException(NumericLookupFailure.EXPANSION)
+                val previous = output[value.text]
+                if (previous == null) {
+                    total += value.text.length
+                    if (output.size >= NumericConversion.MAX_VARIANTS ||
+                        total > NumericConversion.MAX_TOTAL_OUTPUT_CHARS
+                    ) {
+                        throw NumericLookupException(NumericLookupFailure.EXPANSION)
+                    }
+                    val originCount = template.selection?.origins?.size ?: 0
+                    ensureOriginLimit(totalOrigins + originCount)
+                    val selection = template.selection?.asNumericTemplate()
+                    totalOrigins += originCount
+                    output[value.text] = DictionaryCandidate(
+                        value.text,
+                        value.annotation,
+                        value.okuriCondition,
+                        NumericLearningTarget(normalized, template.text, template.annotation, template.okuriCondition),
+                        selection,
+                    )
+                } else {
+                    val previousCount = previous.selection?.origins?.size ?: 0
+                    val otherOrigins = totalOrigins - previousCount
+                    val merged = mergeSelections(
+                        previous.selection,
+                        template.selection,
+                        (MAX_SELECTION_ORIGINS - otherOrigins).toInt(),
+                    )
+                    totalOrigins += (merged?.origins?.size ?: 0) - (previous.selection?.origins?.size ?: 0)
+                    ensureOriginLimit(totalOrigins)
+                    output[value.text] = previous.copy(selection = merged)
                 }
-                output[value.text] = DictionaryCandidate(value.text, value.annotation, value.okuriCondition,
-                    NumericLearningTarget(normalized, template.text, template.annotation, template.okuriCondition))
             }
         }
         if (!anySuccess || output.isEmpty()) throw NumericLookupException(NumericLookupFailure.EXPANSION)
@@ -69,7 +97,39 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
 
     private fun DictionaryCandidate.asSkk() = SkkDictionaryCandidate(text, annotation, okuriCondition)
 
+    private fun CandidateSelection.asNumericTemplate() = CandidateSelection(
+        personalGeneration,
+        origins,
+        numericTemplate = true,
+    )
+
+    private fun mergeSelections(
+        first: CandidateSelection?,
+        second: CandidateSelection?,
+        maximumOrigins: Int,
+    ): CandidateSelection? {
+        if (first == null || second == null) return null
+        if (first.personalGeneration != second.personalGeneration) {
+            throw NumericLookupException(NumericLookupFailure.EXPANSION)
+        }
+        val origins = LinkedHashSet(first.origins)
+        second.origins.forEach { origin ->
+            origins += origin
+            if (origins.size > maximumOrigins) {
+                throw NumericLookupException(NumericLookupFailure.EXPANSION)
+            }
+        }
+        return CandidateSelection(first.personalGeneration, origins.toList(), numericTemplate = true)
+    }
+
+    private fun ensureOriginLimit(totalOrigins: Long) {
+        if (totalOrigins > MAX_SELECTION_ORIGINS) {
+            throw NumericLookupException(NumericLookupFailure.EXPANSION)
+        }
+    }
+
     private companion object {
         const val MAX_TEMPLATES = 1_024
+        const val MAX_SELECTION_ORIGINS = 4_096
     }
 }

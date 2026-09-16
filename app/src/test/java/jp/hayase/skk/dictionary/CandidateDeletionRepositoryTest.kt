@@ -41,7 +41,10 @@ class CandidateDeletionRepositoryTest {
             val result = repository.deleteCandidate(DeleteCandidateRequest(1, origins), mapOf("builtin" to 7L))
 
             assertEquals(2L, result.generation)
-            assertTrue(SkkDictionaryCodec.parse(repository.exportPersonal()).entries.isEmpty())
+            val exported = repository.exportPersonalWithMetadata()
+            assertTrue(SkkDictionaryCodec.parse(exported.bytes).entries.isEmpty())
+            assertEquals(2, exported.excludedSuppressionCount)
+            assertTrue(exported.bytes.contentEquals(repository.exportPersonal()))
             assertEquals(
                 listOf("builtin", "system"),
                 repository.listCandidateSuppressions().suppressions.map { it.key.sourceId },

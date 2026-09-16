@@ -11,6 +11,8 @@ import jp.hayase.skk.core.RegistrationPolicy
 import jp.hayase.skk.core.RegistrationSaveCompletion
 import jp.hayase.skk.core.RegistrationSaveOutcome
 import jp.hayase.skk.core.RegistrationSaveRequest
+import jp.hayase.skk.core.dictionary.CandidateSelection
+import jp.hayase.skk.core.dictionary.SelectedCandidateOrigin
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -179,6 +181,64 @@ class NumericSkkDictionaryTest {
         assertTrue(rejected.notice!!.contains("65,536"))
     }
 
+    @Test fun `同じ表示へ収束した全外側テンプレート由来をまとめ先頭の表示と学習対象を保つ`() {
+        val dictionary = facade(mapOf("値#" to listOf(
+            DictionaryCandidate("#0", "先頭注釈", selection = selection("a", 9, "値#", "#0")),
+            DictionaryCandidate("#00", "後続注釈", selection = selection("b", 9, "値#", "#00")),
+        )))
+
+        val candidate = dictionary.lookup(DictionaryQuery("値12")).single()
+
+        assertEquals("12", candidate.text)
+        assertEquals("先頭注釈", candidate.annotation)
+        assertEquals("#0", candidate.learningTarget?.templateText)
+        assertEquals(true, candidate.selection?.numericTemplate)
+        assertEquals(listOf("#0", "#00"), candidate.selection?.origins?.map { it.text })
+        assertEquals(listOf("値#", "値#"), candidate.selection?.origins?.map { it.entryKey })
+    }
+
+    @Test fun `四番は内側候補由来を削除対象へ混ぜず外側テンプレートだけを保持する`() {
+        val outer = selection("outer", 5, "こーど#", "地域:#4")
+        val inner = selection("inner", 5, "314", "北区")
+        val dictionary = NumericSkkDictionary(BasicSkkDictionary { query ->
+            when (query.readingKey) {
+                "こーど#" -> listOf(DictionaryCandidate("地域:#4", selection = outer))
+                "314" -> listOf(DictionaryCandidate("北区", selection = inner))
+                else -> emptyList()
+            }
+        })
+
+        val candidate = dictionary.lookup(DictionaryQuery("こーど314")).single()
+
+        assertEquals("地域:北区", candidate.text)
+        assertEquals(listOf("outer"), candidate.selection?.origins?.map { it.dictionaryId })
+        assertEquals("地域:#4", candidate.selection?.origins?.single()?.text)
+        assertEquals(true, candidate.selection?.numericTemplate)
+    }
+
+    @Test fun `収束候補の個人世代不一致と由来総数上限超過を安全に拒否する`() {
+        val mismatched = facade(mapOf("値#" to listOf(
+            DictionaryCandidate("#0", selection = selection("a", 1, "値#", "#0")),
+            DictionaryCandidate("#00", selection = selection("b", 2, "値#", "#00")),
+        )))
+        assertThrows(NumericLookupException::class.java) {
+            mismatched.lookup(DictionaryQuery("値1"))
+        }
+
+        fun withOrigins(count: Int) = NumericSkkDictionary(BasicSkkDictionary { query ->
+            if (query.readingKey == "値#") {
+                val origins = List(count) { index ->
+                    SelectedCandidateOrigin("d$index", 1, false, "値#", "#0", null)
+                }
+                listOf(DictionaryCandidate("#0", selection = CandidateSelection(1, origins)))
+            } else emptyList()
+        })
+        assertEquals("1", withOrigins(4_096).lookup(DictionaryQuery("値1")).single().text)
+        assertThrows(NumericLookupException::class.java) {
+            withOrigins(4_097).lookup(DictionaryQuery("値1"))
+        }
+    }
+
     @Test fun `数値表示を確定しても学習効果は元キーとテンプレートを使う`() {
         val engine = BasicSkkEngine(
             facade(mapOf("だい#" to listOf(DictionaryCandidate("第#3", "注釈")))),
@@ -202,4 +262,14 @@ class NumericSkkDictionaryTest {
 
     private fun mutableFacade(values: MutableMap<String, List<DictionaryCandidate>>) =
         NumericSkkDictionary(BasicSkkDictionary { values[it.readingKey].orEmpty() })
+
+    private fun selection(
+        dictionaryId: String,
+        personalGeneration: Long,
+        entryKey: String,
+        text: String,
+    ) = CandidateSelection(
+        personalGeneration,
+        listOf(SelectedCandidateOrigin(dictionaryId, 1, false, entryKey, text, null)),
+    )
 }

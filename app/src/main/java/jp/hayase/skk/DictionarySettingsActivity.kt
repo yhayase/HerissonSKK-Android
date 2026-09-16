@@ -30,6 +30,9 @@ import jp.hayase.skk.dictionary.DictionaryManagerWriteResult
 import jp.hayase.skk.dictionary.DictionaryRuntime
 import jp.hayase.skk.dictionary.DictionarySourceInfo
 import jp.hayase.skk.dictionary.DictionarySourceKind
+import jp.hayase.skk.dictionary.CandidateSuppressionInfo
+import jp.hayase.skk.dictionary.CandidateSuppressionSnapshot
+import jp.hayase.skk.dictionary.PersonalDictionaryExport
 
 class DictionarySettingsActivity : Activity() {
     private enum class ImportKind { NEW_SYSTEM, UPDATE_SYSTEM, MERGE_PERSONAL, REPLACE_PERSONAL }
@@ -50,6 +53,7 @@ class DictionarySettingsActivity : Activity() {
     private lateinit var exportPersonalButton: Button
     private lateinit var reloadButton: Button
     private lateinit var sourceContainer: LinearLayout
+    private lateinit var suppressionContainer: LinearLayout
     private lateinit var statusView: TextView
     private val fileExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var subscription: DictionaryManagerSubscription? = null
@@ -146,6 +150,12 @@ class DictionarySettingsActivity : Activity() {
         })
         sourceContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(sourceContainer)
+        content.addView(TextView(this).apply {
+            text = "非表示にしたシステム候補"
+            textSize = 18f
+        })
+        suppressionContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(suppressionContainer)
         statusView = TextView(this).apply {
             setText(R.string.dictionary_loading)
             isFocusable = true
@@ -351,8 +361,8 @@ class DictionarySettingsActivity : Activity() {
 
     private fun exportTo(uri: Uri) {
         setStatus(R.string.dictionary_exporting)
-        manager.exportPersonal { result ->
-            if (!active) return@exportPersonal
+        manager.exportPersonalWithMetadata { result ->
+            if (!active) return@exportPersonalWithMetadata
             when (result) {
                 is DictionaryManagerWriteResult.Applied -> writeExport(uri, result.value)
                 is DictionaryManagerWriteResult.SavedButNotApplied -> writeExport(uri, result.value)
@@ -364,16 +374,21 @@ class DictionarySettingsActivity : Activity() {
         }
     }
 
-    private fun writeExport(uri: Uri, bytes: ByteArray) {
+    private fun writeExport(uri: Uri, exported: PersonalDictionaryExport) {
         fileExecutor.execute {
             val written = runCatching {
-                contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
+                contentResolver.openOutputStream(uri, "wt")?.use { it.write(exported.bytes) }
                     ?: throw IllegalStateException()
             }.isSuccess
             runOnUiThread {
                 if (active) {
                     setBusy(false)
-                    setStatus(if (written) R.string.dictionary_export_complete else R.string.dictionary_export_failed)
+                    if (written) {
+                        statusView.text = "個人辞書を書き出しました。非表示の指定 ${exported.excludedSuppressionCount} 件は含まれません。"
+                        statusView.announceForAccessibility(statusView.text)
+                    } else {
+                        setStatus(R.string.dictionary_export_failed)
+                    }
                 }
             }
         }
@@ -383,9 +398,29 @@ class DictionarySettingsActivity : Activity() {
         manager.listSources { result ->
             if (!active) return@listSources
             when (result) {
-                is DictionaryManagerWriteResult.Applied -> renderSources(result.value)
-                is DictionaryManagerWriteResult.SavedButNotApplied -> renderSources(result.value)
+                is DictionaryManagerWriteResult.Applied -> {
+                    renderSources(result.value)
+                    refreshSuppressions()
+                }
+                is DictionaryManagerWriteResult.SavedButNotApplied -> {
+                    renderSources(result.value)
+                    refreshSuppressions()
+                }
                 DictionaryManagerWriteResult.Failed -> setStatus(R.string.dictionary_list_failed)
+            }
+        }
+    }
+
+    private fun refreshSuppressions() {
+        manager.listSuppressions { result ->
+            if (!active) return@listSuppressions
+            when (result) {
+                is DictionaryManagerWriteResult.Applied -> drawSuppressions(result.value)
+                is DictionaryManagerWriteResult.SavedButNotApplied -> drawSuppressions(result.value)
+                DictionaryManagerWriteResult.Failed -> {
+                    suppressionContainer.removeAllViews()
+                    suppressionContainer.addView(TextView(this).apply { text = "非表示候補を読み込めませんでした" })
+                }
             }
         }
     }
@@ -409,6 +444,78 @@ class DictionarySettingsActivity : Activity() {
             sourceContainer.addView(TextView(this).apply { setText(R.string.dictionary_no_system_sources) })
         } else {
             systemSources.forEachIndexed { index, source -> sourceContainer.addView(sourceRow(source, index)) }
+        }
+    }
+
+    private fun drawSuppressions(snapshot: CandidateSuppressionSnapshot) {
+        suppressionContainer.removeAllViews()
+        if (snapshot.suppressions.isEmpty()) {
+            suppressionContainer.addView(TextView(this).apply { text = "非表示の候補はありません" })
+            return
+        }
+        snapshot.suppressions.forEach { suppression ->
+            suppressionContainer.addView(suppressionRow(suppression, snapshot.personalGeneration))
+        }
+    }
+
+    private fun suppressionRow(
+        suppression: CandidateSuppressionInfo,
+        generation: Long,
+    ): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(0, 12, 0, 12)
+        val key = suppression.key
+        val sourceName = systemSources.firstOrNull { it.id == key.sourceId }?.name
+            ?: if (key.sourceId == BUILTIN_FIXTURE_ID) "同梱の試験辞書" else "現在利用できない辞書"
+        addView(TextView(this@DictionarySettingsActivity).apply { text = sourceName })
+        addView(TextView(this@DictionarySettingsActivity).apply {
+            text = "読み: ${key.entryKey}\n候補: ${key.templateText}\n送り: ${key.okuriCondition ?: "なし"}"
+        })
+        addView(Button(this@DictionarySettingsActivity).apply {
+            text = "再表示する"
+            isEnabled = !busy
+            setOnClickListener { confirmRestoreSuppression(suppression, generation, sourceName) }
+        })
+    }
+
+    private fun confirmRestoreSuppression(
+        suppression: CandidateSuppressionInfo,
+        generation: Long,
+        sourceName: String,
+    ) {
+        if (busy) return
+        AlertDialog.Builder(this)
+            .setTitle("候補を再表示する")
+            .setMessage(
+                "$sourceName\n読み: ${suppression.key.entryKey}\n候補: ${suppression.key.templateText}" +
+                    "\n送り: ${suppression.key.okuriCondition ?: "なし"}\nを再表示しますか？",
+            )
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton("再表示する") { _, _ -> restoreSuppression(suppression, generation) }
+            .show()
+    }
+
+    private fun restoreSuppression(suppression: CandidateSuppressionInfo, generation: Long) {
+        if (busy) return
+        setBusy(true)
+        manager.restoreCandidateSuppression(suppression.key, generation) { result ->
+            if (!active) return@restoreCandidateSuppression
+            setBusy(false)
+            when (result) {
+                is DictionaryManagerWriteResult.Applied -> {
+                    statusView.text = "非表示の指定を解除しました"
+                    statusView.announceForAccessibility(statusView.text)
+                }
+                is DictionaryManagerWriteResult.SavedButNotApplied -> {
+                    statusView.text = "非表示の指定は解除しましたが、検索辞書を更新できませんでした。再読み込みしてください。"
+                    statusView.announceForAccessibility(statusView.text)
+                }
+                DictionaryManagerWriteResult.Failed -> {
+                    statusView.text = "候補を再表示できませんでした。一覧を更新します。"
+                    statusView.announceForAccessibility(statusView.text)
+                }
+            }
+            refreshSources()
         }
     }
 
@@ -559,6 +666,7 @@ class DictionarySettingsActivity : Activity() {
         busy = value
         updatePrimaryControls()
         if (::sourceContainer.isInitialized && sourcesLoadedOnce) drawSources()
+        if (::suppressionContainer.isInitialized) refreshSuppressions()
     }
 
     private fun updatePrimaryControls() {
@@ -598,6 +706,7 @@ class DictionarySettingsActivity : Activity() {
         private const val REQUEST_IMPORT = 100
         private const val REQUEST_EXPORT = 101
         private const val DEFAULT_EXPORT_NAME = "SKK-JISYO.user.utf8"
+        private const val BUILTIN_FIXTURE_ID = "__builtin_fixture__"
         private const val STATE_KIND = "dictionary.import.kind"
         private const val STATE_ENCODING = "dictionary.import.encoding"
         private const val STATE_ID = "dictionary.import.id"

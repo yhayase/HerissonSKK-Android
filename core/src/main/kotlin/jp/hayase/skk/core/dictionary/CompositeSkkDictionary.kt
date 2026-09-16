@@ -55,6 +55,7 @@ class CompositeSkkDictionary(
     systems: List<SkkDictionarySource> = emptyList(),
     suppressions: Collection<SuppressedDictionaryCandidate> = emptyList(),
 ) : BasicSkkDictionary {
+    private val personalGeneration = personal?.generation
     private val sources = listOfNotNull(personal?.let { it to true }) + systems.map { it to false }
     private val suppressions = suppressions.toSet()
 
@@ -62,10 +63,28 @@ class CompositeSkkDictionary(
         require(sources.map { it.first.id }.distinct().size == sources.size) { "辞書IDが重複しています" }
     }
 
-    override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> =
-        resolve(query).map {
-            DictionaryCandidate(it.candidate.text, it.candidate.annotation, it.candidate.okuriCondition)
-        }
+    override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> = resolve(query).map { resolved ->
+        DictionaryCandidate(
+            text = resolved.candidate.text,
+            annotation = resolved.candidate.annotation,
+            okuriCondition = resolved.candidate.okuriCondition,
+            selection = personalGeneration?.let { generation ->
+                CandidateSelection(
+                    personalGeneration = generation,
+                    origins = resolved.origins.map { origin ->
+                        SelectedCandidateOrigin(
+                            dictionaryId = origin.dictionaryId,
+                            generation = origin.generation,
+                            personal = origin.personal,
+                            entryKey = query.readingKey,
+                            text = origin.candidate.text,
+                            okuriCondition = origin.candidate.okuriCondition,
+                        )
+                    },
+                )
+            },
+        )
+    }
 
     fun resolve(query: DictionaryQuery): List<ResolvedDictionaryCandidate> {
         val byText = linkedMapOf<String, MutableList<CandidateOrigin>>()

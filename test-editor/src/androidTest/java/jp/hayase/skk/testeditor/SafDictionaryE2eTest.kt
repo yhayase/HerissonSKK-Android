@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.EditText
+import android.widget.Switch
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -51,7 +52,13 @@ class SafDictionaryE2eTest {
         val learned = "$DOWNLOADS/$id-learned.utf8.txt"
         val exported = "$DOWNLOADS/$id-exported.utf8.txt"
         val restored = "$DOWNLOADS/$id-restored.utf8.txt"
+        val systemFixture = "$DOWNLOADS/$id-system.utf8.txt"
         val recovery = "$DOWNLOADS/$id-recovery.json"
+        val systemSourceName = fileName(systemFixture)
+        val deletionReading = "zz" + id.filter(Char::isLetterOrDigit).takeLast(12).map { character ->
+            if (character.isDigit()) 'g' + (character - '0') else character
+        }.joinToString("")
+        val deletionCandidate = "削除検証候補" + id.takeLast(8)
         val fixtureBytes = """
             てすと /統合候補;E2E注釈/
             にほん /日本;第一注釈/二本;第二注釈/
@@ -67,19 +74,30 @@ class SafDictionaryE2eTest {
         """.trimIndent().plus("\n").toByteArray(StandardCharsets.UTF_8)
         var backupBytes: ByteArray? = null
         var recoveryWritten = false
+        var systemImported = false
+        var suppressionCreated = false
+        var suppressionRestored = false
+        var systemRemoved = false
         var bodyFailure: Throwable? = null
 
         try {
             writeFile(fixture, fixtureBytes)
+            writeFile(systemFixture, "$deletionReading /$deletionCandidate/\n".toByteArray(StandardCharsets.UTF_8))
             openDictionarySettings()
 
             exportPersonal(fileName(backup))
             backupBytes = readFile(backup)
             assertTrue("バックアップを書き出せません", backupBytes.isNotEmpty())
-            writeFile(recovery, recoveryJson(id, backup, fixture, learned, exported, restored).toByteArray(StandardCharsets.UTF_8))
+            writeFile(recovery, recoveryJson(
+                id, backup, fixture, learned, exported, restored,
+                systemFixture, systemSourceName, deletionReading, deletionCandidate,
+            ).toByteArray(StandardCharsets.UTF_8))
             recoveryWritten = true
 
             replacePersonal(fileName(fixture))
+            // この呼出し中に永続化して後続の UI 検証だけが失敗しても、finally で必ず探索します。
+            systemImported = true
+            addSystemDictionary(systemSourceName)
             ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
                 val editor = scenario.editorStartingWith("複数行 A")
                 scenario.onActivity { editor.requestFocus() }
@@ -109,6 +127,51 @@ class SafDictionaryE2eTest {
                 type("tango")
                 key(KeyEvent.KEYCODE_ENTER)
                 awaitText(registrationEditor, "たんご")
+            }
+
+            ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+                val editor = scenario.editorStartingWith("複数行 A")
+                scenario.onActivity { editor.requestFocus() }
+                awaitIme()
+                key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+                type("/$deletionReading ")
+                awaitText(editor, deletionCandidate)
+
+                key(KeyEvent.KEYCODE_X, KeyEvent.META_SHIFT_ON)
+                awaitTextVisible("削除確認: $deletionReading → $deletionCandidate")
+                type("n")
+                awaitText(editor, deletionCandidate)
+                awaitTextNotVisible("削除確認: $deletionReading → $deletionCandidate")
+
+                key(KeyEvent.KEYCODE_X, KeyEvent.META_SHIFT_ON)
+                awaitTextVisible("削除確認: $deletionReading → $deletionCandidate")
+                // y の保存完了直後に表示検証が失敗しても、復元対象を見失わないよう先に記録します。
+                suppressionCreated = true
+                type("y")
+                awaitText(editor, deletionReading)
+                awaitTextNotVisible("単語登録")
+            }
+
+            openDictionarySettings()
+            assertTrue(
+                "削除したシステム候補の非表示指定が一覧にありません",
+                restoreSuppressionIfPresent(systemSourceName, deletionReading, deletionCandidate),
+            )
+            suppressionRestored = true
+            awaitTextVisible("非表示の指定を解除しました")
+
+            val deletionVerificationIntent = android.content.Intent(
+                instrumentation.targetContext, InputTestActivity::class.java,
+            ).putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true)
+            ActivityScenario.launch<InputTestActivity>(deletionVerificationIntent).use { scenario ->
+                val editor = scenario.editorStartingWith("複数行 A")
+                scenario.onActivity { editor.requestFocus() }
+                awaitIme()
+                key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+                type("/$deletionReading ")
+                awaitText(editor, deletionCandidate)
+                key(KeyEvent.KEYCODE_ENTER)
+                awaitText(editor, deletionCandidate)
             }
 
             openDictionarySettings()
@@ -169,6 +232,8 @@ class SafDictionaryE2eTest {
             assertTrue("数値学習で元テンプレートが失われました", exportedText.contains("na# /第#0;数値注釈/"))
             assertTrue("数値の展開済み本文を別見出しへ学習しました", !exportedText.lineSequence().any { it.startsWith("na12 ") })
             assertTrue("再検索で外側テンプレートの注釈が失われました", exportedText.contains("ne# /地域:#4;外側注釈/"))
+            assertTrue("システム候補の削除確認で個人辞書へ登録または学習しました",
+                exportedText.lineSequence().none { it.startsWith("$deletionReading ") || it.contains(deletionCandidate) })
         } catch (failure: Throwable) {
             bodyFailure = failure
             throw failure
@@ -176,21 +241,39 @@ class SafDictionaryE2eTest {
             if (recoveryWritten) {
                 val restoreFailure = runCatching {
                     openDictionarySettings()
+                    if (!suppressionRestored) {
+                        val restoredSuppression = restoreSuppressionIfPresent(
+                            systemSourceName, deletionReading, deletionCandidate,
+                        )
+                        if (suppressionCreated && !restoredSuppression) {
+                            throw AssertionError("作成した非表示指定を復元できません")
+                        }
+                        suppressionRestored = true
+                    }
+                    if (!systemRemoved) {
+                        val removedSystem = removeSystemIfPresent(systemSourceName)
+                        if (systemImported && !removedSystem) {
+                            throw AssertionError("追加した試験辞書を削除できません")
+                        }
+                        systemRemoved = true
+                    }
                     replacePersonal(fileName(backup))
                     exportPersonal(fileName(restored))
                     assertArrayEquals("個人辞書を開始時の内容へ戻せません", checkNotNull(backupBytes), readFile(restored))
                 }.exceptionOrNull()
                 if (restoreFailure == null) {
-                    removeFiles(backup, fixture, learned, exported, restored, recovery)
+                    removeFiles(backup, fixture, learned, exported, restored, systemFixture, recovery)
                 } else {
                     val recoveryError = AssertionError(
-                        "個人辞書の復元に失敗しました。復旧情報を残しました: $recovery",
+                        "辞書状態の復元に失敗しました。復旧情報を残しました: $recovery " +
+                            "(systemImported=$systemImported, suppressionCreated=$suppressionCreated, " +
+                            "suppressionRestored=$suppressionRestored, systemRemoved=$systemRemoved)",
                         restoreFailure,
                     )
                     if (bodyFailure == null) throw recoveryError else bodyFailure!!.addSuppressed(recoveryError)
                 }
             } else {
-                removeFiles(backup, fixture, learned, exported, restored, recovery)
+                removeFiles(backup, fixture, learned, exported, restored, systemFixture, recovery)
             }
         }
     }
@@ -220,6 +303,120 @@ class SafDictionaryE2eTest {
         awaitTextVisible("適用前の確認")
         clickText("適用する")
         awaitTextVisible("辞書を適用しました。")
+    }
+
+    private fun addSystemDictionary(fileName: String) {
+        clickText("追加辞書を読み込む")
+        selectDownloads()
+        awaitFileAndOpen(fileName)
+        awaitDocumentsUiClosed()
+        awaitTextVisible("適用前の確認")
+        clickText("適用する")
+        awaitTextVisible("辞書を適用しました。")
+        if (findScopedRowWithScroll(fileName, detail = null) == null) {
+            throw AssertionError("追加辞書が一覧へ現れません: $fileName")
+        }
+    }
+
+    /** 一意な由来・読み・候補がそろう行だけを復元します。存在しなければ何も変更しません。 */
+    private fun restoreSuppressionIfPresent(sourceName: String, reading: String, candidate: String): Boolean {
+        val detail = "読み: $reading\n候補: $candidate\n送り: なし"
+        val row = findScopedRowWithScroll(sourceName, detail) ?: return false
+        val restore = descendants(row).firstOrNull {
+            it.text?.toString() == "再表示する" && it.isEnabled && it.isClickable
+        } ?: throw AssertionError("対象の非表示候補に再表示ボタンがありません: $sourceName / $reading")
+        assertTrue("対象の非表示候補を選べません", restore.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        awaitTextVisible("候補を再表示する")
+        awaitTextVisible(sourceName)
+        awaitTextVisible("読み: $reading")
+        awaitTextVisible("候補: $candidate")
+        clickAppDialogPositive("再表示する")
+        awaitTextVisible("非表示の指定を解除しました")
+        return true
+    }
+
+    /** 一意なファイル名の追加辞書行だけを削除します。存在しなければ何も変更しません。 */
+    private fun removeSystemIfPresent(sourceName: String): Boolean {
+        val row = findScopedRowWithScroll(sourceName, detail = null) ?: return false
+        val remove = descendants(row).firstOrNull {
+            it.text?.toString() == "削除" && it.isEnabled && it.isClickable
+        } ?: throw AssertionError("対象の追加辞書に削除ボタンがありません: $sourceName")
+        assertTrue("対象の追加辞書を選べません", remove.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        awaitTextVisible("追加辞書の削除")
+        awaitTextVisible("「$sourceName」を削除します。個人辞書の登録・学習内容は削除されません。")
+        clickAppDialogPositive("削除")
+        awaitExactAppTextAbsent(sourceName, "追加辞書を削除できません: $sourceName")
+        return true
+    }
+
+    private fun findScopedRowWithScroll(
+        sourceName: String,
+        detail: String?,
+    ): AccessibilityNodeInfo? {
+        // 前の操作が抑止一覧までスクロールしていても、毎回先頭から一方向に探索します。
+        repeat(4) {
+            device.swipe(device.displayWidth / 2, device.displayHeight / 5,
+                device.displayWidth / 2, device.displayHeight * 4 / 5, 16)
+            device.waitForIdle()
+        }
+        val deadline = SystemClock.uptimeMillis() + UI_TIMEOUT_MS
+        while (SystemClock.uptimeMillis() < deadline) {
+            automation.windows.asSequence().mapNotNull { it.root }
+                .filter { it.packageName?.toString() == SKK_PACKAGE }
+                .forEach { root ->
+                    val anchor = descendants(root).firstOrNull { node ->
+                        if (detail != null) node.text?.toString() == detail
+                        else isSourceLabel(node, sourceName)
+                    }
+                    var row = anchor
+                    while (row != null) {
+                        val rowNodes = descendants(row)
+                        val hasScopedAction = if (detail == null) {
+                            rowNodes.any { it.text?.toString() == "削除" }
+                        } else {
+                            rowNodes.any { it.text?.toString() == detail } &&
+                                rowNodes.any { it.text?.toString() == "再表示する" }
+                        }
+                        if (rowNodes.any { isSourceLabel(it, sourceName) } && hasScopedAction) return row
+                        row = row.parent
+                    }
+                }
+            device.swipe(device.displayWidth / 2, device.displayHeight * 4 / 5,
+                device.displayWidth / 2, device.displayHeight / 5, 16)
+            device.waitForIdle()
+        }
+        return null
+    }
+
+    private fun isSourceLabel(node: AccessibilityNodeInfo, sourceName: String): Boolean {
+        val text = node.text?.toString()
+        return text == sourceName || (
+            node.className?.toString() == Switch::class.java.name &&
+                (text == "$sourceName ON" || text == "$sourceName OFF")
+            )
+    }
+
+    private fun clickAppDialogPositive(label: String) {
+        val button = awaitNode("確認ダイアログの操作ボタンがありません: $label") { root ->
+            root.takeIf { it.packageName?.toString() == SKK_PACKAGE }
+                ?.findAccessibilityNodeInfosByViewId("android:id/button1")
+                ?.firstOrNull { it.text?.toString() == label && it.isEnabled && it.isClickable }
+        }
+        assertTrue("確認ダイアログを操作できません: $label",
+            button.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+    }
+
+    private fun awaitExactAppTextAbsent(text: String, message: String) {
+        val deadline = SystemClock.uptimeMillis() + UI_TIMEOUT_MS
+        while (SystemClock.uptimeMillis() < deadline) {
+            val exists = automation.windows.asSequence().mapNotNull { it.root }
+                .filter { it.packageName?.toString() == SKK_PACKAGE }
+                .flatMap { descendants(it).asSequence() }
+                .any { isSourceLabel(it, text) }
+            if (!exists) return
+            SystemClock.sleep(POLL_MS)
+        }
+        throw AssertionError(message)
     }
 
     private fun awaitEditableFileName(fileName: String) {
@@ -326,6 +523,18 @@ class SafDictionaryE2eTest {
             root.takeIf { it.packageName?.toString() == SKK_PACKAGE }
                 ?.findAccessibilityNodeInfosByText(text)?.firstOrNull()
         }
+    }
+
+    private fun awaitTextNotVisible(text: String) {
+        val deadline = SystemClock.uptimeMillis() + UI_TIMEOUT_MS
+        while (SystemClock.uptimeMillis() < deadline) {
+            val visible = automation.windows.asSequence().mapNotNull { it.root }
+                .flatMap { it.findAccessibilityNodeInfosByText(text).asSequence() }
+                .any { it.text?.toString()?.contains(text) == true }
+            if (!visible) return
+            SystemClock.sleep(POLL_MS)
+        }
+        throw AssertionError("表示が消えません: $text")
     }
 
     private fun awaitDocumentsUiClosed() {
@@ -459,7 +668,11 @@ class SafDictionaryE2eTest {
         learned: String,
         exported: String,
         restored: String,
-    ) = """{"test":"$id","backup":"$backup","fixture":"$fixture","learned":"$learned","exported":"$exported","restored":"$restored"}""" + "\n"
+        systemFixture: String,
+        systemSourceName: String,
+        deletionReading: String,
+        deletionCandidate: String,
+    ) = """{"test":"$id","backup":"$backup","fixture":"$fixture","learned":"$learned","exported":"$exported","restored":"$restored","systemFixture":"$systemFixture","systemSourceName":"$systemSourceName","deletionReading":"$deletionReading","deletionCandidate":"$deletionCandidate"}""" + "\n"
 
     private fun fileName(path: String): String = path.substringAfterLast('/')
 
