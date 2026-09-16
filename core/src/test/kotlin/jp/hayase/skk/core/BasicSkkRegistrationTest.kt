@@ -304,7 +304,7 @@ class BasicSkkRegistrationTest {
         val body = "😀".repeat(32_767) + "."
         val result = engine.dispatch(BasicSkkAction.Text("Michi $body"))
         assertNull(result.commit)
-        assertEquals(body, result.view.registration?.body)
+        assertEquals("😀".repeat(32_767) + "。", result.view.registration?.body)
         assertEquals(65_535, result.view.registration?.body?.length)
     }
 

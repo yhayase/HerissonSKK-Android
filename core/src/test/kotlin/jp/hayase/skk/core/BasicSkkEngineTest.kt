@@ -106,7 +106,7 @@ class BasicSkkEngineTest {
 
         val punctuation = engine()
         punctuation.dispatch(BasicSkkAction.Text("n"))
-        assertEquals("ん.", punctuation.dispatch(BasicSkkAction.Text(".")).commit)
+        assertEquals("ん。", punctuation.dispatch(BasicSkkAction.Text(".")).commit)
         assertFalse(punctuation.dispatch(BasicSkkAction.Enter).handled)
 
         val katakana = engine()

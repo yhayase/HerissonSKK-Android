@@ -2,6 +2,7 @@ package jp.hayase.skk.core
 
 import jp.hayase.skk.core.romaji.KanaTransforms
 import jp.hayase.skk.core.romaji.Romanizer
+import jp.hayase.skk.core.romaji.RomanRuleSet
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 import jp.hayase.skk.core.dictionary.CandidateSelection
@@ -139,8 +140,18 @@ class BasicSkkEngine(
     private val learningEnabled: Boolean = false,
     private val deletionEnabled: Boolean = false,
     private val completionConfig: CompletionConfig = CompletionConfig(),
+    private val romanRuleSet: RomanRuleSet = RomanRuleSet.standard,
+    private val punctuationConfig: PunctuationConfig = PunctuationConfig(),
+    private val candidateDisplayConfig: CandidateDisplayConfig = CandidateDisplayConfig(),
+    private val candidatePageSizeProvider: () -> Int = { candidateDisplayConfig.fixedPageSize },
 ) {
     constructor(dictionary: BasicSkkDictionary) : this(dictionary, RegistrationPolicy())
+
+    init {
+        require(romanRuleSet.inputCharacters.none { it in 'A'..'Z' }) {
+            "SKKの入力規則は大文字を読み・送り開始に使うため、小文字で定義します"
+        }
+    }
 
     private var mode = InputMode.HIRAGANA
     private var phase = InputPhase.IDLE
@@ -148,9 +159,10 @@ class BasicSkkEngine(
     private var readingStartMode = InputMode.HIRAGANA
     private var okuriBoundary: Int? = null
     private var okuriConsonant: Char? = null
-    private var romanizer = Romanizer()
+    private var romanizer = Romanizer(romanRuleSet)
     private var candidates: List<DictionaryCandidate> = emptyList()
     private var candidateIndex = 0
+    private var candidatePageSize = candidateDisplayConfig.fixedPageSize
     private var pendingTargetsOkuri = false
     private var selectionReturnState: ReadingSnapshot? = null
     private var selectionQuery: DictionaryQuery? = null
@@ -278,7 +290,7 @@ class BasicSkkEngine(
         }
         val original = snapshotReading()
         if (romanizer.pending.isNotEmpty()) {
-            if (romanizer.pending != "n") {
+            if (!romanizer.canFinishPending()) {
                 return Outcome(true, notice = "未入力のローマ字を完成してから補完してください")
             }
             finishPendingIntoBuffer()
@@ -403,7 +415,7 @@ class BasicSkkEngine(
         buffer = EditableBuffer(saved.text, saved.cursor)
         okuriBoundary = saved.okuriBoundary
         okuriConsonant = saved.okuriConsonant
-        romanizer = Romanizer().also {
+        romanizer = Romanizer(romanRuleSet).also {
             check(it.feed(saved.pendingRomaji).isEmpty()) { "未消化ローマ字を復元できません" }
         }
         pendingTargetsOkuri = saved.pendingTargetsOkuri
@@ -826,11 +838,11 @@ class BasicSkkEngine(
             }
             mode == InputMode.DIRECT -> Outcome(true, character.toString())
             mode == InputMode.FULLWIDTH -> Outcome(true, KanaTransforms.toFullwidthAscii(character.toString()))
-            character.isRomajiInput -> {
+            character.isRomajiInput || romanRuleSet.accepts(character.lowercaseChar()) -> {
                 val output = romanizer.feed(character.lowercaseChar().toString())
                 Outcome(true, renderKana(output, mode))
             }
-            else -> Outcome(true, finishIdlePending() + character)
+            else -> Outcome(true, finishIdlePending() + renderPunctuation(character, mode))
         }
     }
 
@@ -841,7 +853,7 @@ class BasicSkkEngine(
             okuriConsonant = character.lowercaseChar()
             pendingTargetsOkuri = true
         }
-        if (character.isRomajiInput) {
+        if (character.isRomajiInput || romanRuleSet.accepts(character.lowercaseChar())) {
             if (romanizer.pending.isEmpty()) {
                 pendingTargetsOkuri = okuriBoundary?.let { buffer.cursor >= it } == true
             }
@@ -850,7 +862,7 @@ class BasicSkkEngine(
             if (romanizer.pending.isEmpty()) pendingTargetsOkuri = false
         } else {
             finishPendingIntoBuffer()
-            insertBuffer(character.toString())
+            insertBuffer(renderPunctuation(character, readingStartMode))
         }
         return if (okuriBoundary != null && okuriText().isNotEmpty() && romanizer.pending.isEmpty()) lookup() else Outcome(true)
     }
@@ -986,6 +998,7 @@ class BasicSkkEngine(
             return Outcome(true, notice = NUMERIC_FAILURE_NOTICE)
         }
         candidateIndex = 0
+        candidatePageSize = candidatePageSizeProvider().coerceIn(1, candidateDisplayConfig.labels.length)
         selectionReturnState = returnState
         selectionQuery = query
         selectionRegistrationQuery = registrationQuery
@@ -1041,7 +1054,7 @@ class BasicSkkEngine(
         buffer = EditableBuffer(saved.text, saved.cursor)
         okuriBoundary = saved.okuriBoundary
         okuriConsonant = saved.okuriConsonant
-        romanizer = Romanizer().also {
+        romanizer = Romanizer(romanRuleSet).also {
             check(it.feed(saved.pendingRomaji).isEmpty()) { "未消化ローマ字を復元できません" }
         }
         pendingTargetsOkuri = saved.pendingTargetsOkuri
@@ -1140,13 +1153,17 @@ class BasicSkkEngine(
         repairBoundaryAfterEdit()
     }
 
+    private fun renderPunctuation(character: Char, targetMode: InputMode): String =
+        if (targetMode == InputMode.HIRAGANA || targetMode == InputMode.KATAKANA)
+            punctuationConfig.render(character) else character.toString()
+
     private fun stemText(): String = okuriBoundary?.let { buffer.text.substring(0, it) } ?: buffer.text
     private fun okuriText(): String = okuriBoundary?.let { buffer.text.substring(it) } ?: ""
     private fun menuIndexFor(label: Char): Int? {
         if (candidateIndex < INLINE_CANDIDATES) return null
-        val offset = LABELS.indexOf(label)
-        if (offset < 0) return null
-        val pageStart = INLINE_CANDIDATES + ((candidateIndex - INLINE_CANDIDATES) / LABELS.length) * LABELS.length
+        val offset = candidateDisplayConfig.labels.indexOf(label)
+        if (offset !in 0 until candidatePageSize) return null
+        val pageStart = INLINE_CANDIDATES + ((candidateIndex - INLINE_CANDIDATES) / candidatePageSize) * candidatePageSize
         return (pageStart + offset).takeIf { it < candidates.size }
     }
 
@@ -1154,9 +1171,9 @@ class BasicSkkEngine(
         val candidate = if (phase == InputPhase.SELECTING) {
             val selected = candidates[candidateIndex]
             val menu = if (candidateIndex >= INLINE_CANDIDATES) {
-                val start = INLINE_CANDIDATES + ((candidateIndex - INLINE_CANDIDATES) / LABELS.length) * LABELS.length
-                candidates.drop(start).take(LABELS.length).mapIndexed { offset, value ->
-                    LabeledCandidate(LABELS[offset], value, value.text + okuriText())
+                val start = INLINE_CANDIDATES + ((candidateIndex - INLINE_CANDIDATES) / candidatePageSize) * candidatePageSize
+                candidates.drop(start).take(candidatePageSize).mapIndexed { offset, value ->
+                    LabeledCandidate(candidateDisplayConfig.labels[offset], value, value.text + okuriText())
                 }
             } else emptyList()
             CandidateView(selected, selected.text + okuriText(), candidateIndex, candidates.size, menu)
@@ -1241,6 +1258,7 @@ class BasicSkkEngine(
         pendingRomaji = romanizer.pending,
         candidates = candidates,
         candidateIndex = candidateIndex,
+        candidatePageSize = candidatePageSize,
         pendingTargetsOkuri = pendingTargetsOkuri,
         selectionReturnState = selectionReturnState,
         selectionQuery = selectionQuery,
@@ -1257,11 +1275,12 @@ class BasicSkkEngine(
         readingStartMode = snapshot.readingStartMode
         okuriBoundary = snapshot.okuriBoundary
         okuriConsonant = snapshot.okuriConsonant
-        romanizer = Romanizer().also {
+        romanizer = Romanizer(romanRuleSet).also {
             check(it.feed(snapshot.pendingRomaji).isEmpty()) { "未消化ローマ字を復元できません" }
         }
         candidates = snapshot.candidates
         candidateIndex = snapshot.candidateIndex
+        candidatePageSize = snapshot.candidatePageSize
         pendingTargetsOkuri = snapshot.pendingTargetsOkuri
         selectionReturnState = snapshot.selectionReturnState
         selectionQuery = snapshot.selectionQuery
@@ -1324,6 +1343,7 @@ class BasicSkkEngine(
         val pendingRomaji: String,
         val candidates: List<DictionaryCandidate>,
         val candidateIndex: Int,
+        val candidatePageSize: Int,
         val pendingTargetsOkuri: Boolean,
         val selectionReturnState: ReadingSnapshot?,
         val selectionQuery: DictionaryQuery?,
@@ -1390,7 +1410,6 @@ class BasicSkkEngine(
 
     private companion object {
         const val INLINE_CANDIDATES = 3
-        const val LABELS = "asdfjkl"
         const val MAX_REGISTRATION_DEPTH = 16
         const val MAX_REGISTRATION_BODY = 65_536
         const val BODY_LIMIT_NOTICE = "登録本文は65,536 UTF-16コード単位までです"
