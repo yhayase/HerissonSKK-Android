@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
+import jp.hayase.skk.dictionary.DictionaryRuntime
 
 class SettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,6 +31,14 @@ class SettingsActivity : Activity() {
             startActivity(Intent(this, DictionarySettingsActivity::class.java))
         }
         val preferences = getSharedPreferences("settings", MODE_PRIVATE)
+        layout.addView(Switch(this).apply {
+            setText(R.string.save_personal_data)
+            isChecked = preferences.getBoolean("save_personal_data", true)
+            setOnCheckedChangeListener { _, checked ->
+                DictionaryRuntime.get(this@SettingsActivity).personalDataPolicy.setAllowed(checked)
+                preferences.edit().putBoolean("save_personal_data", checked).apply()
+            }
+        })
         layout.addView(Switch(this).apply {
             setText(R.string.show_status)
             isChecked = preferences.getBoolean("show_status", true)

@@ -22,6 +22,11 @@ import jp.hayase.skk.dictionary.DictionaryManager
 import jp.hayase.skk.dictionary.DictionaryManagerStatus
 import jp.hayase.skk.dictionary.DictionaryManagerSubscription
 import jp.hayase.skk.dictionary.DictionaryFreshness
+import jp.hayase.skk.dictionary.PersonalWriteResult
+import jp.hayase.skk.dictionary.PersonalWriteFailure
+import jp.hayase.skk.core.RegistrationSaveOutcome
+import jp.hayase.skk.core.RegistrationSaveFailure
+import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
 
 class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceListener {
     private var generation = 0L
@@ -52,9 +57,26 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         val connection = currentInputConnection ?: return
         val info = attribute ?: return
         val protected = isPassword(info.inputType) || info.inputType == InputType.TYPE_NULL
+        val learningAllowed = !protected && info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING == 0
         session = EditorSession(generation, connection, protected,
-            !protected && info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING == 0,
-            info.initialSelStart, info.initialSelEnd, BasicSkkDictionary(dictionaries::lookup))
+            learningAllowed,
+            info.initialSelStart, info.initialSelEnd, BasicSkkDictionary(dictionaries::lookup),
+            registrationSaver = { request, complete ->
+                dictionaries.savePersonalCandidate(request.readingKey,
+                    SkkDictionaryCandidate(request.candidateText, okuriCondition = request.okuriCondition),
+                    learningAllowed) { result ->
+                    complete(when (result) {
+                        PersonalWriteResult.Applied -> RegistrationSaveOutcome.Applied
+                        PersonalWriteResult.SavedButNotApplied -> RegistrationSaveOutcome.SavedButNotApplied
+                        is PersonalWriteResult.Failed -> RegistrationSaveOutcome.Failed(when (result.reason) {
+                            PersonalWriteFailure.CAPACITY -> RegistrationSaveFailure.CAPACITY
+                            PersonalWriteFailure.CONFLICT -> RegistrationSaveFailure.CONFLICT
+                            PersonalWriteFailure.POLICY_REJECTED -> RegistrationSaveFailure.POLICY_REJECTED
+                            PersonalWriteFailure.GENERAL -> RegistrationSaveFailure.GENERAL
+                        })
+                    })
+                }
+            }, onStateChanged = ::render)
         render()
     }
 
@@ -206,7 +228,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     InputMode.DIRECT -> R.string.status_ascii
                     InputMode.FULLWIDTH -> R.string.status_fullwidth
                 })
-                val candidate = current.view.candidate
+                val registration = current.view.registration
+                val candidate = if (registration == null) current.view.candidate else registration.innerCandidate
                 val details = buildList {
                     add(getString(R.string.local_dictionary_status))
                     when (val status = dictionaries.status) {
@@ -217,6 +240,13 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                             DictionaryFreshness.STALE -> add(getString(R.string.dictionary_stale_status))
                             DictionaryFreshness.CURRENT -> Unit
                         }
+                    }
+                    registration?.let {
+                        add(getString(R.string.registration_heading, it.depth, it.readingKey))
+                        val cursor = it.cursor.coerceIn(0, it.body.length)
+                        add(it.body.substring(0, cursor) + "│" + it.body.substring(cursor))
+                        it.innerComposing?.takeIf(String::isNotEmpty)?.let { value -> add("▽$value") }
+                        add(getString(if (it.saving) R.string.registration_saving else R.string.registration_help))
                     }
                     candidate?.let {
                         add("${it.index + 1}/${it.total} ${it.selected.text}")

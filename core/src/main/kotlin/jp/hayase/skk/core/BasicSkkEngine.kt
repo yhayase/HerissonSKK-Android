@@ -65,6 +65,7 @@ data class BasicSkkView(
     val composing: String?,
     val cursor: Int?,
     val candidate: CandidateView?,
+    val registration: RegistrationView? = null,
 )
 
 data class BasicSkkState(
@@ -76,6 +77,8 @@ data class BasicSkkState(
     val pendingRomaji: String,
     val cursor: Int,
     val candidateIndex: Int?,
+    val registrationDepth: Int = 0,
+    val registrationSaving: Boolean = false,
 )
 
 data class BasicSkkResult(
@@ -83,14 +86,20 @@ data class BasicSkkResult(
     val commit: String? = null,
     val view: BasicSkkView,
     val notice: String? = null,
+    val effects: List<BasicSkkEffect> = emptyList(),
 )
 
 /**
- * K01〜K08 の基本操作を扱う、Android に依存しない小さな SKK エンジンです。
+ * 基本入力と opt-in の登録状態を扱う、Android に依存しない SKK エンジンです。
  *
- * 辞書未登録時の登録、学習、永続化、非同期検索は後続フェーズの責務です。
+ * 永続化は効果と完了通知に分離し、学習、削除、非同期検索は後続フェーズの責務です。
  */
-class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
+class BasicSkkEngine(
+    private val dictionary: BasicSkkDictionary,
+    private val registrationPolicy: RegistrationPolicy,
+) {
+    constructor(dictionary: BasicSkkDictionary) : this(dictionary, RegistrationPolicy())
+
     private var mode = InputMode.HIRAGANA
     private var phase = InputPhase.IDLE
     private var buffer = EditableBuffer()
@@ -102,6 +111,10 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
     private var candidateIndex = 0
     private var pendingTargetsOkuri = false
     private var selectionReturnState: ReadingSnapshot? = null
+    private var selectionQuery: DictionaryQuery? = null
+    private val registrations = mutableListOf<RegistrationFrame>()
+    private var nextFrameId = 1L
+    private var nextOperationId = 1L
 
     val state: BasicSkkState
         get() {
@@ -115,6 +128,8 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
                 pendingRomaji = romanizer.pending,
                 cursor = buffer.cursor,
                 candidateIndex = candidateIndex.takeIf { phase == InputPhase.SELECTING },
+                registrationDepth = registrations.size,
+                registrationSaving = registrations.lastOrNull()?.savingToken != null,
             )
         }
 
@@ -122,8 +137,10 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
     val currentView: BasicSkkView get() = view()
 
     fun dispatch(action: BasicSkkAction): BasicSkkResult {
+        if (action is BasicSkkAction.Text) return dispatchText(action.text)
+        if (registrations.isNotEmpty()) return dispatchRegistration(action)
         val outcome = when (action) {
-            is BasicSkkAction.Text -> onText(action.text)
+            is BasicSkkAction.Text -> error("文字入力は先に処理済みです")
             BasicSkkAction.Enter -> onEnter(false)
             BasicSkkAction.Kana -> onEnter(true)
             BasicSkkAction.Cancel -> onCancel()
@@ -135,7 +152,233 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
             BasicSkkAction.End -> onMove { it.moveEnd() }
             BasicSkkAction.Delete -> onDelete()
         }
-        return BasicSkkResult(outcome.handled, outcome.commit.nullIfEmpty(), view(), outcome.notice)
+        return result(outcome)
+    }
+
+    private fun dispatchText(text: String): BasicSkkResult {
+        // バッチ全体を先に検証し、不正な UTF-16 で途中まで状態を変更しません。
+        EditableBuffer(text)
+        var outcome = Outcome(true)
+        var registrationStart = registrations.takeIf { it.isNotEmpty() }?.let { snapshotRuntime() }
+        var index = 0
+        while (index < text.length) {
+            val codePoint = text.codePointAt(index)
+            var end = index + Character.charCount(codePoint)
+            if (codePoint > 0x7f) {
+                while (end < text.length) {
+                    val next = text.codePointAt(end)
+                    if (next <= 0x7f) break
+                    end += Character.charCount(next)
+                }
+            }
+            val value = text.substring(index, end)
+            val part = if (registrations.isEmpty()) {
+                onText(value)
+            } else {
+                dispatchRegistration(BasicSkkAction.Text(value)).asOutcome()
+            }
+            if (part.notice == BODY_LIMIT_NOTICE) {
+                restoreRuntime(checkNotNull(registrationStart))
+                return result(outcome.then(Outcome(true, notice = BODY_LIMIT_NOTICE)))
+            }
+            outcome = outcome.then(part)
+            if (registrationStart == null && registrations.isNotEmpty()) registrationStart = snapshotRuntime()
+            index = end
+        }
+        return result(outcome)
+    }
+
+    private fun BasicSkkResult.asOutcome() = Outcome(
+        handled = handled,
+        commit = commit.orEmpty(),
+        notice = notice,
+        effects = effects,
+    )
+
+    /** 非同期保存の結果を、要求元のフレームがまだ生きている場合だけ適用します。 */
+    fun completeRegistration(completion: RegistrationSaveCompletion): BasicSkkResult {
+        val frame = registrations.lastOrNull()
+        if (frame == null || frame.savingToken != completion.token) return result(Outcome(false))
+        return when (val outcome = completion.outcome) {
+            is RegistrationSaveOutcome.Failed -> {
+                frame.savingToken = null
+                result(Outcome(true, notice = outcome.reason.notice))
+            }
+            RegistrationSaveOutcome.Applied,
+            RegistrationSaveOutcome.SavedButNotApplied,
+            -> completeSavedRegistration(
+                frame,
+                if (outcome == RegistrationSaveOutcome.SavedButNotApplied) {
+                    "登録は保存されましたが、検索辞書を更新できません。辞書を再読込してください"
+                } else null,
+            )
+        }
+    }
+
+    /** セッション終了時に再帰登録と保存待ちを一度で破棄し、遅い完了を無効化します。 */
+    fun resetComposition(): BasicSkkView {
+        registrations.clear()
+        clearComposition()
+        return view()
+    }
+
+    private fun dispatchRegistration(action: BasicSkkAction): BasicSkkResult {
+        val before = snapshotRuntime()
+        val frame = registrations.last()
+        if (frame.savingToken != null) {
+            return if (action == BasicSkkAction.Cancel) {
+                abandonSavingFrame(frame)
+            } else {
+                result(Outcome(true, notice = "登録を保存しています"))
+            }
+        }
+        if (innerIsClean()) {
+            when (action) {
+                BasicSkkAction.Enter -> return if (frame.body.text.isEmpty()) {
+                    restoreRegistrationReturn(frame)
+                } else {
+                    requestRegistrationSave(frame)
+                }
+                BasicSkkAction.Kana -> return result(Outcome(true))
+                BasicSkkAction.Cancel -> return abandonRegistrationFrame(frame)
+                BasicSkkAction.Backspace -> return editRegistrationBody(frame) { it.backspace() }
+                BasicSkkAction.Delete -> return editRegistrationBody(frame) { it.delete() }
+                BasicSkkAction.Left -> return editRegistrationBody(frame) { it.moveLeft() }
+                BasicSkkAction.Right -> return editRegistrationBody(frame) { it.moveRight() }
+                BasicSkkAction.Home -> return editRegistrationBody(frame) { it.moveHome() }
+                BasicSkkAction.End -> return editRegistrationBody(frame) { it.moveEnd() }
+                is BasicSkkAction.Text -> Unit
+                BasicSkkAction.Halfwidth -> Unit
+            }
+        }
+
+        val targetFrameId = registrations.last().id
+        val next = dispatchInner(action)
+        if (!absorbRegistrationCommit(targetFrameId, next.commit)) {
+            restoreRuntime(before)
+            return result(Outcome(true, notice = BODY_LIMIT_NOTICE))
+        }
+        return result(next.copy(commit = ""))
+    }
+
+    private fun dispatchInner(action: BasicSkkAction): Outcome = when (action) {
+        is BasicSkkAction.Text -> onText(action.text)
+        BasicSkkAction.Enter -> onEnter(false)
+        BasicSkkAction.Kana -> onEnter(true)
+        BasicSkkAction.Cancel -> onCancel()
+        BasicSkkAction.Backspace -> onBackspace()
+        BasicSkkAction.Halfwidth -> onHalfwidth()
+        BasicSkkAction.Left -> onMove { it.moveLeft() }
+        BasicSkkAction.Right -> onMove { it.moveRight() }
+        BasicSkkAction.Home -> onMove { it.moveHome() }
+        BasicSkkAction.End -> onMove { it.moveEnd() }
+        BasicSkkAction.Delete -> onDelete()
+    }
+
+    private fun innerIsClean(): Boolean = phase == InputPhase.IDLE && romanizer.pending.isEmpty()
+
+    private fun editRegistrationBody(
+        frame: RegistrationFrame,
+        edit: (EditableBuffer) -> Boolean,
+    ): BasicSkkResult {
+        if (edit(frame.body)) frame.revision++
+        return result(Outcome(true))
+    }
+
+    private fun absorbRegistrationCommit(frameId: Long, commit: String): Boolean {
+        if (commit.isEmpty()) return true
+        val frame = registrations.find { it.id == frameId } ?: return true
+        if (frame.body.text.length + commit.length > MAX_REGISTRATION_BODY) return false
+        frame.body.insert(commit)
+        frame.revision++
+        return true
+    }
+
+    private fun requestRegistrationSave(frame: RegistrationFrame): BasicSkkResult {
+        check(frame.body.text.isNotEmpty())
+        if (!registrationPolicy.savingAllowed) {
+            return result(Outcome(true, notice = "この入力欄では単語を登録できません"))
+        }
+        val committedText = frame.body.text + frame.query.okuri.orEmpty()
+        val parent = registrations.getOrNull(registrations.lastIndex - 1)
+        if (parent != null && parent.body.text.length + committedText.length > MAX_REGISTRATION_BODY) {
+            return result(Outcome(true, notice = BODY_LIMIT_NOTICE))
+        }
+        val token = RegistrationSaveToken(
+            operationId = nextOperationId++,
+            frameId = frame.id,
+            frameRevision = frame.revision,
+            parentFrameId = frame.parentId,
+            sessionGeneration = registrationPolicy.sessionGeneration,
+        )
+        frame.savingToken = token
+        val request = RegistrationSaveRequest(
+            token = token,
+            readingKey = frame.query.readingKey,
+            candidateText = frame.body.text,
+            okuriCondition = frame.query.okuri,
+            committedText = committedText,
+        )
+        return result(Outcome(true, effects = listOf(BasicSkkEffect.SaveRegistration(request))))
+    }
+
+    private fun completeSavedRegistration(frame: RegistrationFrame, notice: String?): BasicSkkResult {
+        check(registrations.lastOrNull() === frame)
+        val committedText = frame.body.text + frame.query.okuri.orEmpty()
+        registrations.removeAt(registrations.lastIndex)
+        mode = frame.returnState.readingStartMode
+        clearComposition()
+        val parent = registrations.lastOrNull()
+        if (parent != null) {
+            check(parent.id == frame.parentId)
+            check(parent.body.text.length + committedText.length <= MAX_REGISTRATION_BODY)
+            parent.body.insert(committedText)
+            parent.revision++
+            return result(Outcome(true, notice = notice))
+        }
+        return result(Outcome(true, commit = committedText, notice = notice))
+    }
+
+    private fun restoreRegistrationReturn(frame: RegistrationFrame): BasicSkkResult {
+        check(registrations.lastOrNull() === frame)
+        registrations.removeAt(registrations.lastIndex)
+        restoreEngine(frame.returnState)
+        return result(Outcome(true))
+    }
+
+    private fun abandonRegistrationFrame(frame: RegistrationFrame): BasicSkkResult {
+        check(registrations.lastOrNull() === frame)
+        registrations.removeAt(registrations.lastIndex)
+        mode = frame.returnState.readingStartMode
+        clearComposition()
+        return result(Outcome(true))
+    }
+
+    private fun abandonSavingFrame(frame: RegistrationFrame): BasicSkkResult {
+        abandonRegistrationFrame(frame)
+        return result(Outcome(true, notice = "保存処理は完了する可能性があります"))
+    }
+
+    private fun startRegistration(
+        query: DictionaryQuery,
+        returnState: EngineSnapshot,
+        editor: EditorReadingView,
+    ): Outcome {
+        if (registrations.size >= MAX_REGISTRATION_DEPTH) {
+            return Outcome(true, notice = "単語登録は16段までです")
+        }
+        val parentId = registrations.lastOrNull()?.id
+        registrations += RegistrationFrame(
+            id = nextFrameId++,
+            parentId = parentId,
+            query = query,
+            returnState = returnState,
+            body = EditableBuffer(),
+            editorComposition = registrations.firstOrNull()?.editorComposition ?: editor.text,
+            editorCursor = registrations.firstOrNull()?.editorCursor ?: editor.cursor,
+        )
+        clearComposition()
+        return Outcome(true)
     }
 
     private fun onText(text: String): Outcome {
@@ -389,9 +632,11 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
         }
         candidateIndex = 0
         selectionReturnState = returnState
+        selectionQuery = query
         return if (candidates.isEmpty()) {
             restoreSelectionReturnState()
-            Outcome(true, notice = "単語登録はまだ利用できません")
+            if (registrationPolicy.enabled) startRegistration(query, snapshotEngine(), editorReadingView(returnState))
+            else Outcome(true, notice = "単語登録はまだ利用できません")
         } else {
             phase = InputPhase.SELECTING
             Outcome(true)
@@ -402,6 +647,11 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
         if (candidateIndex + 1 < candidates.size) {
             candidateIndex++
             return Outcome(true)
+        }
+        if (registrationPolicy.enabled) {
+            val query = checkNotNull(selectionQuery) { "候補の検索条件がありません" }
+            val editor = editorReadingView(checkNotNull(selectionReturnState))
+            return startRegistration(query, snapshotEngine(), editor)
         }
         restoreSelectionReturnState()
         return Outcome(true, notice = "単語登録はまだ利用できません")
@@ -439,6 +689,7 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
         candidates = emptyList()
         candidateIndex = 0
         selectionReturnState = null
+        selectionQuery = null
     }
 
     private fun commitCandidate(index: Int): Outcome {
@@ -552,7 +803,86 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
             InputPhase.ABBREV -> buffer.cursor + romanizer.pending.length
             InputPhase.READING, InputPhase.SELECTING -> renderedPrefix.length + romanizer.pending.length
         }
-        return BasicSkkView(composing, cursor, candidate)
+        val inner = BasicSkkView(composing, cursor, candidate)
+        val frame = registrations.lastOrNull() ?: return inner
+        val root = registrations.first()
+        return BasicSkkView(
+            composing = root.editorComposition,
+            cursor = root.editorCursor,
+            candidate = null,
+            registration = RegistrationView(
+                depth = registrations.size,
+                readingKey = frame.query.readingKey,
+                body = frame.body.text,
+                cursor = frame.body.cursor,
+                innerComposing = inner.composing,
+                innerCursor = inner.cursor,
+                innerCandidate = inner.candidate,
+                saving = frame.savingToken != null,
+            ),
+        )
+    }
+
+    private fun result(outcome: Outcome): BasicSkkResult = BasicSkkResult(
+        handled = outcome.handled,
+        commit = outcome.commit.nullIfEmpty(),
+        view = view(),
+        notice = outcome.notice,
+        effects = outcome.effects,
+    )
+
+    private fun editorReadingView(snapshot: ReadingSnapshot): EditorReadingView {
+        val prefix = renderKana(snapshot.text.substring(0, snapshot.cursor), readingStartMode)
+        val suffix = renderKana(snapshot.text.substring(snapshot.cursor), readingStartMode)
+        return EditorReadingView(prefix + snapshot.pendingRomaji + suffix, prefix.length + snapshot.pendingRomaji.length)
+    }
+
+    private fun snapshotEngine() = EngineSnapshot(
+        mode = mode,
+        phase = phase,
+        text = buffer.text,
+        cursor = buffer.cursor,
+        readingStartMode = readingStartMode,
+        okuriBoundary = okuriBoundary,
+        okuriConsonant = okuriConsonant,
+        pendingRomaji = romanizer.pending,
+        candidates = candidates,
+        candidateIndex = candidateIndex,
+        pendingTargetsOkuri = pendingTargetsOkuri,
+        selectionReturnState = selectionReturnState,
+        selectionQuery = selectionQuery,
+    )
+
+    private fun restoreEngine(snapshot: EngineSnapshot) {
+        mode = snapshot.mode
+        phase = snapshot.phase
+        buffer = EditableBuffer(snapshot.text, snapshot.cursor)
+        readingStartMode = snapshot.readingStartMode
+        okuriBoundary = snapshot.okuriBoundary
+        okuriConsonant = snapshot.okuriConsonant
+        romanizer = Romanizer().also {
+            check(it.feed(snapshot.pendingRomaji).isEmpty()) { "未消化ローマ字を復元できません" }
+        }
+        candidates = snapshot.candidates
+        candidateIndex = snapshot.candidateIndex
+        pendingTargetsOkuri = snapshot.pendingTargetsOkuri
+        selectionReturnState = snapshot.selectionReturnState
+        selectionQuery = snapshot.selectionQuery
+    }
+
+    private fun snapshotRuntime() = RuntimeSnapshot(
+        engine = snapshotEngine(),
+        frames = registrations.map { it.frozenCopy() },
+        nextFrameId = nextFrameId,
+        nextOperationId = nextOperationId,
+    )
+
+    private fun restoreRuntime(snapshot: RuntimeSnapshot) {
+        restoreEngine(snapshot.engine)
+        registrations.clear()
+        registrations += snapshot.frames.map { it.frozenCopy() }
+        nextFrameId = snapshot.nextFrameId
+        nextOperationId = snapshot.nextOperationId
     }
 
     private fun clearComposition() {
@@ -565,6 +895,7 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
         candidateIndex = 0
         pendingTargetsOkuri = false
         selectionReturnState = null
+        selectionQuery = null
     }
 
     private data class ReadingSnapshot(
@@ -577,13 +908,64 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
         val pendingTargetsOkuri: Boolean,
     )
 
-    private data class Outcome(val handled: Boolean, val commit: String = "", val notice: String? = null) {
-        fun then(next: Outcome) = Outcome(handled || next.handled, commit + next.commit, next.notice ?: notice)
+    private data class EngineSnapshot(
+        val mode: InputMode,
+        val phase: InputPhase,
+        val text: String,
+        val cursor: Int,
+        val readingStartMode: InputMode,
+        val okuriBoundary: Int?,
+        val okuriConsonant: Char?,
+        val pendingRomaji: String,
+        val candidates: List<DictionaryCandidate>,
+        val candidateIndex: Int,
+        val pendingTargetsOkuri: Boolean,
+        val selectionReturnState: ReadingSnapshot?,
+        val selectionQuery: DictionaryQuery?,
+    )
+
+    private data class RegistrationFrame(
+        val id: Long,
+        val parentId: Long?,
+        val query: DictionaryQuery,
+        val returnState: EngineSnapshot,
+        val body: EditableBuffer,
+        val editorComposition: String,
+        val editorCursor: Int,
+        var revision: Long = 0,
+        var savingToken: RegistrationSaveToken? = null,
+    ) {
+        fun frozenCopy() = copy(body = EditableBuffer(body.text, body.cursor))
+    }
+
+    private data class EditorReadingView(val text: String, val cursor: Int)
+    private data class RuntimeSnapshot(
+        val engine: EngineSnapshot,
+        val frames: List<RegistrationFrame>,
+        val nextFrameId: Long,
+        val nextOperationId: Long,
+    )
+
+    private data class Outcome(
+        val handled: Boolean,
+        val commit: String = "",
+        val notice: String? = null,
+        val effects: List<BasicSkkEffect> = emptyList(),
+    ) {
+        fun then(next: Outcome) = Outcome(
+            handled || next.handled,
+            commit + next.commit,
+            next.notice ?: notice,
+            effects + next.effects,
+        )
     }
 
     private companion object {
         const val INLINE_CANDIDATES = 3
         const val LABELS = "asdfjkl"
+        const val MAX_REGISTRATION_DEPTH = 16
+        const val MAX_REGISTRATION_BODY = 65_536
+        const val BODY_LIMIT_NOTICE = "登録本文は65,536 UTF-16コード単位までです"
         val InputMode.isKana: Boolean get() = this == InputMode.HIRAGANA || this == InputMode.KATAKANA || this == InputMode.HALFWIDTH
         val Char.isRomajiInput: Boolean get() = this == '\'' || isLetter() && code < 128
 
@@ -595,5 +977,13 @@ class BasicSkkEngine(private val dictionary: BasicSkkDictionary) {
         }
 
         fun String.nullIfEmpty(): String? = ifEmpty { null }
+
+        val RegistrationSaveFailure.notice: String
+            get() = when (this) {
+                RegistrationSaveFailure.CAPACITY -> "辞書の容量が不足しているため保存できません"
+                RegistrationSaveFailure.CONFLICT -> "辞書が更新されたため保存できません。もう一度登録してください"
+                RegistrationSaveFailure.POLICY_REJECTED -> "個人データを保存しない設定のため登録できません"
+                RegistrationSaveFailure.GENERAL -> "単語を保存できません。もう一度試してください"
+            }
     }
 }

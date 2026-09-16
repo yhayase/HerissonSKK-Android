@@ -11,6 +11,10 @@ object DictionaryRuntime {
         context.applicationContext,
         fallbackSystems = listOf(BuiltinDictionary.source),
     ).also {
+        it.personalDataPolicy.setAllowed(
+            context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
+                .getBoolean("save_personal_data", true),
+        )
         instance = it
         it.loadAsync()
     }

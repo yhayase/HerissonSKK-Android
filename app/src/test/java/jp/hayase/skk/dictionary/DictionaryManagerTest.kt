@@ -8,6 +8,7 @@ import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 import jp.hayase.skk.core.dictionary.SkkDictionaryCodec
 import jp.hayase.skk.core.dictionary.SkkDictionaryDocument
+import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,6 +28,57 @@ class DictionaryManagerTest {
 
     @After fun removeDatabases() {
         databases.forEach(context::deleteDatabase)
+    }
+
+    @Test fun `学習禁止の入力は保存キューへ入らず既存辞書を変更しない`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        repository.replacePersonal(document("かな /既存/"), 0)
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        var result: PersonalWriteResult? = null
+        manager.savePersonalCandidate("かな", SkkDictionaryCandidate("保存禁止"), false) { result = it }
+        assertEquals(0, serial.size)
+        assertEquals(PersonalWriteResult.Failed(PersonalWriteFailure.POLICY_REJECTED), result)
+        assertEquals(1L, repository.listSources().first().generation)
+        assertEquals(listOf("既存"), repository.lookup("かな").asComposite().lookup(DictionaryQuery("かな")).map { it.text })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `待機中に保存禁止にした要求は再有効化しても実行しない`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        val results = mutableListOf<PersonalWriteResult>()
+        manager.savePersonalCandidate("かな", SkkDictionaryCandidate("保存禁止"), true, results::add)
+        manager.personalDataPolicy.setAllowed(false)
+        manager.personalDataPolicy.setAllowed(true)
+        serial.runAll()
+        assertEquals(listOf(PersonalWriteResult.Failed(PersonalWriteFailure.POLICY_REJECTED)), results)
+        assertEquals(0L, repository.listSources().first().generation)
+        assertTrue(repository.lookup("かな").asComposite().lookup(DictionaryQuery("かな")).isEmpty())
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `連続登録を最新辞書へ重ね公開失敗は保存済みとして区別する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        val serial = ManualExecutor()
+        var failReload = false
+        val manager = DictionaryManager(repository, serial, Executor { it.run() },
+            loadSnapshot = { if (failReload) error("試験用の公開失敗") else repository.loadSnapshot() })
+        val results = mutableListOf<PersonalWriteResult>()
+        manager.savePersonalCandidate("かな", SkkDictionaryCandidate("一番"), true, results::add)
+        manager.savePersonalCandidate("かな", SkkDictionaryCandidate("二番"), true, results::add)
+        serial.runAll()
+        assertEquals(listOf(PersonalWriteResult.Applied, PersonalWriteResult.Applied), results)
+        assertEquals(listOf("二番", "一番"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        failReload = true
+        manager.savePersonalCandidate("かな", SkkDictionaryCandidate("三番"), true, results::add)
+        serial.runAll()
+        assertEquals(PersonalWriteResult.SavedButNotApplied, results.last())
+        assertEquals(listOf("二番", "一番"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        assertEquals(listOf("三番", "二番", "一番"), repository.lookup("かな").asComposite().lookup(DictionaryQuery("かな")).map { it.text })
+        assertEquals(3L, repository.listSources().first().generation)
+        manager.close(); serial.runAll()
     }
 
     @Test fun `起動中の検索は空辞書にせずI O完了後だけ公開する`() {
@@ -140,6 +192,28 @@ class DictionaryManagerTest {
         manager.close(); serial.runAll()
     }
 
+    @Test fun `システム辞書削除はバックグラウンド保存後に新しい検索世代を公開する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        repository.importSystem("system", "辞書", document("かな /削除候補/"))
+        val serial = ManualExecutor()
+        val callbacks = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, callbacks)
+        manager.loadAsync(); serial.runNext(); callbacks.runAll()
+        assertEquals(listOf("削除候補"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        var result: DictionaryManagerWriteResult<DictionarySourceInfo>? = null
+
+        manager.removeSystem("system", 1) { result = it }
+
+        assertEquals(listOf("削除候補"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        serial.runNext()
+        assertTrue(manager.lookup(DictionaryQuery("かな")).isEmpty())
+        assertTrue(result == null)
+        callbacks.runNext()
+        assertTrue(result is DictionaryManagerWriteResult.Applied)
+        assertEquals("system", (result as DictionaryManagerWriteResult.Applied).value.id)
+        manager.close(); serial.runAll()
+    }
+
     @Test fun `状態購読はcallback executorで行い解除後は通知しない`() {
         val repository = SQLiteDictionaryRepository(context, databaseName())
         val serial = ManualExecutor()
@@ -210,6 +284,7 @@ class DictionaryManagerTest {
 
     private class ManualExecutor : Executor {
         private val tasks = ArrayDeque<Runnable>()
+        val size: Int get() = tasks.size
         override fun execute(command: Runnable) { tasks.addLast(command) }
         fun runNext() { tasks.removeFirst().run() }
         fun runAll() { while (tasks.isNotEmpty()) runNext() }

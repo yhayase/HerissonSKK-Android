@@ -1,6 +1,7 @@
 package jp.hayase.skk.dictionary
 
 import android.content.Context
+import android.database.sqlite.SQLiteFullException
 import android.os.Handler
 import android.os.Looper
 import java.io.Closeable
@@ -14,6 +15,7 @@ import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 import jp.hayase.skk.core.dictionary.SkkDictionaryDocument
 import jp.hayase.skk.core.dictionary.SkkDictionarySource
+import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
 
 /** 公開済み辞書と再読込の状態です。 */
 sealed interface DictionaryManagerStatus {
@@ -49,6 +51,7 @@ class DictionaryManager(
     fallbackSystems: List<SkkDictionarySource> = emptyList(),
     private val loadSnapshot: () -> DictionaryLookupSnapshot = repository::loadSnapshot,
     private val ownedExecutor: ExecutorService? = null,
+    val personalDataPolicy: PersonalDataPolicy = PersonalDataPolicy(),
 ) : Closeable {
     private data class Published(
         val dictionary: CompositeSkkDictionary?,
@@ -115,6 +118,12 @@ class DictionaryManager(
         callback: (DictionaryManagerWriteResult<DictionarySourceInfo>) -> Unit,
     ) = writeThenReload(callback) { repository.importSystem(id, name, document, expectedGeneration) }
 
+    fun removeSystem(
+        id: String,
+        expectedGeneration: Long,
+        callback: (DictionaryManagerWriteResult<DictionarySourceInfo>) -> Unit,
+    ) = writeThenReload(callback) { repository.removeSystem(id, expectedGeneration) }
+
     fun replacePersonal(
         document: SkkDictionaryDocument,
         expectedGeneration: Long? = null,
@@ -126,6 +135,46 @@ class DictionaryManager(
         expectedGeneration: Long? = null,
         callback: (DictionaryManagerWriteResult<DictionarySourceInfo>) -> Unit,
     ) = writeThenReload(callback) { repository.mergePersonal(document, expectedGeneration) }
+
+    /** 入力由来の登録・学習だけを対象に、受理時と実際の書込直前に方針を確認します。 */
+    @Synchronized
+    fun savePersonalCandidate(
+        key: String,
+        candidate: SkkDictionaryCandidate,
+        originAllowsSaving: Boolean,
+        callback: (PersonalWriteResult) -> Unit,
+    ) {
+        check(!closed) { "辞書管理器は閉じています" }
+        val permit = personalDataPolicy.request(originAllowsSaving)
+        if (permit == null) {
+            deliver(callback, PersonalWriteResult.Failed(PersonalWriteFailure.POLICY_REJECTED))
+            return
+        }
+        serialExecutor.execute {
+            val saved = runCatching {
+                repository.promotePersonalCandidate(key, candidate) { personalDataPolicy.accepts(permit) }
+            }
+            val error = saved.exceptionOrNull()
+            if (error != null) {
+                val reason = when (error) {
+                    is SQLiteFullException -> PersonalWriteFailure.CAPACITY
+                    is StaleDictionaryGenerationException -> PersonalWriteFailure.CONFLICT
+                    is PersonalDataPolicyRejectedException -> PersonalWriteFailure.POLICY_REJECTED
+                    else -> PersonalWriteFailure.GENERAL
+                }
+                deliver(callback, PersonalWriteResult.Failed(reason))
+                return@execute
+            }
+            val loaded = runCatching { buildDictionary(loadSnapshot()) }
+            if (loaded.isSuccess) {
+                publish(Published(loaded.getOrThrow(), DictionaryManagerStatus.Ready()))
+                deliver(callback, PersonalWriteResult.Applied)
+            } else {
+                publishRefreshFailure()
+                deliver(callback, PersonalWriteResult.SavedButNotApplied)
+            }
+        }
+    }
 
     fun setSourceEnabled(id: String, enabled: Boolean, callback: (DictionaryManagerWriteResult<Unit>) -> Unit) =
         writeThenReload(callback) { repository.setSourceEnabled(id, enabled) }

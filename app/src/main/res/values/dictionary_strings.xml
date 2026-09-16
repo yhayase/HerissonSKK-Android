@@ -55,4 +55,8 @@
     <string name="dictionary_move_up">上へ</string>
     <string name="dictionary_move_down">下へ</string>
     <string name="dictionary_update">ファイルから更新</string>
+    <string name="dictionary_remove">削除</string>
+    <string name="dictionary_remove_title">追加辞書の削除</string>
+    <string name="dictionary_remove_message">「%1$s」を削除します。個人辞書の登録・学習内容は削除されません。</string>
+    <string name="dictionary_removing">追加辞書を削除しています…</string>
 </resources>

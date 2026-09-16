@@ -93,6 +93,22 @@ class SQLiteDictionaryRepository internal constructor(
         return replaceDocument(id, name, DictionarySourceKind.SYSTEM, document, expectedGeneration)
     }
 
+    /** 指定した世代のシステム辞書だけを削除し、他の辞書と優先順は変更しません。 */
+    @Synchronized
+    fun removeSystem(id: String, expectedGeneration: Long): DictionarySourceInfo {
+        require(id != PERSONAL_SOURCE_ID) { "個人辞書は削除できません" }
+        val database = helper.writableDatabase
+        return database.inTransaction {
+            val source = requireSource(database, id)
+            require(source.kind == DictionarySourceKind.SYSTEM) { "システム辞書ではありません" }
+            checkGeneration(source, expectedGeneration)
+            check(database.delete(TABLE_SOURCES, "$COLUMN_ID = ?", arrayOf(id)) == 1)
+            failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
+            failpoint.hit(DictionaryWritePoint.BEFORE_PUBLICATION)
+            source
+        }
+    }
+
     /** 個人辞書全体を、新しい世代へ原子的に置き換えます。 */
     @Synchronized
     fun replacePersonal(
@@ -118,6 +134,33 @@ class SQLiteDictionaryRepository internal constructor(
             checkGeneration(current, expectedGeneration)
             val merged = mergeEntries(document.entries, readEntries(database, PERSONAL_SOURCE_ID))
             replaceRows(database, PERSONAL_SOURCE_ID, merged)
+            failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
+            val published = current.copy(generation = current.generation + 1)
+            updateSource(database, published)
+            failpoint.hit(DictionaryWritePoint.BEFORE_PUBLICATION)
+            published
+        }
+    }
+
+    /** 最新の個人辞書の一見出しだけを更新し、登録・学習候補を先頭へ移します。 */
+    @Synchronized
+    fun promotePersonalCandidate(
+        key: String,
+        candidate: SkkDictionaryCandidate,
+        mayWrite: () -> Boolean = { true },
+    ): DictionarySourceInfo {
+        val incoming = SkkDictionaryEntry(key, listOf(candidate))
+        // 公開されたモデルを直接渡す経路でも、不正な辞書値を永続化しません。
+        SkkDictionaryCodec.encodeUtf8(SkkDictionaryDocument(listOf(incoming), SkkDictionaryEncoding.UTF8))
+        val database = helper.writableDatabase
+        return database.inTransaction {
+            if (!mayWrite()) throw PersonalDataPolicyRejectedException()
+            val current = requireSource(database, PERSONAL_SOURCE_ID)
+            val previous = readEntries(database, PERSONAL_SOURCE_ID, key)
+            val merged = mergeEntries(listOf(incoming), previous)
+            database.delete(TABLE_CANDIDATES,
+                "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ?", arrayOf(PERSONAL_SOURCE_ID, key))
+            insertRows(database, PERSONAL_SOURCE_ID, merged)
             failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
             val published = current.copy(generation = current.generation + 1)
             updateSource(database, published)
@@ -218,6 +261,10 @@ class SQLiteDictionaryRepository internal constructor(
 
     private fun replaceRows(database: SQLiteDatabase, sourceId: String, entries: List<SkkDictionaryEntry>) {
         database.delete(TABLE_CANDIDATES, "$COLUMN_SOURCE_ID = ?", arrayOf(sourceId))
+        insertRows(database, sourceId, entries)
+    }
+
+    private fun insertRows(database: SQLiteDatabase, sourceId: String, entries: List<SkkDictionaryEntry>) {
         entries.forEach { entry ->
             entry.candidates.forEachIndexed { ordinal, candidate ->
                 val values = ContentValues().apply {
@@ -233,13 +280,13 @@ class SQLiteDictionaryRepository internal constructor(
         }
     }
 
-    private fun readEntries(database: SQLiteDatabase, sourceId: String): List<SkkDictionaryEntry> {
+    private fun readEntries(database: SQLiteDatabase, sourceId: String, key: String? = null): List<SkkDictionaryEntry> {
         val entries = linkedMapOf<String, MutableList<SkkDictionaryCandidate>>()
         database.query(
             TABLE_CANDIDATES,
             arrayOf(COLUMN_ENTRY_KEY, COLUMN_TEXT, COLUMN_ANNOTATION, COLUMN_OKURI),
-            "$COLUMN_SOURCE_ID = ?",
-            arrayOf(sourceId),
+            "$COLUMN_SOURCE_ID = ?" + if (key == null) "" else " AND $COLUMN_ENTRY_KEY = ?",
+            if (key == null) arrayOf(sourceId) else arrayOf(sourceId, key),
             null,
             null,
             "$COLUMN_ENTRY_KEY ASC, $COLUMN_ORDINAL ASC",

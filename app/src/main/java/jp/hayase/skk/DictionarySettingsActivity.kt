@@ -459,6 +459,38 @@ class DictionarySettingsActivity : Activity() {
                 }
             })
         })
+        addView(Button(this@DictionarySettingsActivity).apply {
+            setText(R.string.dictionary_remove)
+            isEnabled = !busy
+            setOnClickListener { confirmRemove(source) }
+        })
+    }
+
+    private fun confirmRemove(source: DictionarySourceInfo) {
+        if (busy || source.kind != DictionarySourceKind.SYSTEM) return
+        setBusy(true)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dictionary_remove_title)
+            .setMessage(getString(R.string.dictionary_remove_message, source.name))
+            .setNegativeButton(android.R.string.cancel) { _, _ -> cancelRemove() }
+            .setPositiveButton(R.string.dictionary_remove) { _, _ -> removeSystem(source) }
+            .setOnCancelListener { cancelRemove() }
+            .show()
+    }
+
+    private fun cancelRemove() {
+        setBusy(false)
+        restoreManagerStatus()
+    }
+
+    private fun removeSystem(source: DictionarySourceInfo) {
+        setStatus(R.string.dictionary_removing)
+        manager.removeSystem(source.id, source.generation) { result ->
+            if (!active) return@removeSystem
+            setBusy(false)
+            showWriteResult(result)
+            refreshSources()
+        }
     }
 
     private fun moveSource(from: Int, to: Int) {

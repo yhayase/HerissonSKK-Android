@@ -1,0 +1,6 @@
+<resources>
+    <string name="save_personal_data">入力から単語を登録・学習する（オフで待機中の保存も中止）</string>
+    <string name="registration_heading">単語登録 %1$d: %2$s</string>
+    <string name="registration_saving">保存中です。取消しても受理済みの保存は完了する場合があります</string>
+    <string name="registration_help">Enter: 内側を確定／単語を保存　Ctrl+g: 内側を取消／登録を中止</string>
+</resources>

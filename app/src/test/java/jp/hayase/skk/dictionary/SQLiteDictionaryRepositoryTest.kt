@@ -34,6 +34,42 @@ class SQLiteDictionaryRepositoryTest {
         databases.forEach(context::deleteDatabase)
     }
 
+    @Test fun `登録と学習は最新の見出しだけを更新し注釈と他の候補を保持する`() {
+        val name = databaseName()
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            repository.replacePersonal(document("にほん /日本;国名/二本/\nほか /保持/"), 0)
+            repository.promotePersonalCandidate("にほん", SkkDictionaryCandidate("二本"))
+            repository.promotePersonalCandidate("にほん", SkkDictionaryCandidate("日本"))
+            repository.promotePersonalCandidate("にほん", SkkDictionaryCandidate("日本"))
+            repository.promotePersonalCandidate("かk", SkkDictionaryCandidate("書", okuriCondition = "く"))
+            repository.promotePersonalCandidate("かk", SkkDictionaryCandidate("書", okuriCondition = "け"))
+        }
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            val entries = SkkDictionaryCodec.parse(repository.exportPersonal()).entries.associateBy { it.key }
+            assertEquals(listOf("日本", "二本"), entries.getValue("にほん").candidates.map { it.text })
+            assertEquals("国名", entries.getValue("にほん").candidates.first().annotation)
+            assertEquals(listOf("け", "く"), entries.getValue("かk").candidates.map { it.okuriCondition })
+            assertEquals("保持", entries.getValue("ほか").candidates.single().text)
+            assertEquals(6L, repository.listSources().first().generation)
+        }
+    }
+
+    @Test fun `一見出しの更新失敗で旧順位と注釈と世代を失わない`() {
+        var fail = false
+        SQLiteDictionaryRepository(context, databaseName()) { point ->
+            if (fail && point == DictionaryWritePoint.BEFORE_PUBLICATION) error("試験用の保存失敗")
+        }.use { repository ->
+            repository.replacePersonal(document("にほん /日本;国名/二本/"), 0)
+            val before = repository.exportPersonal()
+            fail = true
+            assertThrows(IllegalStateException::class.java) {
+                repository.promotePersonalCandidate("にほん", SkkDictionaryCandidate("二本"))
+            }
+            assertArrayEquals(before, repository.exportPersonal())
+            assertEquals(1L, repository.listSources().first().generation)
+        }
+    }
+
     @Test fun `置換した内容と辞書順と有効状態をclose後も保持する`() {
         val name = databaseName()
         SQLiteDictionaryRepository(context, name).use { repository ->
@@ -107,6 +143,73 @@ class SQLiteDictionaryRepositoryTest {
                 listOf("個人辞書", "辞書A改", "辞書B"),
                 repository.listSources().map { it.name },
             )
+        }
+    }
+
+    @Test fun `システム辞書削除は個人辞書と他の辞書と優先順を保持する`() {
+        val name = databaseName()
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            repository.replacePersonal(document("かな /個人/"), 0)
+            repository.importSystem("a", "辞書A", document("かな /A/"))
+            repository.importSystem("b", "辞書B", document("かな /B/"))
+            repository.importSystem("c", "辞書C", document("かな /C/"))
+
+            val removed = repository.removeSystem("b", 1)
+
+            assertEquals("辞書B", removed.name)
+            assertEquals(listOf("personal", "a", "c"), repository.listSources().map { it.id })
+            assertEquals(listOf(0, 0, 2), repository.listSources().map { it.order })
+            assertEquals(listOf("個人", "A", "C"), lookupTexts(repository, "かな"))
+        }
+        SQLiteDictionaryRepository(context, name).use { reopened ->
+            assertEquals(listOf("personal", "a", "c"), reopened.listSources().map { it.id })
+            assertEquals(listOf(0, 0, 2), reopened.listSources().map { it.order })
+            assertEquals(listOf("個人", "A", "C"), lookupTexts(reopened, "かな"))
+        }
+    }
+
+    @Test fun `システム辞書削除は個人辞書と欠落IDと古い世代を拒否する`() {
+        SQLiteDictionaryRepository(context, databaseName()).use { repository ->
+            repository.replacePersonal(document("かな /個人/"), 0)
+            repository.importSystem("system", "辞書", document("かな /システム/"))
+
+            assertThrows(IllegalArgumentException::class.java) {
+                repository.removeSystem(SQLiteDictionaryRepository.PERSONAL_SOURCE_ID, 1)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                repository.removeSystem("missing", 1)
+            }
+            val stale = assertThrows(StaleDictionaryGenerationException::class.java) {
+                repository.removeSystem("system", 0)
+            }
+
+            assertEquals("system", stale.sourceId)
+            assertEquals(listOf("personal", "system"), repository.listSources().map { it.id })
+            assertEquals(listOf("個人", "システム"), lookupTexts(repository, "かな"))
+        }
+    }
+
+    @Test fun `システム辞書削除の例外は内容と世代をclose後も保持する`() {
+        for (point in DictionaryWritePoint.entries) {
+            val name = databaseName()
+            var failure: DictionaryWritePoint? = null
+            val repository = SQLiteDictionaryRepository(context, name) { reached ->
+                if (reached == failure) throw InjectedWriteFailure()
+            }
+            repository.importSystem("system", "辞書", document("かな /保持候補/"))
+            failure = point
+
+            assertThrows(InjectedWriteFailure::class.java) {
+                repository.removeSystem("system", 1)
+            }
+            assertEquals(listOf("personal", "system"), repository.listSources().map { it.id })
+            assertEquals(listOf("保持候補"), lookupTexts(repository, "かな"))
+            repository.close()
+
+            SQLiteDictionaryRepository(context, name).use { reopened ->
+                assertEquals(1L, reopened.listSources().single { it.id == "system" }.generation)
+                assertEquals(listOf("保持候補"), lookupTexts(reopened, "かな"))
+            }
         }
     }
 

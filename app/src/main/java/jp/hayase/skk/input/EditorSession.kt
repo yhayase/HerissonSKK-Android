@@ -5,7 +5,13 @@ import jp.hayase.skk.core.BasicSkkAction
 import jp.hayase.skk.core.BasicSkkDictionary
 import jp.hayase.skk.core.BasicSkkEngine
 import jp.hayase.skk.core.BasicSkkView
+import jp.hayase.skk.core.BasicSkkEffect
+import jp.hayase.skk.core.BasicSkkResult
 import jp.hayase.skk.core.InputPhase
+import jp.hayase.skk.core.RegistrationPolicy
+import jp.hayase.skk.core.RegistrationSaveRequest
+import jp.hayase.skk.core.RegistrationSaveOutcome
+import jp.hayase.skk.core.RegistrationSaveCompletion
 import jp.hayase.skk.dictionary.BuiltinDictionary
 
 /** 入力接続をセッションに固定し、後から別の入力欄へ出力しません。 */
@@ -17,8 +23,14 @@ class EditorSession(
     initialStart: Int,
     initialEnd: Int,
     dictionary: BasicSkkDictionary = BuiltinDictionary.dictionary,
+    private val registrationSaver: ((RegistrationSaveRequest, (RegistrationSaveOutcome) -> Unit) -> Unit)? = null,
+    private val onStateChanged: () -> Unit = {},
 ) {
-    val engine = BasicSkkEngine(dictionary)
+    val engine = BasicSkkEngine(dictionary, RegistrationPolicy(
+        enabled = registrationSaver != null,
+        sessionGeneration = generation,
+        savingAllowed = learningAllowed,
+    ))
     var view = BasicSkkView(null, null, null)
         private set
     var notice: String? = null
@@ -38,11 +50,15 @@ class EditorSession(
     val displayedComposition: String
         get() = view.candidate?.committedText ?: view.composing.orEmpty()
     val hasComposition: Boolean
-        get() = displayedComposition.isNotEmpty() || engine.state.phase != InputPhase.IDLE
+        get() = displayedComposition.isNotEmpty() || engine.state.phase != InputPhase.IDLE || view.registration != null
 
     fun handle(action: BasicSkkAction): Boolean {
         if (!active || protectedInput || failed) return false
         val result = engine.dispatch(action)
+        return applyResult(result)
+    }
+
+    private fun applyResult(result: BasicSkkResult): Boolean {
         if (!result.handled) return false
         view = result.view
         notice = result.notice
@@ -66,6 +82,18 @@ class EditorSession(
             }
         } finally {
             connection.endBatchEdit()
+        }
+        result.effects.forEach { effect ->
+            when (effect) {
+                is BasicSkkEffect.SaveRegistration -> {
+                    registrationSaver?.invoke(effect.request) { outcome ->
+                        if (active && !failed && effect.request.token.sessionGeneration == generation) {
+                            applyResult(engine.completeRegistration(RegistrationSaveCompletion(effect.request.token, outcome)))
+                            onStateChanged()
+                        }
+                    }
+                }
+            }
         }
         return true
     }
@@ -137,12 +165,7 @@ class EditorSession(
     }
 
     private fun clearCoreComposition() {
-        repeat(3) {
-            val state = engine.state
-            if (state.phase != InputPhase.IDLE || state.pendingRomaji.isNotEmpty()) {
-                view = engine.dispatch(BasicSkkAction.Cancel).view
-            }
-        }
+        view = engine.resetComposition()
         notice = null
     }
 
