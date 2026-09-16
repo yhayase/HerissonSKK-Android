@@ -6,6 +6,12 @@ import android.database.sqlite.SQLiteFullException
 import android.os.Handler
 import android.os.Looper
 import java.io.Closeable
+import java.io.File
+import java.io.InputStream
+import java.io.IOException
+import jp.hayase.skk.core.dictionary.CompleteDictionaryBackupCodec
+import jp.hayase.skk.core.dictionary.CompleteDictionaryBackupError
+import jp.hayase.skk.core.dictionary.CompleteDictionaryBackupException
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -58,11 +64,15 @@ class DictionaryManager(
     private data class Published(
         val dictionary: BasicSkkDictionary?,
         val status: DictionaryManagerStatus,
+        val immutableApprovals: Map<String, Long> = emptyMap(),
+        val inputEpoch: Any = Any(),
+        val inputWritesBlocked: Boolean = false,
     )
 
     private val observers = linkedMapOf<Long, (DictionaryManagerStatus) -> Unit>()
     private val fallbackSystems = fallbackSystems.toList()
-    private val immutableApprovals = this.fallbackSystems.associate { it.id to it.generation }
+    private val contextOwner = Any()
+    private val backupHandles = mutableSetOf<Closeable>()
     private var nextObserverId = 0L
     @Volatile
     private var closed = false
@@ -100,13 +110,13 @@ class DictionaryManager(
         check(!closed) { "辞書管理器は閉じています" }
         val current = published
         publish(
-            if (current.dictionary == null) Published(null, DictionaryManagerStatus.Loading)
-            else Published(current.dictionary, DictionaryManagerStatus.Ready(DictionaryFreshness.REFRESHING)),
+            if (current.dictionary == null) current.copy(status = DictionaryManagerStatus.Loading)
+            else current.copy(status = DictionaryManagerStatus.Ready(DictionaryFreshness.REFRESHING)),
         )
         serialExecutor.execute {
-            val loaded = runCatching { buildDictionary(loadSnapshot()) }
+            val loaded = runCatching { buildPublished(loadSnapshot()) }
             if (loaded.isSuccess) {
-                publish(Published(loaded.getOrThrow(), DictionaryManagerStatus.Ready()))
+                publish(loaded.getOrThrow())
             } else {
                 publishRefreshFailure()
             }
@@ -150,12 +160,20 @@ class DictionaryManager(
         callback: (DictionaryManagerWriteResult<DictionarySourceInfo>) -> Unit,
     ) = writeThenReload(callback) { repository.mergePersonal(document, expectedGeneration) }
 
+    fun savePersonalCandidate(
+        key: String,
+        candidate: SkkDictionaryCandidate,
+        originAllowsSaving: Boolean,
+        callback: (PersonalWriteResult) -> Unit,
+    ) = savePersonalCandidate(key, candidate, originAllowsSaving, captureInputWriteContext(), callback)
+
     /** 入力由来の登録・学習だけを対象に、受理時と実際の書込直前に方針を確認します。 */
     @Synchronized
     fun savePersonalCandidate(
         key: String,
         candidate: SkkDictionaryCandidate,
         originAllowsSaving: Boolean,
+        inputContext: DictionaryInputWriteContext,
         callback: (PersonalWriteResult) -> Unit,
     ) {
         check(!closed) { "辞書管理器は閉じています" }
@@ -164,24 +182,33 @@ class DictionaryManager(
             deliver(callback, PersonalWriteResult.Failed(PersonalWriteFailure.POLICY_REJECTED))
             return
         }
+        if (!acceptsInputWrite(inputContext)) {
+            deliver(callback, PersonalWriteResult.Failed(PersonalWriteFailure.CONFLICT))
+            return
+        }
         serialExecutor.execute {
             val saved = runCatching {
-                repository.promotePersonalCandidate(key, candidate) { personalDataPolicy.accepts(permit) }
+                requireInputWrite(inputContext)
+                repository.promotePersonalCandidate(key, candidate) {
+                    requireInputWrite(inputContext)
+                    personalDataPolicy.accepts(permit)
+                }
             }
             val error = saved.exceptionOrNull()
             if (error != null) {
                 val reason = when (error) {
                     is SQLiteFullException -> PersonalWriteFailure.CAPACITY
-                    is StaleDictionaryGenerationException -> PersonalWriteFailure.CONFLICT
+                    is StaleDictionaryGenerationException,
+                    is StaleDictionaryInputContextException -> PersonalWriteFailure.CONFLICT
                     is PersonalDataPolicyRejectedException -> PersonalWriteFailure.POLICY_REJECTED
                     else -> PersonalWriteFailure.GENERAL
                 }
                 deliver(callback, PersonalWriteResult.Failed(reason))
                 return@execute
             }
-            val loaded = runCatching { buildDictionary(loadSnapshot()) }
+            val loaded = runCatching { buildPublished(loadSnapshot()) }
             if (loaded.isSuccess) {
-                publish(Published(loaded.getOrThrow(), DictionaryManagerStatus.Ready()))
+                publish(loaded.getOrThrow())
                 deliver(callback, PersonalWriteResult.Applied)
             } else {
                 publishRefreshFailure()
@@ -190,11 +217,18 @@ class DictionaryManager(
         }
     }
 
+    fun deleteCandidate(
+        request: DeleteCandidateRequest,
+        originAllowsSaving: Boolean,
+        callback: (PersonalWriteResult) -> Unit,
+    ) = deleteCandidate(request, originAllowsSaving, captureInputWriteContext(), callback)
+
     /** 入力中の候補削除を、登録と同じ個人データ方針と直列キューで実行します。 */
     @Synchronized
     fun deleteCandidate(
         request: DeleteCandidateRequest,
         originAllowsSaving: Boolean,
+        inputContext: DictionaryInputWriteContext,
         callback: (PersonalWriteResult) -> Unit,
     ) {
         check(!closed) { "辞書管理器は閉じています" }
@@ -203,18 +237,27 @@ class DictionaryManager(
             deliver(callback, PersonalWriteResult.Failed(PersonalWriteFailure.POLICY_REJECTED))
             return
         }
+        if (!acceptsInputWrite(inputContext)) {
+            deliver(callback, PersonalWriteResult.Failed(PersonalWriteFailure.CONFLICT))
+            return
+        }
+        val approvals = published.immutableApprovals
         serialExecutor.execute {
             val saved = runCatching {
-                repository.deleteCandidate(request, immutableApprovals) { personalDataPolicy.accepts(permit) }
+                requireInputWrite(inputContext)
+                repository.deleteCandidate(request, approvals) {
+                    requireInputWrite(inputContext)
+                    personalDataPolicy.accepts(permit)
+                }
             }
             val error = saved.exceptionOrNull()
             if (error != null) {
                 deliver(callback, PersonalWriteResult.Failed(personalWriteFailure(error)))
                 return@execute
             }
-            val loaded = runCatching { buildDictionary(loadSnapshot()) }
+            val loaded = runCatching { buildPublished(loadSnapshot()) }
             if (loaded.isSuccess) {
-                publish(Published(loaded.getOrThrow(), DictionaryManagerStatus.Ready()))
+                publish(loaded.getOrThrow())
                 deliver(callback, PersonalWriteResult.Applied)
             } else {
                 publishRefreshFailure()
@@ -223,10 +266,18 @@ class DictionaryManager(
         }
     }
 
-    /** コアが固定した候補由来を、管理器が保持する組み込み辞書承認表で削除要求へ変換します。 */
     fun deleteSelection(
         selection: CandidateSelection,
         originAllowsSaving: Boolean,
+        callback: (PersonalWriteResult) -> Unit,
+    ) = deleteSelection(selection, originAllowsSaving, captureInputWriteContext(), callback)
+
+    /** コアが固定した候補由来を、管理器が保持する組み込み辞書承認表で削除要求へ変換します。 */
+    @Synchronized
+    fun deleteSelection(
+        selection: CandidateSelection,
+        originAllowsSaving: Boolean,
+        inputContext: DictionaryInputWriteContext,
         callback: (PersonalWriteResult) -> Unit,
     ) = deleteCandidate(
         DeleteCandidateRequest(
@@ -237,7 +288,7 @@ class DictionaryManager(
                     sourceGeneration = origin.generation,
                     kind = when {
                         origin.personal -> CandidateOriginKind.PERSONAL
-                        origin.dictionaryId in immutableApprovals -> CandidateOriginKind.IMMUTABLE_SYSTEM
+                        origin.dictionaryId in published.immutableApprovals -> CandidateOriginKind.IMMUTABLE_SYSTEM
                         else -> CandidateOriginKind.STORED_SYSTEM
                     },
                     entryKey = origin.entryKey,
@@ -247,6 +298,7 @@ class DictionaryManager(
             },
         ),
         originAllowsSaving,
+        inputContext,
         callback,
     )
 
@@ -317,6 +369,140 @@ class DictionaryManager(
         }
     }
 
+    /** 外部 URI へ渡す前に、専用領域で全体の作成と再検証を完了します。 */
+    @Synchronized
+    fun exportCompleteBackup(
+        context: Context,
+        producerVersion: String,
+        callback: (CompleteBackupResult<CompleteBackupExport>) -> Unit,
+    ) {
+        check(!closed) { "辞書管理器は閉じています" }
+        val appContext = context.applicationContext
+        serialExecutor.execute {
+            if (closed) return@execute
+            var file: File? = null
+            val result = runCatching {
+                val directory = File(appContext.cacheDir, "dictionary-export")
+                if (!directory.isDirectory && !directory.mkdirs()) throw IOException()
+                val staged = File.createTempFile("complete-", ".skkbackup", directory)
+                file = staged
+                val summary = staged.outputStream().use {
+                    repository.writeCompleteBackup(it, fallbackSystems, producerVersion)
+                }
+                val checked = staged.inputStream().use { CompleteDictionaryBackupCodec().validate(it) { } }
+                check(summary == checked) { "バックアップの再検証に失敗しました" }
+                CompleteBackupExport(staged, summary, ::forgetBackupHandle).also(::trackBackupHandle)
+            }
+            if (result.isFailure) file?.delete()
+            result.fold(
+                onSuccess = { deliverBackupHandle(callback, it) },
+                onFailure = { deliver(callback, CompleteBackupResult.Failed(backupFailure(it))) },
+            )
+        }
+    }
+
+    /** 外部入力はここで開閉し、確認後に同じ URI を読み直しません。 */
+    @Synchronized
+    fun prepareCompleteRestore(
+        context: Context,
+        openInput: () -> InputStream,
+        callback: (CompleteBackupResult<PreparedDictionaryRestore>) -> Unit,
+    ) {
+        check(!closed) { "辞書管理器は閉じています" }
+        val appContext = context.applicationContext
+        serialExecutor.execute {
+            if (closed) return@execute
+            var validated: ValidatedDictionaryBackup? = null
+            val result = runCatching {
+                validated = ValidatedDictionaryBackup.prepare(appContext, openInput())
+                PreparedDictionaryRestore(contextOwner, checkNotNull(validated),
+                    repository.dictionaryRevision(), ::forgetBackupHandle).also(::trackBackupHandle)
+            }
+            if (result.isFailure) validated?.close()
+            result.fold(
+                onSuccess = { deliverBackupHandle(callback, it) },
+                onFailure = { deliver(callback, CompleteBackupResult.Failed(backupFailure(it))) },
+            )
+        }
+    }
+
+    /** 確認済み候補を一度だけ消費します。保存済みの再試行は loadAsync で行います。 */
+    @Synchronized
+    fun restoreComplete(
+        prepared: PreparedDictionaryRestore,
+        callback: (CompleteBackupResult<RestoreSummary>) -> Unit,
+    ) {
+        check(!closed) { "辞書管理器は閉じています" }
+        val validated = prepared.claim(contextOwner)
+        if (validated == null) {
+            deliver(callback, CompleteBackupResult.Failed(CompleteBackupFailure.CONFLICT))
+            return
+        }
+        try {
+            serialExecutor.execute {
+                try {
+                    if (closed) return@execute
+                    val saved = runCatching { repository.restoreComplete(validated, prepared.expectedRevision) }
+                    if (saved.isFailure) {
+                        deliver(callback, CompleteBackupResult.Failed(backupFailure(saved.exceptionOrNull()!!)))
+                        return@execute
+                    }
+                    // コミット直後に旧入力を失効させます。再公開できなくても元へ戻しません。
+                    invalidateInputContextsAfterRestore()
+                    val summary = saved.getOrThrow()
+                    val loaded = runCatching { buildPublished(loadSnapshot()) }
+                    if (loaded.isSuccess) {
+                        publish(loaded.getOrThrow())
+                        deliver(callback, CompleteBackupResult.Applied(summary))
+                    } else {
+                        publishRefreshFailure()
+                        deliver(callback, CompleteBackupResult.SavedButNotApplied(summary))
+                    }
+                } finally {
+                    prepared.finish()
+                }
+            }
+        } catch (error: RuntimeException) {
+            prepared.finish()
+            throw error
+        }
+    }
+
+    @Synchronized
+    private fun invalidateInputContextsAfterRestore() {
+        if (!closed) published = published.copy(inputEpoch = Any(), inputWritesBlocked = true)
+    }
+
+    @Synchronized private fun trackBackupHandle(handle: Closeable) {
+        if (closed) handle.close() else backupHandles.add(handle)
+    }
+
+    @Synchronized private fun forgetBackupHandle(handle: Closeable) {
+        backupHandles.remove(handle)
+    }
+
+    private fun <T : Closeable> deliverBackupHandle(callback: (CompleteBackupResult<T>) -> Unit, handle: T) {
+        try {
+            callbackExecutor.execute {
+                if (closed) handle.close() else callback(CompleteBackupResult.Applied(handle))
+            }
+        } catch (error: RuntimeException) {
+            handle.close()
+            throw error
+        }
+    }
+
+    private fun backupFailure(error: Throwable): CompleteBackupFailure = when (error) {
+        is CompleteDictionaryBackupException -> when (error.error) {
+            CompleteDictionaryBackupError.UNSUPPORTED_VERSION -> CompleteBackupFailure.UNSUPPORTED_VERSION
+            CompleteDictionaryBackupError.LIMIT_EXCEEDED -> CompleteBackupFailure.LIMIT_EXCEEDED
+            else -> CompleteBackupFailure.INVALID_FORMAT
+        }
+        is SQLiteFullException -> CompleteBackupFailure.CAPACITY
+        is StaleDictionaryRevisionException, is ArithmeticException -> CompleteBackupFailure.CONFLICT
+        else -> CompleteBackupFailure.IO
+    }
+
     @Synchronized
     override fun close() {
         if (closed) return
@@ -324,6 +510,8 @@ class DictionaryManager(
         observers.clear()
         published = Published(null, DictionaryManagerStatus.Unavailable(DictionaryUnavailableReason.FAILED))
         serialExecutor.execute {
+            val handles = synchronized(this) { backupHandles.toList() }
+            handles.forEach { runCatching { it.close() } }
             repository.close()
             ownedExecutor?.shutdown()
         }
@@ -342,9 +530,9 @@ class DictionaryManager(
                 return@execute
             }
             val value = saved.getOrThrow()
-            val loaded = runCatching { buildDictionary(loadSnapshot()) }
+            val loaded = runCatching { buildPublished(loadSnapshot()) }
             if (loaded.isSuccess) {
-                publish(Published(loaded.getOrThrow(), DictionaryManagerStatus.Ready()))
+                publish(loaded.getOrThrow())
                 deliver(callback, DictionaryManagerWriteResult.Applied(value))
             } else {
                 publishRefreshFailure()
@@ -353,14 +541,41 @@ class DictionaryManager(
         }
     }
 
-    private fun buildDictionary(snapshot: DictionaryLookupSnapshot): BasicSkkDictionary {
-        return NumericSkkDictionary(snapshot.asComposite(fallbackSystems))
+    private fun buildPublished(snapshot: DictionaryLookupSnapshot): Published {
+        val fallbacks = if (snapshot.allowFallback) {
+            fallbackSystems.filterNot { it.id in snapshot.storedSourceIds }
+        } else emptyList()
+        return Published(
+            NumericSkkDictionary(snapshot.asComposite(fallbacks)),
+            DictionaryManagerStatus.Ready(),
+            fallbacks.associate { it.id to it.generation },
+            published.inputEpoch,
+        )
+    }
+
+    /** 入力欄を作る時点の許可を固定します。古い確認から取得し直しません。 */
+    fun captureInputWriteContext(): DictionaryInputWriteContext =
+        DictionaryInputWriteContext(contextOwner, published.inputEpoch)
+
+    fun isInputWriteContextCurrent(context: DictionaryInputWriteContext): Boolean =
+        context.owner === contextOwner && context.epoch === published.inputEpoch
+
+    private fun acceptsInputWrite(context: DictionaryInputWriteContext): Boolean {
+        val current = published
+        return !closed && context.owner === contextOwner && context.epoch === current.inputEpoch &&
+            !current.inputWritesBlocked &&
+            (current.status as? DictionaryManagerStatus.Ready)?.freshness != DictionaryFreshness.STALE
+    }
+
+    private fun requireInputWrite(context: DictionaryInputWriteContext) {
+        if (!acceptsInputWrite(context)) throw StaleDictionaryInputContextException()
     }
 
     private fun personalWriteFailure(error: Throwable): PersonalWriteFailure = when (error) {
         is SQLiteFullException -> PersonalWriteFailure.CAPACITY
         is StaleDictionaryGenerationException,
-        is CandidateOriginMismatchException -> PersonalWriteFailure.CONFLICT
+        is CandidateOriginMismatchException,
+        is StaleDictionaryInputContextException -> PersonalWriteFailure.CONFLICT
         is PersonalDataPolicyRejectedException -> PersonalWriteFailure.POLICY_REJECTED
         else -> PersonalWriteFailure.GENERAL
     }
@@ -369,9 +584,11 @@ class DictionaryManager(
         val current = published
         publish(
             if (current.dictionary == null) {
-                Published(null, DictionaryManagerStatus.Unavailable(DictionaryUnavailableReason.FAILED))
+                current.copy(status = DictionaryManagerStatus.Unavailable(DictionaryUnavailableReason.FAILED),
+                    inputWritesBlocked = true)
             } else {
-                Published(current.dictionary, DictionaryManagerStatus.Ready(DictionaryFreshness.STALE))
+                current.copy(status = DictionaryManagerStatus.Ready(DictionaryFreshness.STALE),
+                    inputWritesBlocked = true)
             },
         )
     }

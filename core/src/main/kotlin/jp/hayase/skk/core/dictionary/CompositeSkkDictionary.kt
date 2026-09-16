@@ -27,6 +27,23 @@ class SkkDictionarySource(
 
     internal fun candidates(key: String): List<SkkDictionaryCandidate> = index[key].orEmpty()
 
+    /** 完全バックアップ用に Unicode コードポイント順で列挙します。通常検索では使用しません。 */
+    fun entriesForBackup(): Sequence<SkkDictionaryEntry> = index.keys.sortedWith(Comparator { left, right ->
+        var a = 0
+        var b = 0
+        var result = 0
+        while (a < left.length && b < right.length) {
+            val x = left.codePointAt(a)
+            val y = right.codePointAt(b)
+            result = x.compareTo(y)
+            if (result != 0) break
+            a += Character.charCount(x)
+            b += Character.charCount(y)
+        }
+        if (result != 0) result else (left.length - a).compareTo(right.length - b)
+    }).asSequence().map { SkkDictionaryEntry(it, index.getValue(it)) }
+
+
     /** ソート済み索引の一致範囲だけを列挙し、辞書全件を通常経路で走査しません。 */
     internal fun completionKeys(prefix: String): Sequence<String> = sequence {
         var index = sortedKeys.lowerBound(prefix)

@@ -134,6 +134,12 @@ class DictionarySettingsActivity : Activity() {
             setOnClickListener { launchExport() }
         }
         content.addView(exportPersonalButton)
+        content.addView(Button(this).apply {
+            text = "完全辞書バックアップ・復元"
+            setOnClickListener {
+                startActivity(Intent(this@DictionarySettingsActivity, CompleteDictionaryBackupActivity::class.java))
+            }
+        })
         reloadButton = Button(this).apply {
             setText(R.string.dictionary_reload)
             setOnClickListener { reloadDictionary() }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""専用エミュレーターで Android SQLite 辞書試験だけを実行します。"""
+"""専用エミュレーターで完全辞書バックアップの SAF E2E だけを実行します。"""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -8,6 +8,10 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
+
+
+sys.dont_write_bytecode = True
 
 
 def load_completion_parser(root):
@@ -23,14 +27,20 @@ def main():
     parser.add_argument("--serial", required=True, help="専用エミュレーターの adb シリアル")
     args = parser.parse_args()
     if not re.fullmatch(r"emulator-[0-9]+", args.serial):
-        parser.error("実機や共用端末のデータを変更しないため、専用エミュレーターを指定してください")
+        parser.error("実機や共用端末を使わず、専用エミュレーターを指定してください")
+
     root = Path(__file__).resolve().parents[1]
     succeeded = load_completion_parser(root)
 
     def adb(*arguments):
-        return subprocess.run(["adb", "-s", args.serial, *arguments], check=True,
-                              text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              timeout=300).stdout
+        return subprocess.run(
+            ["adb", "-s", args.serial, *arguments],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=600,
+        ).stdout
 
     apks = (
         "app/build/outputs/apk/debug/app-debug.apk",
@@ -41,12 +51,10 @@ def main():
 
     result = adb(
         "shell", "am", "instrument", "-w", "-r", "-e", "class",
-        "jp.hayase.skk.dictionary.SQLiteDictionaryAndroidTest,"
-        "jp.hayase.skk.dictionary.DictionaryCrashRecoveryTest,"
-        "jp.hayase.skk.dictionary.CompleteDictionaryBackupAndroidTest",
+        "jp.hayase.skk.CompleteBackupSafE2eTest",
         "jp.hayase.skk.test/androidx.test.runner.AndroidJUnitRunner",
     )
-    report_root = root / "app/build/reports/dictionary-instrumentation"
+    report_root = root / "app/build/reports/complete-backup-saf-e2e"
     report_root.mkdir(parents=True, exist_ok=True)
     (report_root / "latest.txt").write_text(result)
     history = report_root / args.serial / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -62,8 +70,8 @@ def main():
     (history / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
     print(result)
     if not succeeded(result):
-        raise SystemExit("辞書 instrumentation が失敗・スキップ、または完了しませんでした")
-    print(f"辞書試験結果: {history}")
+        raise SystemExit("完全辞書バックアップ SAF E2E が失敗・スキップ、または完了しませんでした")
+    print(f"完全辞書バックアップ SAF E2E 結果: {history}")
 
 
 if __name__ == "__main__":

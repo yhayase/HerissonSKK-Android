@@ -18,6 +18,8 @@
         </activity>
         <activity android:name=".CustomizationSettingsActivity" android:exported="false"
             android:label="入力規則・句読点・候補" />
+        <activity android:name=".CompleteDictionaryBackupActivity" android:exported="false"
+            android:label="完全辞書バックアップ" />
         <activity android:name=".DictionarySettingsActivity" android:exported="false"
             android:label="@string/dictionary_settings_title" />
     </application>

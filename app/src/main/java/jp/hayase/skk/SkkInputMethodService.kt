@@ -36,10 +36,14 @@ import jp.hayase.skk.core.RegistrationSaveFailure
 import jp.hayase.skk.core.CandidateDeletionOutcome
 import jp.hayase.skk.core.CandidateDeletionFailure
 import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
+import jp.hayase.skk.dictionary.DictionaryInputWriteContext
 
 class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceListener {
     private var generation = 0L
     private var session: EditorSession? = null
+    private class SessionWriteContext(var value: DictionaryInputWriteContext)
+    private var sessionWriteContext: SessionWriteContext? = null
+    private var dictionaryRestoreNotice: String? = null
     private var sessionCustomization: jp.hayase.skk.settings.CustomizationSettings? = null
     private val mapper = HardwareKeyMapper()
     private val presses = KeyPressLedger()
@@ -54,13 +58,15 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         super.onCreate()
         dictionaries = DictionaryRuntime.get(this)
         customization = CustomizationRuntime.get(this)
-        dictionarySubscription = dictionaries.observe { render() }
+        dictionarySubscription = dictionaries.observe { onDictionaryStatusChanged() }
         getSystemService(InputManager::class.java).registerInputDeviceListener(this, Handler(Looper.getMainLooper()))
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         session?.close()
         session = null
+        sessionWriteContext = null
+        dictionaryRestoreNotice = null
         generation++
         mapper.reset()
         lastDevice = null
@@ -78,6 +84,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     private fun startEditorSession(connection: InputConnection, info: EditorInfo) {
+        val writeContext = SessionWriteContext(dictionaries.captureInputWriteContext())
+        sessionWriteContext = writeContext
         val custom = customization.snapshot
         sessionCustomization = custom
         val protected = isPassword(info.inputType) || info.inputType == InputType.TYPE_NULL
@@ -92,7 +100,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             registrationSaver = { request, complete ->
                 dictionaries.savePersonalCandidate(request.readingKey,
                     SkkDictionaryCandidate(request.candidateText, okuriCondition = request.okuriCondition),
-                    learningAllowed) { result ->
+                    learningAllowed, writeContext.value) { result ->
                     complete(when (result) {
                         PersonalWriteResult.Applied -> RegistrationSaveOutcome.Applied
                         PersonalWriteResult.SavedButNotApplied -> RegistrationSaveOutcome.SavedButNotApplied
@@ -108,7 +116,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             candidateLearner = { request, complete ->
                 dictionaries.savePersonalCandidate(request.query.readingKey,
                     SkkDictionaryCandidate(request.candidate.text, request.candidate.annotation,
-                        request.query.okuri ?: request.candidate.okuriCondition), learningAllowed) { result ->
+                        request.query.okuri ?: request.candidate.okuriCondition), learningAllowed,
+                    writeContext.value) { result ->
                     complete(when (result) {
                         PersonalWriteResult.Applied -> RegistrationSaveOutcome.Applied
                         PersonalWriteResult.SavedButNotApplied -> RegistrationSaveOutcome.SavedButNotApplied
@@ -121,7 +130,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     })
                 }
             }, candidateDeleter = { request, complete ->
-                dictionaries.deleteSelection(request.selection, learningAllowed) { result ->
+                dictionaries.deleteSelection(request.selection, learningAllowed, writeContext.value) { result ->
                     complete(when (result) {
                         PersonalWriteResult.Applied -> CandidateDeletionOutcome.Applied
                         PersonalWriteResult.SavedButNotApplied -> CandidateDeletionOutcome.SavedButNotApplied
@@ -267,6 +276,19 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         super.onDestroy()
     }
 
+    /** 復元前の確認を終了してから、新しい辞書への保存を許可します。本文は置換しません。 */
+    private fun onDictionaryStatusChanged() {
+        val context = sessionWriteContext
+        val current = session
+        if (context != null && current != null && !dictionaries.isInputWriteContextCurrent(context.value)) {
+            current.preserveText()
+            mapper.reset()
+            context.value = dictionaries.captureInputWriteContext()
+            dictionaryRestoreNotice = "辞書を復元しました。未確定の表示文字を残し、変換・登録・削除の確認を終了しました。"
+        }
+        render()
+    }
+
     private fun render() {
         updateStatus()
         val current = session
@@ -336,6 +358,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         })
                     }
                     current.notice?.let(::add)
+                    dictionaryRestoreNotice?.let(::add)
                 }
                 val text = "$mode  ${details.joinToString("\n")}"
                 SpannableString(text).apply {

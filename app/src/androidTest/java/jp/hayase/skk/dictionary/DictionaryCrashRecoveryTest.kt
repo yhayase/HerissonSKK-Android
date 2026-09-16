@@ -1,5 +1,8 @@
 package jp.hayase.skk.dictionary
 
+import jp.hayase.skk.core.dictionary.BackupRecord
+import jp.hayase.skk.core.dictionary.CompleteDictionaryBackupCodec
+
 import android.app.ActivityManager
 import android.content.ComponentName
 import android.content.Context
@@ -33,6 +36,18 @@ class DictionaryCrashRecoveryTest {
     private val serviceComponent = ComponentName(context, DictionaryCrashTestService::class.java)
 
     @Test fun `別プロセスを行更新後の未完了トランザクションで終了しても旧世代だけが再公開される`() {
+        crashAndAssert(DictionaryCrashTestService.START_IMPORT)
+    }
+
+    @Test fun `完全復元のコミット直前のプロセス終了で全旧状態が残る`() {
+        crashAndAssert(DictionaryCrashTestService.RESTORE_BEFORE_COMMIT)
+    }
+
+    @Test fun `完全復元のコミット後のプロセス終了で未公開でも全復元状態が残る`() {
+        crashAndAssert(DictionaryCrashTestService.RESTORE_AFTER_COMMIT)
+    }
+
+    private fun crashAndAssert(operation: Int) {
         val databaseName = "dictionary-it-${UUID.randomUUID()}.db"
         val barrier = CountDownLatch(1)
         val connected = CountDownLatch(1)
@@ -62,11 +77,22 @@ class DictionaryCrashRecoveryTest {
         var primaryFailure: Throwable? = null
         try {
             seed(databaseName)
+            if (operation != DictionaryCrashTestService.START_IMPORT) {
+                SQLiteDictionaryRepository(context, databaseName).use { repository ->
+                    repository.deleteCandidate(DeleteCandidateRequest(1, listOf(StoredCandidateOriginRef(
+                        DictionaryCrashTestService.SYSTEM_ID, 1, CandidateOriginKind.STORED_SYSTEM,
+                        "かな", "旧候補", null,
+                    ))), emptyMap())
+                    repository.setSourceEnabled(DictionaryCrashTestService.SYSTEM_ID, false)
+                }
+            }
+            val oldBytes = SQLiteDictionaryRepository(context, databaseName).use { export(it) }
+            val oldRevision = SQLiteDictionaryRepository(context, databaseName).use { it.dictionaryRevision() }
             bound = context.bindService(Intent().setComponent(serviceComponent), connection, Context.BIND_AUTO_CREATE)
             assertTrue("クラッシュ試験サービスへ接続できません", bound)
             assertTrue("サービス接続がタイムアウトしました", connected.await(TIMEOUT_SECONDS, TimeUnit.SECONDS))
             assertEquals(serviceComponent, connectedComponent)
-            remote!!.send(Message.obtain(null, DictionaryCrashTestService.START_IMPORT).apply {
+            remote!!.send(Message.obtain(null, operation).apply {
                 data = Bundle().apply { putString(DictionaryCrashTestService.DATABASE_NAME, databaseName) }
                 replyTo = callback
             })
@@ -78,7 +104,16 @@ class DictionaryCrashRecoveryTest {
             Process.killProcess(verifiedPid)
             assertTrue("作業プロセスの Binder 終了が届きません", binderDied.await(TIMEOUT_SECONDS, TimeUnit.SECONDS))
             await("作業プロセスの終了") { !childProcessExists() }
-            assertOldFixture(databaseName)
+            if (operation == DictionaryCrashTestService.RESTORE_AFTER_COMMIT) {
+                assertRestoredFixture(databaseName, oldRevision)
+            } else {
+                if (operation == DictionaryCrashTestService.START_IMPORT) assertOldFixture(databaseName)
+                SQLiteDictionaryRepository(context, databaseName).use {
+                    org.junit.Assert.assertArrayEquals(oldBytes, export(it))
+                    assertEquals(oldRevision, it.dictionaryRevision())
+                    assertTrue(it.loadSnapshot().allowFallback)
+                }
+            }
         } catch (failure: Throwable) {
             primaryFailure = failure
             throw failure
@@ -90,6 +125,7 @@ class DictionaryCrashRecoveryTest {
                 val knownOrRunningChild = childPid?.takeIf(::isVerifiedChildPid) ?: runningChildPid()
                 if (knownOrRunningChild != null) Process.killProcess(knownOrRunningChild)
                 await("作業プロセスの後始末") { !childProcessExists() }
+                check(java.io.File(context.cacheDir, "crash-$databaseName").let { !it.exists() || it.deleteRecursively() })
                 check(context.deleteDatabase(databaseName)) { "試験用データベースを削除できません" }
             } catch (failure: Throwable) {
                 cleanupFailure = failure
@@ -120,6 +156,35 @@ class DictionaryCrashRecoveryTest {
             assertEquals(listOf("個人旧", "旧候補"), repository.loadSnapshot().asComposite()
                 .lookup(DictionaryQuery("かな")).map { it.text })
             assertFalse(repository.exportPersonal().decodeToString().contains("新候補"))
+        }
+    }
+
+    private fun export(repository: SQLiteDictionaryRepository): ByteArray = java.io.ByteArrayOutputStream().also {
+        repository.writeCompleteBackup(it, emptyList(), "試験")
+    }.toByteArray()
+
+    private fun assertRestoredFixture(name: String, oldRevision: Long) {
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            assertEquals(oldRevision + 1, repository.dictionaryRevision())
+            assertFalse(repository.loadSnapshot().allowFallback)
+            val records = mutableListOf<BackupRecord>()
+            CompleteDictionaryBackupCodec().validate(export(repository).inputStream(), records::add)
+            val expected = mutableListOf<BackupRecord>()
+            CompleteDictionaryBackupCodec().validate(CompleteBackupCrashFixture.bytes().inputStream(), expected::add)
+            val normalized = records.mapNotNull { record ->
+                when (record) {
+                    is BackupRecord.Source -> record.copy(generation = record.generation - 1)
+                    is BackupRecord.SourceVersion -> when(record.sourceId) {
+                        DictionaryCrashTestService.SYSTEM_ID -> { assertEquals(1L, record.lastGeneration); null }
+                        "personal", "restored" -> record.copy(lastGeneration = record.lastGeneration - 1)
+                        else -> record
+                    }
+                    is BackupRecord.End -> record.copy(sourceVersionCount = record.sourceVersionCount - 1)
+                    else -> record
+                }
+            }
+            assertEquals(expected, normalized)
+            assertEquals(listOf("復元個人"), repository.loadSnapshot().asComposite().lookup(DictionaryQuery("かな")).map { it.text })
         }
     }
 

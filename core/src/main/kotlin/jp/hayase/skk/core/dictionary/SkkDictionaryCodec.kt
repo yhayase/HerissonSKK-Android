@@ -86,6 +86,19 @@ object SkkDictionaryCodec {
     fun encodeUtf8(document: SkkDictionaryDocument): ByteArray =
         format(document).toByteArray(StandardCharsets.UTF_8)
 
+    /** 完全バックアップでも通常の SKK 読み書きと同じ候補意味検証を使うための入口です。 */
+    internal fun validateCandidateFields(
+        entryKey: String,
+        text: String,
+        annotation: String?,
+        okuriCondition: String?,
+    ) {
+        validateKey(entryKey, 1)
+        validateValue(text, 1)
+        annotation?.let { validateValue(it, 1) }
+        okuriCondition?.let { validateOkuriCondition(entryKey, it, 1) }
+    }
+
     private fun parseLine(line: String, lineNumber: Int): SkkDictionaryEntry {
         val separator = line.indexOfFirst { it.isWhitespace() }
         if (separator <= 0) fail(lineNumber, SkkDictionaryError.INVALID_ENTRY)

@@ -121,7 +121,7 @@ class SQLiteDictionaryAndroidTest {
             assertEquals("数量", system.annotation)
         }
         context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { database ->
-            assertEquals(2, database.version)
+            assertEquals(3, database.version)
         }
     }
 

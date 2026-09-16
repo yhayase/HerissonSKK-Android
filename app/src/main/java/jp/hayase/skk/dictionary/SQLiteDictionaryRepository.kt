@@ -8,6 +8,10 @@ import android.database.sqlite.SQLiteException
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import java.io.Closeable
+import java.io.OutputStream
+import jp.hayase.skk.core.dictionary.BackupRecord
+import jp.hayase.skk.core.dictionary.BackupSummary
+import jp.hayase.skk.core.dictionary.CompleteDictionaryBackupCodec
 import java.util.Collections
 import jp.hayase.skk.core.dictionary.CompositeSkkDictionary
 import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
@@ -44,13 +48,17 @@ class DictionaryLookupSnapshot(
     val personal: SkkDictionarySource?,
     systems: List<SkkDictionarySource>,
     suppressions: List<CandidateSuppressionInfo> = emptyList(),
+    storedSourceIds: Set<String> = systems.map { it.id }.toSet() + listOfNotNull(personal?.id),
+    val dictionaryRevision: Long = 0,
+    val allowFallback: Boolean = true,
 ) {
+    val storedSourceIds: Set<String> = Collections.unmodifiableSet(HashSet(storedSourceIds))
     val systems: List<SkkDictionarySource> = Collections.unmodifiableList(ArrayList(systems))
     val suppressions: List<CandidateSuppressionInfo> =
         Collections.unmodifiableList(ArrayList(suppressions))
 
     fun asComposite(fallbackSystems: List<SkkDictionarySource> = emptyList()): CompositeSkkDictionary =
-        CompositeSkkDictionary(personal, systems + fallbackSystems, suppressions.map { suppression ->
+        CompositeSkkDictionary(personal, systems + if (allowFallback) fallbackSystems.filterNot { it.id in storedSourceIds } else emptyList(), suppressions.map { suppression ->
             suppression.key.let {
                 SuppressedDictionaryCandidate(it.sourceId, it.entryKey, it.templateText, it.okuriCondition)
             }
@@ -339,6 +347,134 @@ class SQLiteDictionaryRepository internal constructor(
         return database.inReadTransaction { readSnapshot(database, null) }
     }
 
+    @Synchronized fun dictionaryRevision(): Long = readRevision(helper.readableDatabase)
+
+    private fun readRevision(database: SQLiteDatabase): Long =
+        database.rawQuery("SELECT revision FROM dictionary_metadata WHERE singleton=1", null).use {
+            check(it.moveToFirst()); it.getLong(0)
+        }
+
+    private fun readAllowFallback(database: SQLiteDatabase): Boolean =
+        database.rawQuery("SELECT allow_fallback FROM dictionary_metadata WHERE singleton=1", null).use {
+            check(it.moveToFirst()); it.getInt(0) != 0
+        }
+
+    /** 無効辞書と削除済み台帳も含め、同じ読取時点から順次出力します。 */
+    @Synchronized fun writeCompleteBackup(
+        output: OutputStream,
+        fallbackSources: List<SkkDictionarySource>,
+        producerVersion: String,
+    ): BackupSummary {
+        val database = helper.readableDatabase
+        return database.inReadTransaction {
+            val stored = querySources(database)
+            val storedIds = stored.map { it.id }.toSet()
+            val fallback = if (readAllowFallback(database)) fallbackSources.filterNot { it.id in storedIds } else emptyList()
+            require(fallback.map { it.id }.distinct().size == fallback.size)
+            val systemOrder = stored.count { it.kind == DictionarySourceKind.SYSTEM }
+            val sources = stored.mapIndexed { index, source -> source.copy(order = if (source.kind == DictionarySourceKind.PERSONAL) 0 else index - 1) } +
+                fallback.mapIndexed { index, source -> DictionarySourceInfo(source.id, source.id, DictionarySourceKind.SYSTEM, source.generation, source.enabled, systemOrder + index) }
+            val records = sequence<BackupRecord> {
+                yield(BackupRecord.Header(jp.hayase.skk.core.dictionary.COMPLETE_DICTIONARY_BACKUP_FORMAT, 1, producerVersion))
+                sources.forEach { source -> yield(BackupRecord.Source(source.id, source.name,
+                    if (source.kind == DictionarySourceKind.PERSONAL) jp.hayase.skk.core.dictionary.BackupSourceKind.PERSONAL else jp.hayase.skk.core.dictionary.BackupSourceKind.SYSTEM,
+                    source.generation, source.enabled, source.order)) }
+                var candidates = 0
+                stored.forEach { source ->
+                    database.rawQuery("SELECT entry_key,ordinal,candidate_text,annotation,okuri_condition FROM dictionary_candidates WHERE source_id=? ORDER BY entry_key,ordinal", arrayOf(source.id)).use { cursor ->
+                        while (cursor.moveToNext()) {
+                            yield(BackupRecord.Candidate(source.id, cursor.getString(0), cursor.getInt(1), cursor.getString(2), cursor.nullableString(3), cursor.nullableString(4)))
+                            candidates = Math.addExact(candidates, 1)
+                        }
+                    }
+                }
+                fallback.forEach { source -> source.entriesForBackup().forEach { entry ->
+                    entry.candidates.forEachIndexed { ordinal, candidate ->
+                        yield(BackupRecord.Candidate(source.id, entry.key, ordinal, candidate.text, candidate.annotation?.takeIf(String::isNotEmpty), candidate.okuriCondition))
+                        candidates = Math.addExact(candidates, 1)
+                    }
+                } }
+                var suppressions = 0
+                database.rawQuery("SELECT source_id,entry_key,candidate_text,okuri_condition FROM candidate_suppressions ORDER BY source_id,entry_key,candidate_text,okuri_condition", null).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        yield(BackupRecord.Suppression(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3).takeIf(String::isNotEmpty)))
+                        suppressions = Math.addExact(suppressions, 1)
+                    }
+                }
+                val pending = fallback.associate { it.id to it.generation }.toMutableMap()
+                // 台帳は一行ずつ送り、組み込みソースの小さな集合だけを併合します。
+                val fallbackIds = pending.keys.sortedWith(CODE_POINT_ORDER)
+                var fallbackIndex = 0
+                var versions = 0
+                database.rawQuery("SELECT source_id,last_generation FROM dictionary_source_versions ORDER BY source_id", null).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getString(0)
+                        while (fallbackIndex < fallbackIds.size && CODE_POINT_ORDER.compare(fallbackIds[fallbackIndex], id) < 0) {
+                            val next = fallbackIds[fallbackIndex++]
+                            yield(BackupRecord.SourceVersion(next, pending.getValue(next))); versions++
+                        }
+                        val generation = maxOf(cursor.getLong(1), pending[id] ?: 0)
+                        if (fallbackIndex < fallbackIds.size && fallbackIds[fallbackIndex] == id) fallbackIndex++
+                        yield(BackupRecord.SourceVersion(id, generation)); versions++
+                    }
+                }
+                while (fallbackIndex < fallbackIds.size) {
+                    val next = fallbackIds[fallbackIndex++]
+                    yield(BackupRecord.SourceVersion(next, pending.getValue(next))); versions++
+                }
+                yield(BackupRecord.End(sources.size, candidates, suppressions, versions))
+            }
+            CompleteDictionaryBackupCodec().write(records, output)
+        }
+    }
+
+    /** 検証済みファイルの全件を、revision の一致時だけ一つのトランザクションで置換します。 */
+    @Synchronized fun restoreComplete(validated: ValidatedDictionaryBackup, expectedRevision: Long): RestoreSummary =
+        validated.readVerified { staging ->
+            val database = helper.writableDatabase
+            database.inTransaction {
+                val actual = readRevision(database)
+                if (actual != expectedRevision) throw StaleDictionaryRevisionException(expectedRevision, actual)
+                // 削除されるソースの世代も台帳へ残します。
+                querySources(database).forEach { source -> mergeLedger(database, source.id, source.generation) }
+                staging.rawQuery("SELECT source,generation FROM versions", null).use { cursor ->
+                    while (cursor.moveToNext()) mergeLedger(database, cursor.getString(0), cursor.getLong(1))
+                }
+                val generations = linkedMapOf<String, RestoredSourceGeneration>()
+                validated.sources.forEach { source ->
+                    val next = allocateNextGeneration(database, source)
+                    generations[source.id] = RestoredSourceGeneration(source.generation, next)
+                }
+                database.delete(TABLE_SOURCES, null, null)
+                database.delete(TABLE_SUPPRESSIONS, null, null)
+                validated.sources.forEach { source -> insertSource(database, source.copy(generation = generations.getValue(source.id).generation)) }
+                staging.rawQuery("SELECT source,entry,ordinal,text,annotation,okuri FROM candidates ORDER BY source,entry,ordinal", null).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val values = ContentValues().apply {
+                            put(COLUMN_SOURCE_ID, cursor.getString(0)); put(COLUMN_ENTRY_KEY, cursor.getString(1))
+                            put(COLUMN_ORDINAL, cursor.getInt(2)); put(COLUMN_TEXT, cursor.getString(3))
+                            putNullable(COLUMN_ANNOTATION, cursor.nullableString(4))
+                            putNullable(COLUMN_OKURI, cursor.getString(5).takeIf(String::isNotEmpty))
+                        }
+                        database.insertOrThrow(TABLE_CANDIDATES, null, values)
+                        failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
+                    }
+                }
+                staging.rawQuery("SELECT source,entry,text,okuri FROM suppressions", null).use { cursor ->
+                    while (cursor.moveToNext()) insertSuppression(database, CandidateSuppressionKey(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3).takeIf(String::isNotEmpty)))
+                }
+                database.execSQL("UPDATE dictionary_metadata SET allow_fallback=0 WHERE singleton=1")
+                failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
+                failpoint.hit(DictionaryWritePoint.BEFORE_PUBLICATION)
+                RestoreSummary(validated.summary, Collections.unmodifiableMap(generations))
+            }
+        }
+
+    private fun mergeLedger(database: SQLiteDatabase, id: String, generation: Long) {
+        database.execSQL("INSERT OR IGNORE INTO dictionary_source_versions(source_id,last_generation) VALUES(?,?)", arrayOf<Any>(id, generation))
+        database.execSQL("UPDATE dictionary_source_versions SET last_generation=MAX(last_generation,?) WHERE source_id=?", arrayOf<Any>(generation, id))
+    }
+
     @Synchronized
     override fun close() = helper.close()
 
@@ -619,7 +755,8 @@ class SQLiteDictionaryRepository internal constructor(
             )
             if (source.personal) personal = snapshot else systems += snapshot
         }
-        return DictionaryLookupSnapshot(personal, systems, readSuppressions(database, key))
+        return DictionaryLookupSnapshot(personal, systems, readSuppressions(database, key),
+            querySources(database).map { it.id }.toSet(), readRevision(database), readAllowFallback(database))
     }
 
     private fun querySources(database: SQLiteDatabase): List<DictionarySourceInfo> = buildList {
@@ -744,6 +881,7 @@ class SQLiteDictionaryRepository internal constructor(
                 "CREATE INDEX candidates_key_lookup ON $TABLE_CANDIDATES($COLUMN_ENTRY_KEY, $COLUMN_SOURCE_ID, $COLUMN_ORDINAL)",
             )
             createVersion2Tables(database)
+            createVersion3Tables(database)
             val personal = ContentValues().apply {
                 put(COLUMN_ID, PERSONAL_SOURCE_ID)
                 put(COLUMN_NAME, PERSONAL_SOURCE_NAME)
@@ -761,15 +899,17 @@ class SQLiteDictionaryRepository internal constructor(
         }
 
         override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            if (oldVersion == 1 && newVersion == 2) {
+            require(oldVersion in 1..2 && newVersion == 3)
+            if (oldVersion == 1) {
                 createVersion2Tables(database)
-                database.execSQL(
-                    "INSERT INTO $TABLE_SOURCE_VERSIONS($COLUMN_SOURCE_ID, $COLUMN_LAST_GENERATION) " +
-                        "SELECT $COLUMN_ID, $COLUMN_GENERATION FROM $TABLE_SOURCES",
-                )
-                return
+                database.execSQL("INSERT INTO $TABLE_SOURCE_VERSIONS SELECT $COLUMN_ID, $COLUMN_GENERATION FROM $TABLE_SOURCES")
             }
-            error("未対応の辞書DB更新です: $oldVersion -> $newVersion")
+            createVersion3Tables(database)
+        }
+
+        private fun createVersion3Tables(database: SQLiteDatabase) {
+            database.execSQL("CREATE TABLE dictionary_metadata (singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL, allow_fallback INTEGER NOT NULL)")
+            database.execSQL("INSERT INTO dictionary_metadata VALUES(1, 0, 1)")
         }
 
         private fun createVersion2Tables(database: SQLiteDatabase) {
@@ -806,10 +946,17 @@ class SQLiteDictionaryRepository internal constructor(
     }
 
     companion object {
+        private val CODE_POINT_ORDER = Comparator<String> { left, right ->
+            val a = left.codePoints().iterator()
+            val b = right.codePoints().iterator()
+            var result = 0
+            while (a.hasNext() && b.hasNext() && result == 0) result = a.nextInt().compareTo(b.nextInt())
+            if (result != 0) result else a.hasNext().compareTo(b.hasNext())
+        }
         const val PERSONAL_SOURCE_ID = "personal"
         private const val PERSONAL_SOURCE_NAME = "個人辞書"
         private const val DEFAULT_DATABASE_NAME = "skk-dictionaries.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
         private const val MISSING_GENERATION = -1L
         private const val KIND_PERSONAL = 0
         private const val KIND_SYSTEM = 1
@@ -845,7 +992,14 @@ private fun Cursor.nullableString(index: Int): String? = if (isNull(index)) null
 
 private inline fun <T> SQLiteDatabase.inTransaction(block: () -> T): T {
     beginTransaction()
-    return finishTransaction(block)
+    return finishTransaction {
+        val result = block()
+        val revision = rawQuery("SELECT revision FROM dictionary_metadata WHERE singleton=1", null).use {
+            check(it.moveToFirst()); it.getLong(0)
+        }
+        execSQL("UPDATE dictionary_metadata SET revision=? WHERE singleton=1", arrayOf(Math.addExact(revision, 1L)))
+        result
+    }
 }
 
 private inline fun <T> SQLiteDatabase.inReadTransaction(block: () -> T): T {
