@@ -1,6 +1,6 @@
 # Android SKK IME
 
-物理キーボードで使う Android 向け SKK 入力メソッドを Kotlin で開発します。現在は基本変換、ローカル辞書管理、再帰登録を実装して検証しています。同梱辞書は限定された試験用データです。通常候補の学習・削除、高度な設定と全対象アプリの検証は未完了で、日常利用版の完成判定はしていません。
+物理キーボードで使う Android 向け SKK 入力メソッドを Kotlin で開発します。現在は基本変換、ローカル辞書管理、再帰登録、通常候補の学習を実装して検証しています。同梱辞書は限定された試験用データです。候補削除、高度な設定と全対象アプリの検証は未完了で、日常利用版の完成判定はしていません。
 
 - [機能要件・非機能要件・設定要件](docs/requirements.md)
 - [ロードマップ](docs/roadmap.md)
@@ -34,7 +34,7 @@ adb -s <端末シリアル> install -r app/build/outputs/apk/debug/app-debug.apk
 
 端末で「SKK（開発版）」を開き、「入力方法の設定を開く」から有効化し、「入力方法を選ぶ」で選択します。別途 `:test-editor:assembleDebug` で作成する `test-editor/build/outputs/apk/debug/test-editor-debug.apk` を導入すると、「SKK 入力確認」アプリで外部送信のない入力欄を試せます。ソフトウェアキーボードは表示しません。
 
-現在の確認用操作は `Ctrl+j`、`Nihon`、Space、Enter です。`日本` を確定でき、もう一度 Enter を押すと入力先の Enter として働きます。Space で `二本` へ、`x` で前候補へ戻せます。`KaKu` で `書く`、`/API` とSpaceで `エーピーアイ` を確認できます。`q` はひらがな／カタカナ、`Ctrl+q` は半角カナ、`l` は直接入力、`L` は全角英数へ切り替えます。見出し語中は矢印・Home/End・Backspace/Deleteで内部編集できます。単語登録と辞書管理は追加検証中です。通常候補の学習・削除、完全なローマ字規則と高度な設定は今後の実装です。
+現在の確認用操作は `Ctrl+j`、`Nihon`、Space、Enter です。`日本` を確定でき、もう一度 Enter を押すと入力先の Enter として働きます。Space で `二本` へ、`x` で前候補へ戻せます。`KaKu` で `書く`、`/API` とSpaceで `エーピーアイ` を確認できます。`q` はひらがな／カタカナ、`Ctrl+q` は半角カナ、`l` は直接入力、`L` は全角英数へ切り替えます。見出し語中は矢印・Home/End・Backspace/Deleteで内部編集できます。単語登録と辞書管理は追加検証中です。候補削除、完全なローマ字規則と高度な設定は今後の実装です。
 
 ## エミュレーターの結合試験
 
@@ -65,4 +65,4 @@ python3 scripts/test-emulator.py --serial emulator-5580
 python3 scripts/test-dictionary-emulator.py --serial emulator-5580
 ```
 
-SAF画面・実IMEを通る退避付きE2Eは `scripts/test-saf-dictionary-emulator.py` で検証中です。成功条件には元の個人辞書の再取り込みと、再書き出し後のバイト比較を含みます。復元失敗時はDownloadsのUUID名のbackupとrecovery JSONを残し、成功として扱いません。最新の合否は[継続記録](docs/work-status.md)を参照します。
+SAF画面・実IMEを通る退避付きE2Eは `scripts/test-saf-dictionary-emulator.py` で実行します。API30で成功しました。成功条件には元の個人辞書の再取り込みと、再書き出し後のバイト比較を含みます。復元失敗時はDownloadsのUUID名のbackupとrecovery JSONを残し、成功として扱いません。最新の合否は[継続記録](docs/work-status.md)を参照します。

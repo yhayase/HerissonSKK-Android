@@ -41,7 +41,8 @@ def main():
 
     result = adb(
         "shell", "am", "instrument", "-w", "-r", "-e", "class",
-        "jp.hayase.skk.dictionary.SQLiteDictionaryAndroidTest",
+        "jp.hayase.skk.dictionary.SQLiteDictionaryAndroidTest,"
+        "jp.hayase.skk.dictionary.DictionaryCrashRecoveryTest",
         "jp.hayase.skk.test/androidx.test.runner.AndroidJUnitRunner",
     )
     report_root = root / "app/build/reports/dictionary-instrumentation"

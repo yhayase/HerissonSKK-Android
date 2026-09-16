@@ -76,7 +76,23 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         })
                     })
                 }
-            }, onStateChanged = ::render)
+            }, onStateChanged = ::render,
+            candidateLearner = { request, complete ->
+                dictionaries.savePersonalCandidate(request.query.readingKey,
+                    SkkDictionaryCandidate(request.candidate.text, request.candidate.annotation,
+                        request.query.okuri ?: request.candidate.okuriCondition), learningAllowed) { result ->
+                    complete(when (result) {
+                        PersonalWriteResult.Applied -> RegistrationSaveOutcome.Applied
+                        PersonalWriteResult.SavedButNotApplied -> RegistrationSaveOutcome.SavedButNotApplied
+                        is PersonalWriteResult.Failed -> RegistrationSaveOutcome.Failed(when (result.reason) {
+                            PersonalWriteFailure.CAPACITY -> RegistrationSaveFailure.CAPACITY
+                            PersonalWriteFailure.CONFLICT -> RegistrationSaveFailure.CONFLICT
+                            PersonalWriteFailure.POLICY_REJECTED -> RegistrationSaveFailure.POLICY_REJECTED
+                            PersonalWriteFailure.GENERAL -> RegistrationSaveFailure.GENERAL
+                        })
+                    })
+                }
+            })
         render()
     }
 

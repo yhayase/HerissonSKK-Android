@@ -12,6 +12,8 @@ import jp.hayase.skk.core.RegistrationPolicy
 import jp.hayase.skk.core.RegistrationSaveRequest
 import jp.hayase.skk.core.RegistrationSaveOutcome
 import jp.hayase.skk.core.RegistrationSaveCompletion
+import jp.hayase.skk.core.RegistrationSaveFailure
+import jp.hayase.skk.core.CandidateCommitRequest
 import jp.hayase.skk.dictionary.BuiltinDictionary
 
 /** 入力接続をセッションに固定し、後から別の入力欄へ出力しません。 */
@@ -25,12 +27,13 @@ class EditorSession(
     dictionary: BasicSkkDictionary = BuiltinDictionary.dictionary,
     private val registrationSaver: ((RegistrationSaveRequest, (RegistrationSaveOutcome) -> Unit) -> Unit)? = null,
     private val onStateChanged: () -> Unit = {},
+    private val candidateLearner: ((CandidateCommitRequest, (RegistrationSaveOutcome) -> Unit) -> Unit)? = null,
 ) {
     val engine = BasicSkkEngine(dictionary, RegistrationPolicy(
         enabled = registrationSaver != null,
         sessionGeneration = generation,
         savingAllowed = learningAllowed,
-    ))
+    ), learningEnabled = candidateLearner != null)
     var view = BasicSkkView(null, null, null)
         private set
     var notice: String? = null
@@ -90,6 +93,26 @@ class EditorSession(
                         if (active && !failed && effect.request.token.sessionGeneration == generation) {
                             applyResult(engine.completeRegistration(RegistrationSaveCompletion(effect.request.token, outcome)))
                             onStateChanged()
+                        }
+                    }
+                }
+                is BasicSkkEffect.LearnCandidate -> {
+                    if (result.commit != null && learningAllowed) {
+                        var completed = false
+                        candidateLearner?.invoke(effect.request) { outcome ->
+                            if (!completed) {
+                                completed = true
+                                val intentionallySuppressed = outcome is RegistrationSaveOutcome.Failed &&
+                                    outcome.reason == RegistrationSaveFailure.POLICY_REJECTED
+                                if (active && !failed && outcome != RegistrationSaveOutcome.Applied && !intentionallySuppressed) {
+                                    notice = when (outcome) {
+                                        RegistrationSaveOutcome.SavedButNotApplied -> "学習は保存されましたが、検索辞書を更新できません。辞書を再読込してください"
+                                        is RegistrationSaveOutcome.Failed -> "候補の学習を保存できませんでした。入力した文字は保持します"
+                                        else -> null
+                                    }
+                                    onStateChanged()
+                                }
+                            }
                         }
                     }
                 }

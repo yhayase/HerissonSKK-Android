@@ -25,7 +25,9 @@ class InputTestActivity : Activity() {
             layout.addView(EditText(this).apply {
                 setHint(label)
                 inputType = type
-                imeOptions = options
+                imeOptions = options or if (intent.getBooleanExtra(EXTRA_SUPPRESS_LEARNING, false)) {
+                    EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+                } else 0
                 importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_NO
                 setOnEditorActionListener { _, actionId, event ->
                     if (event?.action == KeyEvent.ACTION_DOWN || (event == null && actionId != EditorInfo.IME_NULL)) {
@@ -44,5 +46,9 @@ class InputTestActivity : Activity() {
         editor(R.string.test_no_learning, text, EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)
         setContentView(ScrollView(this).apply { addView(layout) })
         applySystemInsets()
+    }
+
+    companion object {
+        const val EXTRA_SUPPRESS_LEARNING = "jp.hayase.skk.testeditor.SUPPRESS_LEARNING"
     }
 }

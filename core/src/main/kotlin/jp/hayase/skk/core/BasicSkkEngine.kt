@@ -92,11 +92,12 @@ data class BasicSkkResult(
 /**
  * 基本入力と opt-in の登録状態を扱う、Android に依存しない SKK エンジンです。
  *
- * 永続化は効果と完了通知に分離し、学習、削除、非同期検索は後続フェーズの責務です。
+ * 登録・学習の永続化は効果と完了通知に分離します。削除と非同期検索は後続の実装です。
  */
 class BasicSkkEngine(
     private val dictionary: BasicSkkDictionary,
     private val registrationPolicy: RegistrationPolicy,
+    private val learningEnabled: Boolean = false,
 ) {
     constructor(dictionary: BasicSkkDictionary) : this(dictionary, RegistrationPolicy())
 
@@ -695,9 +696,17 @@ class BasicSkkEngine(
     private fun commitCandidate(index: Int): Outcome {
         val candidate = candidates[index]
         val committed = candidate.text + okuriText()
+        val effects = if (learningEnabled && registrationPolicy.savingAllowed && registrations.isEmpty()) {
+            listOf(BasicSkkEffect.LearnCandidate(CandidateCommitRequest(
+                operationId = nextOperationId++,
+                sessionGeneration = registrationPolicy.sessionGeneration,
+                query = checkNotNull(selectionQuery),
+                candidate = candidate,
+            )))
+        } else emptyList()
         clearComposition()
         mode = readingStartMode
-        return Outcome(true, committed)
+        return Outcome(true, committed, effects = effects)
     }
 
     private fun commitRawReading(): Outcome {

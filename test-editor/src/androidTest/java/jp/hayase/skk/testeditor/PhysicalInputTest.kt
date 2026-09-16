@@ -25,7 +25,7 @@ class PhysicalInputTest {
 
     /** I10: パスワード欄では SKK の未確定表示も候補表示も作らず、入力先の文字をそのまま通します。 */
     @Test fun passwordEditorBypassesSkkAndKeepsLiteralText() {
-        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+        launchWithoutLearning().use { scenario ->
             val password = scenario.editorStartingWith("パスワード")
             scenario.onActivity { password.requestFocus() }
             awaitProtectedEditor(password)
@@ -43,7 +43,7 @@ class PhysicalInputTest {
 
     /** I10: 候補を表示した通常欄からパスワード欄へ移っても、通常欄を保ち未確定文字を持ち込みません。 */
     @Test fun switchingCandidateToPasswordPreservesNormalTextWithoutLeakingComposition() {
-        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+        launchWithoutLearning().use { scenario ->
             val normal = scenario.editorStartingWith("送信")
             val password = scenario.editorStartingWith("パスワード")
             scenario.onActivity { normal.requestFocus() }
@@ -68,7 +68,7 @@ class PhysicalInputTest {
 
     /** I10: 学習禁止フラグだけでは通常の変換を止めません。保存抑止は永続辞書の導入後に別途検証します。 */
     @Test fun noPersonalizedLearningEditorStillConverts() {
-        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+        launchWithoutLearning().use { scenario ->
             val editor = scenario.editorStartingWith("学習禁止")
             scenario.onActivity { editor.requestFocus() }
             awaitIme()
@@ -157,8 +157,14 @@ class PhysicalInputTest {
         }
     }
 
+    /** 固定候補の操作試験は学習を抑止し、保存の受入試験と分離します。 */
+    private fun launchWithoutLearning(): ActivityScenario<InputTestActivity> = ActivityScenario.launch(
+        android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
+            .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true),
+    )
+
     private fun withSendEditor(block: (EditText, TextView) -> Unit) {
-        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+        launchWithoutLearning().use { scenario ->
             lateinit var editor: EditText
             lateinit var counter: TextView
             scenario.onActivity { activity ->
@@ -174,7 +180,7 @@ class PhysicalInputTest {
     }
 
     @Test fun candidateEnterDoesNotSendAndNextEnterReachesEditor() {
-        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+        launchWithoutLearning().use { scenario ->
             lateinit var editor: EditText
             lateinit var counter: TextView
             scenario.onActivity { activity ->
@@ -197,7 +203,7 @@ class PhysicalInputTest {
     }
 
     @Test fun changingEditorPreservesOldTextAndStartsFreshInput() {
-        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+        launchWithoutLearning().use { scenario ->
             lateinit var first: EditText
             lateinit var second: EditText
             scenario.onActivity { activity ->
@@ -219,7 +225,7 @@ class PhysicalInputTest {
     }
 
     @Test fun externalCursorMovementDoesNotReplaceOldCandidate() {
-        ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+        launchWithoutLearning().use { scenario ->
             lateinit var editor: EditText
             scenario.onActivity { activity ->
                 editor = descendants(activity.window.decorView).filterIsInstance<EditText>().first()
