@@ -147,11 +147,12 @@ class SafDictionaryE2eTest {
                 type("Tesuto ")
                 key(KeyEvent.KEYCODE_ENTER)
                 awaitText(editor, "統合候補")
+            }
 
-                scenario.onActivity {
-                    editor.setText("")
-                    editor.requestFocus()
-                }
+            // 同じ入力欄の setText に伴う選択通知が遅れて次の打鍵へ混ざらないよう、新しい入力欄で検証します。
+            ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
+                val editor = scenario.editorStartingWith("複数行 A")
+                scenario.onActivity { editor.requestFocus() }
                 awaitIme()
                 key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
                 type("Nihon")
@@ -159,7 +160,9 @@ class SafDictionaryE2eTest {
                 key(KeyEvent.KEYCODE_SPACE)
                 key(KeyEvent.KEYCODE_ENTER)
                 awaitText(editor, "二本")
+            }
 
+            ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->
                 val registrationEditor = scenario.editorStartingWith("複数行 B")
                 scenario.onActivity { registrationEditor.requestFocus() }
                 awaitIme()

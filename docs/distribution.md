@@ -4,6 +4,8 @@
 
 ## 成果物と署名
 
+現在の実機確認用は `build/distributions/7398c40/app-debug.apk` です。2026-09-17 の候補表示・公式 L 辞書取り込みの修正版です。SHA-256 は `d24e37ed3bf509510aa738d8b39b5e1fe44951c6b86e2bade8c6cc097d384503`、ソースは `7398c40` です。既存版と同じ開発署名を確認しており、アンインストールせず更新導入します。ローカルゲート `20260917T012947172046Z` が成功しています。生成物を削除したクリーンビルドではなく、未コミット変更のないソースからの増分ビルドです。
+
 - `app/build/outputs/apk/debug/app-debug.apk`: 開発署名・デバッグ可能な検証版です。
 - `app/build/outputs/apk/benchmark/app-benchmark.apk`: 開発署名・デバッグ不可・別パッケージの性能計測版です。
 - `app/build/outputs/apk/release/app-release-unsigned.apk`: 本番署名を設定していない場合の未署名成果物です。このまま端末へ導入する配布版とは扱いません。
