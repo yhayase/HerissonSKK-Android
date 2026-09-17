@@ -161,8 +161,9 @@ class InputConfigurationTest {
     @Test fun `自動表示数は幅と文字倍率に従い不正設定は拒否する`() {
         val config = CandidateDisplayConfig(pageMode = CandidatePageMode.AUTO)
         assertEquals(1, config.pageSize(30f, 1f))
-        assertEquals(4, config.pageSize(400f, 1f))
-        assertEquals(2, config.pageSize(400f, 2f))
+        assertEquals(2, config.pageSize(400f, 1f))
+        assertEquals(1, config.pageSize(400f, 2f))
+        assertEquals(4, config.pageSize(640f, 1f))
         assertEquals(7, config.pageSize(2000f, 1f))
         assertEquals(1, config.pageSize(Float.NaN, 1f))
         assertThrows(IllegalArgumentException::class.java) { CandidateDisplayConfig("xx", fixedPageSize = 1) }

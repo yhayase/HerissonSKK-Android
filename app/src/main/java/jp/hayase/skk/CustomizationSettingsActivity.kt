@@ -91,8 +91,8 @@ class CustomizationSettingsActivity : Activity() {
         symbols = choice("その他の記号（標準: 半角）", listOf("全角", "半角"))
         label("かな入力では - は長音の「ー」、[ ] は「 」になります。句読点・丸括弧・波括弧は個別の設定を使います。")
         labels = choice("候補の選択キー（標準: asdfjkl）", listOf("asdfjkl", "1234567"))
-        pageMode = choice("一覧の候補数（標準: 固定）", listOf("固定", "画面幅と文字サイズに合わせる"))
-        count = choice("固定時の候補数（標準: 7）", (1..7).map(Int::toString))
+        pageMode = choice("一覧の候補数（標準: 上限を指定）", listOf("上限を指定", "画面幅と文字サイズに合わせる"))
+        count = choice("一覧の候補数の上限（標準: 7）", (1..7).map(Int::toString))
         menuStart = choice("候補一覧を開始する候補（標準: 3番目）", (1..10).map { "${it}番目" })
         showCompositionMarkers = Switch(this).apply { text = "未確定文字に ▽／▼ を表示する" }
         layout.addView(showCompositionMarkers); controls += showCompositionMarkers

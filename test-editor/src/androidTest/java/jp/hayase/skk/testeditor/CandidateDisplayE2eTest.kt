@@ -47,7 +47,7 @@ class CandidateDisplayE2eTest {
             scenario.onActivity { editor.requestFocus() }
             awaitImeReady(editor)
             key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
-            type("Nihon ")
+            type("Tesuto   ")
 
             assertCandidateBounds()
 
@@ -115,6 +115,73 @@ class CandidateDisplayE2eTest {
         }
     }
 
+    @Test fun singleCandidateAnnotationIsInlineAndNeverCommitted() {
+        reopenCustomizationWithKeyboard()
+        resetCustomizationWithKeyboard()
+        enableStatusDisplay()
+        ActivityScenario.launch<InputTestActivity>(
+            android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
+                .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true),
+        ).use { scenario ->
+            val editor = scenario.editorStartingWith("複数行 A")
+            val password = scenario.editorStartingWith("パスワード")
+            scenario.onActivity { editor.requestFocus() }
+            awaitImeReady(editor)
+            key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+            type("Nihon ")
+            awaitCondition("単独候補の注釈が候補の近くにありません") {
+                awaitViewId("inline_candidate_annotation").text?.toString() == "国名・限定試験辞書"
+            }
+            assertEquals("注釈がアプリの本文に混入しました", "日本", editorText(editor))
+            assertTrue("注釈表示が入力欄のフォーカスを奪いました", editorHasFocus(editor))
+            val status = awaitViewId("input_status").text?.toString().orEmpty()
+            assertFalse("単独候補がステータスに重複しています", status.contains("日本") || status.contains("国名"))
+            assertFalse("単独候補の情報ボタンが残っています", hasViewId("candidate_full_detail"))
+            val annotation = Rect().also(awaitViewId("inline_candidate_annotation")::getBoundsInScreen)
+            var caretLine = Rect()
+            instrumentation.runOnMainSync {
+                val location = IntArray(2).also(editor::getLocationOnScreen)
+                val line = editor.layout.getLineForOffset(editor.selectionStart)
+                val start = android.view.inputmethod.BaseInputConnection.getComposingSpanStart(editor.text)
+                val left = editor.layout.getPrimaryHorizontal(start.coerceAtLeast(0)).toInt()
+                val right = editor.layout.getPrimaryHorizontal(editor.selectionStart).toInt()
+                caretLine = Rect(location[0] + editor.totalPaddingLeft + minOf(left, right) - editor.scrollX,
+                    location[1] + editor.totalPaddingTop + editor.layout.getLineTop(line) - editor.scrollY,
+                    location[0] + editor.totalPaddingLeft + maxOf(left, right) - editor.scrollX,
+                    location[1] + editor.totalPaddingTop + editor.layout.getLineBottom(line) - editor.scrollY)
+            }
+            assertFalse("注釈が変換中の行を隠しています", Rect.intersects(annotation, caretLine))
+            assertTrue("注釈が候補から離れています", minOf(kotlin.math.abs(annotation.bottom - caretLine.top),
+                kotlin.math.abs(annotation.top - caretLine.bottom)) <= caretLine.height() * 2)
+            instrumentation.waitForIdleSync()
+            SystemClock.sleep(300)
+            automation.takeScreenshot()?.let { bitmap ->
+                java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "candidate-inline.png")
+                    .outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
+            UiDevice.getInstance(instrumentation).click(annotation.centerX(), annotation.centerY())
+            assertTrue("注釈へのタッチが入力フォーカスを奪いました", editorHasFocus(editor))
+            key(KeyEvent.KEYCODE_SPACE)
+            awaitCondition("次の単独候補の注釈へ更新されません") {
+                awaitViewId("inline_candidate_annotation").text?.toString() == "本数・限定試験辞書"
+            }
+            assertEquals("二本", editorText(editor))
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            awaitCondition("取消後も注釈が残っています") { !hasViewId("inline_candidate_annotation") }
+            key(KeyEvent.KEYCODE_SPACE)
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitCondition("確定後も注釈が残っています") { !hasViewId("inline_candidate_annotation") }
+            assertEquals("日本", editorText(editor))
+            type("Nihon ")
+            awaitViewId("inline_candidate_annotation")
+            scenario.onActivity { password.requestFocus() }
+            awaitCondition("別の入力欄へ注釈が持ち越されました") { !hasViewId("inline_candidate_annotation") }
+            assertEquals("フォーカス変更で注釈が本文へ残りました", "日本日本", editorText(editor))
+            assertEquals("", editorText(password))
+        }
+    }
+
     @Test fun menuPageShowsFirstAndLastLabelsWithoutScrolling() {
         reopenCustomizationWithKeyboard()
         resetCustomizationWithKeyboard()
@@ -130,7 +197,7 @@ class CandidateDisplayE2eTest {
             type("Tesuto   ")
             fun menuRow(label: Char, number: Int): AccessibilityNodeInfo =
                 awaitNode("候補一覧の $label が表示されません") { root ->
-                    descendants(root).firstOrNull { it.text?.toString()?.startsWith("$label: 候補$number") == true }
+                    descendants(root).firstOrNull { it.contentDescription?.toString()?.startsWith("$label: 候補$number") == true }
                 }
             menuRow('a', 3)
             // ノード生成直後は IME の高さが更新前の場合があるため、全行の配置完了を待ちます。
@@ -138,7 +205,7 @@ class CandidateDisplayE2eTest {
                 val node = awaitViewId("candidate_status_container")
                 val frame = Rect().also(node::getBoundsInScreen)
                 val currentRows = descendants(node).filter {
-                    it.text?.toString()?.matches(Regex("[asdfjkl]: 候補[0-9]+.*")) == true
+                    it.contentDescription?.toString()?.matches(Regex("[asdfjkl]: 候補[0-9]+.*")) == true
                 }
                 currentRows.isNotEmpty() && currentRows.all {
                     val bounds = Rect().also(it::getBoundsInScreen)
@@ -149,17 +216,24 @@ class CandidateDisplayE2eTest {
             }
             val containerNode = awaitViewId("candidate_status_container")
             val rows = descendants(containerNode).filter {
-                it.text?.toString()?.matches(Regex("[asdfjkl]: 候補[0-9]+.*")) == true
+                it.contentDescription?.toString()?.matches(Regex("[asdfjkl]: 候補[0-9]+.*")) == true
             }
             assertTrue("候補ページが空です", rows.isNotEmpty())
             val pageSize = rows.size
             assertTrue("候補ラベルの上限を超えています", pageSize <= 7)
             val configuration = instrumentation.targetContext.resources.configuration
-            if (configuration.fontScale <= 1f && configuration.screenHeightDp >= 600) {
-                assertEquals("通常の縦画面で七候補を表示できません", 7, pageSize)
+            if (configuration.screenWidthDp >= 280 * configuration.fontScale) {
+                assertTrue("横幅があるのに候補が横に並びません", pageSize >= 2)
+                val first = Rect().also(rows[0]::getBoundsInScreen)
+                val second = Rect().also(rows[1]::getBoundsInScreen)
+                assertEquals("最初の二候補が同じ行にありません", first.top, second.top)
+                assertTrue("二候補の横位置が重なっています", second.left >= first.right)
             }
+            assertTrue("候補一覧が三行以上を占有しています", rows.map {
+                Rect().also(it::getBoundsInScreen).top
+            }.distinct().size <= 2)
             assertEquals("候補ラベルがページ内の順序と一致しません", "asdfjkl".take(pageSize),
-                rows.joinToString("") { it.text.toString().take(1) })
+                rows.joinToString("") { it.contentDescription.toString().take(1) })
             val container = Rect().also(containerNode::getBoundsInScreen)
             rows.forEach { row ->
                 val bounds = Rect().also(row::getBoundsInScreen)
@@ -168,6 +242,9 @@ class CandidateDisplayE2eTest {
                 val fullBounds = Rect().also(row::getBoundsInParent)
                 assertEquals("候補行が親の表示領域で縦に切れています: ${row.text}",
                     fullBounds.height(), bounds.height())
+            }
+            rows.forEach { tile ->
+                assertTrue("候補タイルの読み上げに注釈がありません", tile.contentDescription.toString().contains("注釈:"))
             }
             assertCandidateBounds()
             assertFalse("一覧に単独候補の表示が重複しています",

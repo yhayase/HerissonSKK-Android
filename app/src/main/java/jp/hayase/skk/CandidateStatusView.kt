@@ -22,12 +22,13 @@ import com.ibm.icu.util.ULocale
 import kotlin.math.max
 
 internal data class CandidateDetailSection(val heading: String, val value: String)
+internal data class CandidateMenuItem(val label: Char, val text: String, val annotation: String? = null)
 
 internal data class CandidateStatusPresentation(
     val text: CharSequence,
     val detailIdentity: CandidateDetailIdentity? = null,
     val detailSections: List<CandidateDetailSection> = emptyList(),
-    val menuRows: List<String> = emptyList(),
+    val menuItems: List<CandidateMenuItem> = emptyList(),
     val expandedStatus: Boolean = false,
 )
 
@@ -270,17 +271,47 @@ internal class CandidateStatusView @JvmOverloads constructor(
         expandedStatus = presentation.expandedStatus
         statusTextView.text = presentation.text
         menuContainer.removeAllViews()
-        presentation.menuRows.forEach { row ->
-            menuContainer.addView(TextView(context).apply {
-                text = row
-                textSize = 18f
-                setTextColor(0xff202124.toInt())
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-                isFocusable = false
-            })
+        val columns = menuColumns().coerceAtMost(presentation.menuItems.size.coerceAtLeast(1))
+        presentation.menuItems.chunked(columns).forEach { items ->
+            val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+            items.forEach { item ->
+                val tile = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(4), dp(2), dp(4), dp(2))
+                    isFocusable = false
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    contentDescription = buildString {
+                        append(item.label).append(": ").append(item.text)
+                        item.annotation?.let { append("、注釈: ").append(it) }
+                    }
+                }
+                tile.addView(TextView(context).apply {
+                    text = "${item.label}: ${item.text}"
+                    textSize = 18f
+                    setTextColor(0xff202124.toInt())
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                item.annotation?.let { annotation ->
+                    tile.addView(TextView(context).apply {
+                        text = annotation
+                        textSize = 13f
+                        setTextColor(0xff5f6368.toInt())
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.END
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    }, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                }
+                row.addView(tile, LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            menuContainer.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        menuContainer.visibility = if (presentation.menuRows.isEmpty()) View.GONE else View.VISIBLE
+        menuContainer.visibility = if (presentation.menuItems.isEmpty()) View.GONE else View.VISIBLE
         val newSections = presentation.detailSections.filter { it.value.isNotEmpty() }
         val sameIdentity = presentation.detailIdentity?.sameAs(identity) ?: (identity == null)
         val changed = !sameIdentity || !sameSectionReferences(sections, newSections)
@@ -310,17 +341,23 @@ internal class CandidateStatusView @JvmOverloads constructor(
         historyIndex = 0
     }
 
-    /** 候補一覧をスクロールせずに読める件数を、選択開始時の画面高で制限します。 */
-    fun visibleMenuRowCapacity(): Int {
-        val height = resources.configuration.screenHeightDp * resources.displayMetrics.density
-        val metrics = statusTextView.paint.fontMetricsInt
-        val rowHeight = (metrics.bottom - metrics.top).coerceAtLeast(1)
-        return ((height * .4f - content.paddingTop - content.paddingBottom) / rowHeight)
-            .toInt().coerceAtLeast(1)
+    /** 選択開始時に幅と高さから、一覧をスクロールせず表示できる最大件数を決めます。 */
+    fun visibleMenuCapacity(): Int {
+        val scale = resources.configuration.fontScale.coerceAtLeast(1f)
+        val heightDp = resources.configuration.screenHeightDp.takeIf { it > 0 }
+            ?: (resources.displayMetrics.heightPixels / resources.displayMetrics.density).toInt()
+        val menuHeightDp = heightDp * .4f - 16f - 48f
+        val rows = (menuHeightDp / (48f * scale)).toInt().coerceIn(1, 2)
+        return menuColumns() * rows
+    }
+
+    private fun menuColumns(): Int {
+        val scale = resources.configuration.fontScale.coerceAtLeast(1f)
+        return (availableContentWidthDp() / (140f * scale)).toInt().coerceAtLeast(1)
     }
 
     fun availableContentWidthDp(): Float {
-        val pixels = statusTextView.measuredWidth.takeIf { it > 0 }
+        val pixels = measuredWidth.takeIf { it > 0 }?.minus(content.paddingLeft + content.paddingRight)
             ?: ((resources.configuration.screenWidthDp * resources.displayMetrics.density).toInt() -
                 content.paddingLeft - content.paddingRight)
         return pixels.coerceAtLeast(1) / resources.displayMetrics.density

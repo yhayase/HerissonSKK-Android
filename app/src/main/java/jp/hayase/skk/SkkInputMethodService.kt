@@ -12,6 +12,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.CursorAnchorInfo
 import android.widget.TextView
 import jp.hayase.skk.settings.CustomizationRuntime
 import jp.hayase.skk.settings.CustomizationStore
@@ -53,6 +54,10 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private lateinit var customization: CustomizationStore
     private lateinit var dictionaries: DictionaryManager
     private var dictionarySubscription: DictionaryManagerSubscription? = null
+    private var inlineAnnotation: InlineCandidateAnnotationPopup? = null
+    private data class AnnotationTarget(val generation: Long, val composition: String, val annotation: String)
+    private var annotationTarget: AnnotationTarget? = null
+    private var annotationConnection: InputConnection? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -63,6 +68,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
+        clearInlineAnnotation()
         session?.close()
         session = null
         sessionWriteContext = null
@@ -154,7 +160,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     candidateStatusView?.availableContentWidthDp()
                         ?: resources.configuration.screenWidthDp.toFloat(),
                     resources.configuration.fontScale,
-                ).coerceAtMost(candidateStatusView?.visibleMenuRowCapacity() ?: 7)
+                ).coerceAtMost(candidateStatusView?.visibleMenuCapacity() ?: 7)
             })
         render()
     }
@@ -190,8 +196,31 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         shouldShowStatus()
 
     override fun onWindowHidden() {
+        clearInlineAnnotation()
         requestedVisible = false
         super.onWindowHidden()
+    }
+
+    override fun onWindowShown() {
+        super.onWindowShown()
+        updateInlineAnnotation()
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        clearInlineAnnotation()
+        super.onFinishInputView(finishingInput)
+    }
+
+    override fun onUpdateCursorAnchorInfo(cursorAnchorInfo: CursorAnchorInfo?) {
+        super.onUpdateCursorAnchorInfo(cursorAnchorInfo)
+        val target = annotationTarget ?: return
+        if (cursorAnchorInfo == null || target != currentAnnotationTarget()) {
+            inlineAnnotation?.dismiss()
+            return
+        }
+        val parent = window?.window?.decorView ?: return
+        val popup = inlineAnnotation ?: InlineCandidateAnnotationPopup(this).also { inlineAnnotation = it }
+        popup.show(parent, candidateStatusView, cursorAnchorInfo, target.composition, target.annotation)
     }
 
     override fun onCreateInputView(): View = CandidateStatusView(this).apply {
@@ -286,6 +315,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
+        clearInlineAnnotation()
         generation++
         session?.preserveText()
         mapper.reset()
@@ -313,6 +343,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onDestroy() {
+        clearInlineAnnotation()
         generation++
         dictionarySubscription?.close()
         dictionarySubscription = null
@@ -340,6 +371,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     private fun render() {
         updateStatus()
+        updateInlineAnnotation()
         val show = shouldShowStatus()
         if (show && !requestedVisible) {
             requestedVisible = true
@@ -360,9 +392,38 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     private fun clearStatusWindow() {
+        clearInlineAnnotation()
         candidateStatusView?.show(CandidateStatusPresentation(""))
         if (isInputViewShown) hideWindow()
         requestedVisible = false
+    }
+
+    private fun currentAnnotationTarget(): AnnotationTarget? {
+        val current = session?.takeIf { it.active && !it.failed && !it.protectedInput } ?: return null
+        if (current.view.registration != null) return null
+        val candidate = current.view.candidate?.takeIf { it.menu.isEmpty() } ?: return null
+        val annotation = candidate.selected.annotation?.takeIf { it.isNotBlank() } ?: return null
+        return AnnotationTarget(generation, current.displayedComposition, annotation)
+    }
+
+    private fun updateInlineAnnotation() {
+        val target = currentAnnotationTarget()
+        if (target == annotationTarget) return
+        clearInlineAnnotation()
+        if (target == null) return
+        val connection = currentInputConnection ?: return
+        annotationTarget = target
+        annotationConnection = connection
+        // 座標未対応の入力先では注釈を省略し、本文だけの変換を続けます。
+        if (!connection.requestCursorUpdates(InputConnection.CURSOR_UPDATE_IMMEDIATE or
+                InputConnection.CURSOR_UPDATE_MONITOR)) clearInlineAnnotation()
+    }
+
+    private fun clearInlineAnnotation() {
+        annotationTarget = null
+        inlineAnnotation?.dismiss()
+        annotationConnection?.requestCursorUpdates(0)
+        annotationConnection = null
     }
 
     private fun updateStatus() {
@@ -415,10 +476,6 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         if (deletion.numericTemplate) add("元の数値テンプレートと、その展開候補すべてが対象です")
                         add(if (deletion.saving) "削除を保存しています" else "y: 削除する / n・Ctrl+g: 戻る")
                     }
-                    candidate?.takeIf { it.menu.isEmpty() }?.let {
-                        add("${it.index + 1}/${it.total} ${preview(it.committedText)}")
-                        it.selected.annotation?.let { note -> add(preview(note, 64)) }
-                    }
                     current.notice?.let { add(preview(it, 64)) }
                     dictionaryRestoreNotice?.let { add(preview(it, 64)) }
                 }
@@ -427,19 +484,19 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     // mode と区切りの長さを加え、通常表示に残った範囲だけを強調します。
                     styledCompletionText(text, mode.length + 2 + completionSuffixStart, completionSuffixLength)
                 } else text
-                val identity = candidate?.let {
+                val identity = candidate?.takeIf { it.menu.isNotEmpty() }?.let {
                     CandidateDetailIdentity(it.index, it.selected.text, it.selected.annotation)
                 }
                 CandidateStatusPresentation(styled, identity, buildList {
-                    candidate?.let {
+                    candidate?.takeIf { it.menu.isNotEmpty() }?.let {
                         add(CandidateDetailSection("候補本文", it.committedText))
                         it.selected.annotation?.let { annotation ->
                             add(CandidateDetailSection("注釈", annotation))
                         }
                     }
-                }, menuRows = candidate?.menu.orEmpty().map { item ->
-                    val annotation = item.candidate.annotation?.let { "（${preview(it, 32)}）" }.orEmpty()
-                    "${item.label}: ${preview(item.committedText, 48)}$annotation"
+                }, menuItems = candidate?.menu.orEmpty().map { item ->
+                    CandidateMenuItem(item.label, preview(item.committedText, 32),
+                        item.candidate.annotation?.let { preview(it, 24) })
                 }, expandedStatus = registration != null)
             }
         }

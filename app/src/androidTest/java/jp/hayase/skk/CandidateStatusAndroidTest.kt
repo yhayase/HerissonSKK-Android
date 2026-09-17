@@ -85,6 +85,47 @@ class CandidateStatusAndroidTest {
         assertNoHorizontalOverflow(view)
     }
 
+    @Test fun `横長画面の大きい文字でも候補と注釈は一段に収まる`() {
+        val base = instrumentation.targetContext
+        val configuration = Configuration(base.resources.configuration).apply {
+            fontScale = 2f
+            screenWidthDp = 640
+            screenHeightDp = 360
+        }
+        val view = onMain {
+            CandidateStatusView(base.createConfigurationContext(configuration)).also {
+                assertTrue(it.visibleMenuCapacity() >= 2)
+                it.show(CandidateStatusPresentation("変換中", menuItems = listOf(
+                    CandidateMenuItem('a', CandidateTextBounds.preview("候補".repeat(60), 32).text,
+                        CandidateTextBounds.preview("注釈".repeat(60), 24).text),
+                    CandidateMenuItem('s', "別候補", "補足"))))
+                val density = it.resources.displayMetrics.density
+                it.measure(View.MeasureSpec.makeMeasureSpec((640 * density).toInt(), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.AT_MOST))
+                it.layout(0, 0, it.measuredWidth, it.measuredHeight)
+            }
+        }
+        val content = view.getChildAt(0) as ViewGroup
+        val menu = content.getChildAt(0) as ViewGroup
+        assertTrue(menu.childCount == 1)
+        val row = menu.getChildAt(0) as ViewGroup
+        assertTrue(row.childCount == 2)
+        val first = row.getChildAt(0) as ViewGroup
+        val main = first.getChildAt(0) as TextView
+        val annotation = first.getChildAt(1) as TextView
+        assertTrue(main.text.length < 80)
+        assertTrue(annotation.text.length < 80)
+        assertTrue(annotation.textSize < main.textSize)
+        assertTrue(annotation.currentTextColor != main.currentTextColor)
+        assertTrue(first.contentDescription.contains("注釈"))
+        assertTrue(menu.bottom <= view.height)
+        draw(view)
+        descendants(view).filter { it.visibility == View.VISIBLE }.forEach { child ->
+            assertTrue("候補が画面幅を超えています: ${child.javaClass.name}",
+                child.left >= 0 && child.right <= view.width)
+        }
+    }
+
     private fun createView(candidate: String, annotation: String): CandidateStatusView = onMain {
         CandidateStatusView(narrowLargeFontContext()).also { view ->
             val candidatePreview = CandidateTextBounds.preview(candidate).text

@@ -947,9 +947,14 @@ class BasicSkkEngine(
 
     private fun inputReadingCharacter(character: Char, interpretCommands: Boolean = true): Outcome {
         if (character.isUpperCase() && okuriBoundary == null && buffer.cursor > 0) {
-            finishPendingIntoBuffer()
+            val pending = romanizer.pending
+            val pendingOkuriConsonant = pending.firstOrNull()?.takeIf {
+                character in "AEIOU" && pending.all { letter -> letter in 'a'..'z' && letter !in "aeiou" } &&
+                    romanRuleSet.continues(pending, character.lowercaseChar().toString())
+            }
+            if (pendingOkuriConsonant == null) finishPendingIntoBuffer()
             okuriBoundary = buffer.cursor
-            okuriConsonant = character.lowercaseChar()
+            okuriConsonant = pendingOkuriConsonant ?: character.lowercaseChar()
             pendingTargetsOkuri = true
         }
         if (romanRuleSet.canStart(character.lowercaseChar()) || interpretCommands && character.isRomajiInput) {

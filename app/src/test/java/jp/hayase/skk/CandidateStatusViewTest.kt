@@ -168,17 +168,19 @@ class CandidateStatusViewTest {
     }
 
     @Test
-    @Config(qualifiers = "w480dp-h800dp")
-    fun `一覧の七候補は状態説明より上に表示しスクロールなしで見える`() {
+    @Config(qualifiers = "w640dp-h800dp")
+    fun `横長画面の七候補は二段に並びスクロールなしで見える`() {
         val view = CandidateStatusView(RuntimeEnvironment.getApplication())
         view.show(CandidateStatusPresentation("辞書状態\n".repeat(20),
-            menuRows = "asdfjkl".map { "$it: 候補" }))
-        view.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+            menuItems = "asdfjkl".map { CandidateMenuItem(it, "候補") }))
+        view.measure(View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.AT_MOST))
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
         val content = view.getChildAt(0) as android.view.ViewGroup
         val menu = content.getChildAt(0) as android.view.ViewGroup
-        assertEquals(7, menu.childCount)
+        assertEquals(2, menu.childCount)
+        assertEquals(4, (menu.getChildAt(0) as android.view.ViewGroup).childCount)
+        assertEquals(3, (menu.getChildAt(1) as android.view.ViewGroup).childCount)
         assertEquals(0, view.scrollY)
         assertTrue(menu.bottom + content.paddingTop <= view.measuredHeight)
         assertTrue(menu.bottom <= (view.statusTextView.parent as View).top)
@@ -186,16 +188,40 @@ class CandidateStatusViewTest {
 
     @Test
     @Config(qualifiers = "w640dp-h320dp")
-    fun `低い画面のページ件数はスクロール不要な高さまで減らす`() {
+    fun `低い画面のページ件数は横一段へ減らす`() {
         val view = CandidateStatusView(RuntimeEnvironment.getApplication())
-        val count = view.visibleMenuRowCapacity().coerceAtMost(7)
-        assertTrue(count in 1..6)
-        view.show(CandidateStatusPresentation("状態", menuRows = List(count) { "候補$it" }))
+        val count = view.visibleMenuCapacity().coerceAtMost(7)
+        assertEquals(4, count)
+        view.show(CandidateStatusPresentation("状態", menuItems = List(count) {
+            CandidateMenuItem(('a'.code + it).toChar(), "候補$it") }))
         view.measure(View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.AT_MOST))
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
         val content = view.getChildAt(0) as android.view.ViewGroup
+        assertEquals(1, (content.getChildAt(0) as android.view.ViewGroup).childCount)
         assertTrue(content.getChildAt(0).bottom <= view.measuredHeight)
+    }
+
+    @Test
+    @Config(qualifiers = "w640dp-h320dp")
+    fun `注釈は候補より小さく淡く表示しラベルとともに読み上げる`() {
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication())
+        view.show(CandidateStatusPresentation("状態", menuItems = listOf(
+            CandidateMenuItem('a', "候補", "説明"))))
+        view.measure(View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.AT_MOST))
+        view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+        val content = view.getChildAt(0) as android.view.ViewGroup
+        val menu = content.getChildAt(0) as android.view.ViewGroup
+        val tile = (menu.getChildAt(0) as android.view.ViewGroup).getChildAt(0) as android.view.ViewGroup
+        val candidate = tile.getChildAt(0) as TextView
+        val annotation = tile.getChildAt(1) as TextView
+        assertEquals("a: 候補", candidate.text.toString())
+        assertEquals("説明", annotation.text.toString())
+        assertTrue(annotation.textSize < candidate.textSize)
+        assertTrue(annotation.currentTextColor != candidate.currentTextColor)
+        assertTrue(tile.contentDescription.contains("a: 候補、注釈: 説明"))
+        assertTrue(tile.right <= view.width)
     }
 
     @Test

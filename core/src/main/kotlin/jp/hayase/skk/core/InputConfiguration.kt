@@ -52,7 +52,7 @@ data class CandidateDisplayConfig(
         CandidatePageMode.FIXED -> fixedPageSize
         CandidatePageMode.AUTO -> {
             if (!availableWidthDp.isFinite() || !fontScale.isFinite() || availableWidthDp <= 0 || fontScale <= 0) 1
-            else (availableWidthDp / (96f * fontScale)).toInt().coerceIn(1, labels.length)
+            else (availableWidthDp / (140f * fontScale)).toInt().coerceIn(1, labels.length)
         }
     }
 }

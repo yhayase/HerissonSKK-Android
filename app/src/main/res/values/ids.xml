@@ -1,3 +1,4 @@
 <resources>
     <item name="input_status" type="id" />
+    <item name="inline_candidate_annotation" type="id" />
 </resources>

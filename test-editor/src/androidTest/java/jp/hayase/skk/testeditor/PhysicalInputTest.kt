@@ -141,6 +141,17 @@ class PhysicalInputTest {
         }
     }
 
+    /** 子音の大文字を忘れても、母音の大文字で送りを開始します。 */
+    @Test fun uppercaseVowelStartsPendingConsonantOkuri() {
+        withSendEditor { editor, counter ->
+            type("KakU")
+            awaitText(editor, "書く")
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitText(editor, "書く")
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
     /** F05・K02: 内部カーソルの編集は入力先の確定済み文字に触れません。 */
     @Test fun internalReadingEditPreservesCommittedPrefix() {
         withSendEditor { editor, _ ->
