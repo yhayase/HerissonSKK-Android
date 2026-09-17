@@ -25,7 +25,10 @@ import jp.hayase.skk.core.CandidateDeletionOutcome
 import jp.hayase.skk.core.CandidateDeletionCompletion
 import jp.hayase.skk.dictionary.BuiltinDictionary
 
-/** 入力接続をセッションに固定し、後から別の入力欄へ出力しません。 */
+/**
+ * 入力接続をセッションに固定し、終了後の新しい要求を送りません。
+ * 送信済みの標準キーは非同期に配送されるため、配送時のフォーカスは Android に依存します。
+ */
 class EditorSession(
     val generation: Long,
     private val connection: InputConnection,
@@ -95,6 +98,7 @@ class EditorSession(
     private fun publishEditState(invalidate: Boolean = false) {
         synchronized(externalSelections) {
             if (invalidate) {
+                editPort.resetNativeNavigation()
                 externalSelections.clear()
                 queuedExternalCommands.clear()
             }
@@ -145,6 +149,17 @@ class EditorSession(
                     selectionEnd = result.expectedSelectionEnd ?: selectionEnd
                     publishEditState()
                     // 選択を確定した後で次の一件を新しく取得・検証します。変更要求は再送しません。
+                    if (queuedExternalCommands.isNotEmpty()) {
+                        submitExternal(queuedExternalCommands.removeFirst())
+                    }
+                }
+                EditorEditResult.Outcome.NATIVE_ISSUED -> {
+                    synchronized(externalSelections) { externalSelections.clear() }
+                    if (editState.get().revision != revision) {
+                        queuedExternalCommands.clear()
+                        return@submit
+                    }
+                    publishEditState()
                     if (queuedExternalCommands.isNotEmpty()) {
                         submitExternal(queuedExternalCommands.removeFirst())
                     }
@@ -240,6 +255,16 @@ class EditorSession(
 
     fun onSelection(start: Int, end: Int, candidatesStart: Int, candidatesEnd: Int): Boolean {
         if (!active || failed) return false
+        if (editPort.isNativeNavigation && !hasComposition &&
+            candidatesStart == -1 && candidatesEnd == -1) {
+            // ネイティブ移動の通知は途中の位置へ遅れて届くことがあり、連打を取り消しません。
+            // 続くネイティブ移動はこの位置から計画せず、入力先が保持する選択位置へ適用します。
+            synchronized(externalSelections) { externalSelections.clear() }
+            selectionStart = start
+            selectionEnd = end
+            publishEditState()
+            return false
+        }
         synchronized(externalSelections) {
             val revision = editState.get().revision
             val index = if (candidatesStart == -1 && candidatesEnd == -1 && start == end)

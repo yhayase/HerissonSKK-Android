@@ -136,4 +136,25 @@ class KeyBindingsTest {
         assertEquals(BasicSkkAction.CompleteForward, map.resolve(
             KeyGesture(special = SpecialKey.TAB), completion, engine.currentView, emacsEnabled = true))
     }
+
+    @Test fun `旧設定の衝突した新操作を未割当として保持する`() {
+        val legacy = KeyBindings.defaults.filterKeys { it !in KeyBindings.optionalCommands } +
+            (SkkCommand.EDIT_LEFT to KeyGesture("v", ctrl = true))
+        val migrated = KeyBindings.addDefaultsPreservingExisting(legacy)
+        assertEquals(KeyGesture("v", ctrl = true), migrated.bindings[SkkCommand.EDIT_LEFT])
+        assertFalse(SkkCommand.EDIT_PAGE_DOWN in migrated.bindings)
+        assertTrue(SkkCommand.EDIT_CUT in migrated.bindings)
+        migrated.validate(emacsEnabled = true)
+    }
+
+    @Test fun `C-mは編集中の確定を優先し通常欄では改行する`() {
+        val engine = engine()
+        val bindings = KeyBindings()
+        val cM = KeyGesture("m", ctrl = true)
+        assertEquals(BasicSkkAction.Edit(EditCommand.NEWLINE),
+            bindings.resolve(cM, engine.state, engine.currentView, true))
+        engine.dispatch(BasicSkkAction.StartReading)
+        assertEquals(BasicSkkAction.Enter,
+            bindings.resolve(cM, engine.state, engine.currentView, true))
+    }
 }

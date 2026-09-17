@@ -110,6 +110,7 @@ class SafDictionaryE2eTest {
             // この呼出し中に永続化して後続の UI 検証だけが失敗しても、finally で必ず探索します。
             systemImported = true
             addSystemDictionary(systemSourceName)
+            applyDictionaryChanges()
 
             val noLearningIntent = android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
                 .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true)
@@ -300,6 +301,8 @@ class SafDictionaryE2eTest {
                         systemRemoved = true
                     }
                     replacePersonal(fileName(backup))
+                    applyDictionaryChanges()
+                    openDictionarySettings()
                     exportPersonal(fileName(restored))
                     assertArrayEquals("個人辞書を開始時の内容へ戻せません", checkNotNull(backupBytes), readFile(restored))
                 }.exceptionOrNull()
@@ -390,7 +393,7 @@ class SafDictionaryE2eTest {
         awaitDocumentsUiClosed()
         awaitTextVisible("適用前の確認")
         clickText("適用する")
-        awaitTextVisible("辞書を適用しました。")
+        awaitTextVisible("変更を一時保存しました。画面を閉じるときに適用します。")
     }
 
     private fun addSystemDictionary(fileName: String) {
@@ -400,10 +403,15 @@ class SafDictionaryE2eTest {
         awaitDocumentsUiClosed()
         awaitTextVisible("適用前の確認")
         clickText("適用する")
-        awaitTextVisible("辞書を適用しました。")
+        awaitTextVisible("変更を一時保存しました。画面を閉じるときに適用します。")
         if (findScopedRowWithScroll(fileName, detail = null) == null) {
             throw AssertionError("追加辞書が一覧へ現れません: $fileName")
         }
+    }
+
+    private fun applyDictionaryChanges() {
+        clickText("変更を適用して閉じる")
+        awaitTextVisible("SKK の設定")
     }
 
     /** 一意な由来・読み・候補がそろう行だけを復元します。存在しなければ何も変更しません。 */

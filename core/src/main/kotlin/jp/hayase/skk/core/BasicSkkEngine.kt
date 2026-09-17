@@ -178,6 +178,7 @@ class BasicSkkEngine(
     private var candidates: List<DictionaryCandidate> = emptyList()
     private var candidateIndex = 0
     private var candidatePageSize = candidateDisplayConfig.fixedPageSize
+    private val inlineCandidateCount = candidateDisplayConfig.inlineCandidateCount
     private var pendingTargetsOkuri = false
     private var selectionReturnState: ReadingSnapshot? = null
     private var selectionQuery: DictionaryQuery? = null
@@ -779,8 +780,12 @@ class BasicSkkEngine(
     private fun abandonRegistrationFrame(frame: RegistrationFrame): BasicSkkResult {
         check(registrations.lastOrNull() === frame)
         registrations.removeAt(registrations.lastIndex)
-        mode = frame.returnState.readingStartMode
-        clearComposition()
+        if (frame.returnState.phase == InputPhase.SELECTING) {
+            restoreEngine(frame.returnState)
+        } else {
+            mode = frame.returnState.readingStartMode
+            clearComposition()
+        }
         return result(Outcome(true))
     }
 
@@ -992,7 +997,28 @@ class BasicSkkEngine(
         dynamicCompletion = null
         if (phase == InputPhase.SELECTING) {
             clearPreferredEditColumn()
+            if (command == EditCommand.PAGE_DOWN || command == EditCommand.PAGE_UP) {
+                val firstMenu = inlineCandidateCount.coerceAtMost(candidates.size)
+                val page = if (candidateIndex < firstMenu) -1 else
+                    (candidateIndex - firstMenu) / candidatePageSize
+                candidateIndex = if (command == EditCommand.PAGE_DOWN) {
+                    val next = firstMenu + (page + 1) * candidatePageSize
+                    if (next < candidates.size) next else candidateIndex
+                } else if (page < 0) {
+                    (candidateIndex - 1).coerceAtLeast(0)
+                } else if (page == 0) {
+                    (firstMenu - 1).coerceAtLeast(0)
+                } else {
+                    firstMenu + (page - 1) * candidatePageSize
+                }
+                return Outcome(true)
+            }
             return Outcome(true, notice = "候補選択中はこの編集操作を利用できません")
+        }
+        if (command in listOf(EditCommand.PAGE_DOWN, EditCommand.PAGE_UP, EditCommand.CUT,
+                EditCommand.COPY, EditCommand.NEWLINE)) {
+            clearPreferredEditColumn()
+            return Outcome(true, notice = "この内部入力ではこの編集操作を利用できません")
         }
         if (command == EditCommand.BACKSPACE && romanizer.backspacePending()) {
             clearPreferredEditColumn()
@@ -1452,24 +1478,27 @@ class BasicSkkEngine(
     }
 
     private fun renderPunctuation(character: Char, targetMode: InputMode): String =
-        if (targetMode == InputMode.HIRAGANA || targetMode == InputMode.KATAKANA)
-            punctuationConfig.render(character) else character.toString()
+        when (targetMode) {
+            InputMode.HIRAGANA, InputMode.KATAKANA -> punctuationConfig.render(character)
+            InputMode.HALFWIDTH -> KanaTransforms.toHalfwidthKana(punctuationConfig.render(character))
+            else -> character.toString()
+        }
 
     private fun stemText(): String = okuriBoundary?.let { buffer.text.substring(0, it) } ?: buffer.text
     private fun okuriText(): String = okuriBoundary?.let { buffer.text.substring(it) } ?: ""
     private fun menuIndexFor(label: Char): Int? {
-        if (candidateIndex < INLINE_CANDIDATES) return null
+        if (candidateIndex < inlineCandidateCount) return null
         val offset = candidateDisplayConfig.labels.indexOf(label)
         if (offset !in 0 until candidatePageSize) return null
-        val pageStart = INLINE_CANDIDATES + ((candidateIndex - INLINE_CANDIDATES) / candidatePageSize) * candidatePageSize
+        val pageStart = inlineCandidateCount + ((candidateIndex - inlineCandidateCount) / candidatePageSize) * candidatePageSize
         return (pageStart + offset).takeIf { it < candidates.size }
     }
 
     private fun view(): BasicSkkView {
         val candidate = if (phase == InputPhase.SELECTING) {
             val selected = candidates[candidateIndex]
-            val menu = if (candidateIndex >= INLINE_CANDIDATES) {
-                val start = INLINE_CANDIDATES + ((candidateIndex - INLINE_CANDIDATES) / candidatePageSize) * candidatePageSize
+            val menu = if (candidateIndex >= inlineCandidateCount) {
+                val start = inlineCandidateCount + ((candidateIndex - inlineCandidateCount) / candidatePageSize) * candidatePageSize
                 candidates.drop(start).take(candidatePageSize).mapIndexed { offset, value ->
                     LabeledCandidate(candidateDisplayConfig.labels[offset], value, value.text + okuriText())
                 }
@@ -1714,7 +1743,6 @@ class BasicSkkEngine(
     }
 
     private companion object {
-        const val INLINE_CANDIDATES = 3
         const val MAX_REGISTRATION_DEPTH = 16
         const val MAX_REGISTRATION_BODY = 65_536
         const val BODY_LIMIT_NOTICE = "登録本文は65,536 UTF-16コード単位までです"

@@ -1,6 +1,7 @@
 package jp.hayase.skk.input
 
 import android.os.Build
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.ExtractedText
@@ -40,6 +41,9 @@ class EditorEditPortTest {
         var deleteCalls = 0
         var commitCalls = 0
         var selectionCalls = 0
+        var clipboardActions = 0
+        var nativeDown = 0
+        var windowed = false
         var unavailable = false
         var partial = false
         var accept = true
@@ -50,7 +54,24 @@ class EditorEditPortTest {
         private fun query() { queries++; onQuery?.invoke(queries) }
         override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText? {
             query()
-            return if (unavailable) null else SurroundingText(text, start, end, offset)
+            if (unavailable) return null
+            if (!windowed) return SurroundingText(text, start, end, offset)
+            val begin = (minOf(start, end) - beforeLength).coerceAtLeast(0)
+            val finish = (maxOf(start, end) + afterLength).coerceAtMost(text.length)
+            return SurroundingText(text.substring(begin, finish), start - begin, end - begin, begin)
+        }
+        override fun sendKeyEvent(event: KeyEvent): Boolean {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                nativeDown++
+                val next = when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> (end - 1).coerceAtLeast(0)
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> (end + 1).coerceAtMost(text.length)
+                    else -> end
+                }
+                start = next
+                end = next
+            }
+            return true
         }
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
             query()
@@ -87,7 +108,18 @@ class EditorEditPortTest {
             commitCalls++
             if (edit()) {
                 val begin = minOf(start, end)
-                this.text = this.text.removeRange(begin, maxOf(start, end))
+                val inserted = text?.toString().orEmpty()
+                this.text = this.text.replaceRange(begin, maxOf(start, end), inserted)
+                start = begin + inserted.length
+                end = start
+            }
+            return accept
+        }
+        override fun performContextMenuAction(id: Int): Boolean {
+            clipboardActions++
+            if (edit() && id == android.R.id.cut) {
+                val begin = minOf(start, end)
+                text = text.removeRange(begin, maxOf(start, end))
                 start = begin
                 end = begin
             }
@@ -149,6 +181,67 @@ class EditorEditPortTest {
         }
     }
 
+    @Test fun `選択範囲だけを切り取りまたはコピーする`() {
+        val cut = Harness("abcde\n", 3, 1)
+        assertEquals(EditorEditResult.Outcome.APPLIED, cut.run(EditCommand.CUT).outcome)
+        assertEquals("ade\n", cut.connection.text)
+        assertEquals(1, cut.connection.clipboardActions)
+        val copy = Harness("abcde\n", 3, 1)
+        assertEquals(EditorEditResult.Outcome.APPLIED, copy.run(EditCommand.COPY).outcome)
+        assertEquals("abcde\n", copy.connection.text)
+        assertEquals(1, copy.connection.start)
+        assertEquals(3, copy.connection.end)
+        assertEquals(1, copy.connection.clipboardActions)
+        val noSelection = Harness("abcde\n", 2)
+        assertEquals(EditorEditResult.Outcome.NO_CHANGE, noSelection.run(EditCommand.CUT).outcome)
+        assertEquals(0, noSelection.connection.clipboardActions)
+    }
+
+    @Test fun `改行を一度だけ挿入し保護欄では実行しない`() {
+        val h = Harness("abc", 3)
+        assertEquals(EditorEditResult.Outcome.APPLIED, h.run(EditCommand.NEWLINE).outcome)
+        assertEquals("abc\n", h.connection.text)
+        assertEquals(1, h.connection.commitCalls)
+        val protected = Harness("abc", 3)
+        protected.update { it.copy(protectedInput = true) }
+        assertEquals(EditorEditResult.Outcome.STALE, protected.run(EditCommand.NEWLINE).outcome)
+        assertEquals(0, protected.connection.queries)
+    }
+
+    @Test fun `長文で取得窓が移動しても改行と切り取りを確認できる`() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val newline = Harness("a".repeat(5_000), 2_500)
+        newline.connection.windowed = true
+        assertEquals(EditorEditResult.Outcome.APPLIED, newline.run(EditCommand.NEWLINE).outcome)
+        assertEquals('\n', newline.connection.text[2_500])
+        val cut = Harness("a".repeat(5_000), 2_501, 2_500)
+        cut.connection.windowed = true
+        assertEquals(EditorEditResult.Outcome.APPLIED, cut.run(EditCommand.CUT).outcome)
+        assertEquals(4_999, cut.connection.text.length)
+    }
+
+    @Test fun `長文末尾の左右移動は入力先の標準キーに委ねる`() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val h = Harness("a".repeat(5_000), 5_000)
+        h.connection.windowed = true
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.LEFT).outcome)
+        assertEquals(4_999, h.connection.start)
+        assertEquals(1, h.connection.nativeDown)
+    }
+
+    @Test fun `長い一行の途中でも左右移動を続けられる`() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val h = Harness("a".repeat(5_000), 2_500)
+        h.connection.windowed = true
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.LEFT).outcome)
+        assertEquals(2_499, h.connection.start)
+        h.update { it.copy(selectionStart = 2_499, selectionEnd = 2_499, revision = 1) }
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.LEFT).outcome)
+        assertEquals(2_498, h.connection.start)
+        assertEquals(2, h.connection.nativeDown)
+        assertEquals(0, h.connection.selectionCalls)
+    }
+
     @Test fun `Ckは確認できた行末までを一度だけ削除する`() {
         val h = Harness("abc\r\nrest", 1)
         assertEquals(EditorEditResult.Outcome.APPLIED, h.run(EditCommand.KILL_LINE).outcome)
@@ -207,7 +300,7 @@ class EditorEditPortTest {
         val unknown = Harness("abcdef", 3)
         unknown.connection.offset = 100
         unknown.update { it.copy(selectionStart = 103, selectionEnd = 103) }
-        assertEquals(EditorEditResult.Outcome.UNSUPPORTED, unknown.run(EditCommand.LEFT).outcome)
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, unknown.run(EditCommand.LEFT).outcome)
         assertEquals(0, unknown.connection.edits)
     }
 

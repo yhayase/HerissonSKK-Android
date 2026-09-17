@@ -30,6 +30,7 @@ import jp.hayase.skk.dictionary.DictionaryManagerStatus
 import jp.hayase.skk.dictionary.DictionaryManagerSubscription
 import jp.hayase.skk.dictionary.DictionaryManagerWriteResult
 import jp.hayase.skk.dictionary.DictionaryRuntime
+import jp.hayase.skk.dictionary.DictionarySettingsDraft
 import jp.hayase.skk.dictionary.DictionarySourceInfo
 import jp.hayase.skk.dictionary.DictionarySourceKind
 import jp.hayase.skk.dictionary.CandidateSuppressionInfo
@@ -54,6 +55,7 @@ class DictionarySettingsActivity : Activity() {
     private lateinit var replacePersonalButton: Button
     private lateinit var exportPersonalButton: Button
     private lateinit var reloadButton: Button
+    private lateinit var applyButton: Button
     private lateinit var sourceContainer: LinearLayout
     private lateinit var suppressionContainer: LinearLayout
     private lateinit var statusView: TextView
@@ -67,17 +69,23 @@ class DictionarySettingsActivity : Activity() {
     private var sourcesLoadedOnce = false
     private var busy = false
     private var sourceAvailability = DictionarySourceAvailability.UNKNOWN
-    private var sourceOperation: DictionarySourceOperation? = null
     private var importFailureMessage: String? = null
     private var importInProgress = false
+    private var draft: DictionarySettingsDraft? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         active = true
         manager = DictionaryRuntime.get(this)
+        val restoredDraftId = savedInstanceState?.getString(STATE_DRAFT)
+        draft = restoredDraftId?.let(manager::settingsDraft)
+        val restoredCompletion = if (draft == null) restoredDraftId?.let(manager::consumeSettingsDraftCompletion) else null
         pickerState = DictionaryPickerState.restore(savedInstanceState?.getString(STATE_PICKER))
         restorePendingImport(savedInstanceState)
         importFailureMessage = savedInstanceState?.getString(STATE_IMPORT_ERROR)
+        if (restoredDraftId != null && draft == null && restoredCompletion == null) {
+            importFailureMessage = "編集中の画面を復元できませんでした。保存済みの辞書を確認してください。"
+        }
         if (savedInstanceState?.getBoolean(STATE_IMPORT_IN_PROGRESS) == true) {
             importFailureMessage = getString(R.string.dictionary_import_interrupted)
         }
@@ -155,6 +163,15 @@ class DictionarySettingsActivity : Activity() {
             setOnClickListener { reloadDictionary() }
         }
         content.addView(reloadButton)
+        applyButton = Button(this).apply {
+            text = "変更を適用して閉じる"
+            setOnClickListener { applyDraft() }
+        }
+        content.addView(applyButton)
+        content.addView(Button(this).apply {
+            text = "変更を破棄して閉じる"
+            setOnClickListener { confirmDiscardDraft() }
+        })
         content.addView(TextView(this).apply {
             setText(R.string.dictionary_builtin_heading)
             textSize = 18f
@@ -183,6 +200,11 @@ class DictionarySettingsActivity : Activity() {
 
         setBusy(pickerState.isPending)
         subscription = manager.observe { status -> if (active) handleManagerStatus(status) }
+        if (draft?.id?.let(manager::isSettingsDraftApplying) == true) {
+            applyDraft()
+        } else {
+            (restoredCompletion ?: restoredDraftId?.let(manager::consumeSettingsDraftCompletion))?.let(::onDraftApplied)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -196,15 +218,66 @@ class DictionarySettingsActivity : Activity() {
         pickerState.savedValue()?.let { outState.putString(STATE_PICKER, it) }
         importFailureMessage?.let { outState.putString(STATE_IMPORT_ERROR, it) }
         outState.putBoolean(STATE_IMPORT_IN_PROGRESS, importInProgress)
+        draft?.id?.let { outState.putString(STATE_DRAFT, it) }
         super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
+        if (isFinishing) draft?.let { manager.discardSettingsDraft(it.id) }
         active = false
         subscription?.close()
         subscription = null
         fileExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    @Deprecated("基底 Activity の戻るキー処理")
+    override fun onBackPressed() {
+        if (busy) return
+        if (draft?.hasChanges == true) applyDraft() else finish()
+    }
+
+    private fun applyDraft() {
+        if (busy) return
+        val current = draft ?: run { finish(); return }
+        if (!current.hasChanges) { finish(); return }
+        setBusy(true)
+        setStatus(R.string.dictionary_applying)
+        manager.applySettingsDraft(current.id, ::onDraftApplied)
+    }
+
+    private fun onDraftApplied(result: DictionaryManagerWriteResult<Unit>) {
+        if (!active) return
+        setBusy(false)
+        showWriteResult(result)
+        when (result) {
+            is DictionaryManagerWriteResult.Applied -> { draft = null; finish() }
+            is DictionaryManagerWriteResult.SavedButNotApplied -> {
+                draft = null
+                importFailureMessage = getString(R.string.dictionary_saved_not_applied)
+                AlertDialog.Builder(this)
+                    .setTitle("辞書を保存しましたが、変換へ反映できませんでした")
+                    .setMessage(R.string.dictionary_saved_not_applied)
+                    .setPositiveButton("閉じる") { _, _ -> finish() }
+                    .show()
+            }
+            DictionaryManagerWriteResult.Failed -> Unit
+        }
+    }
+
+    private fun confirmDiscardDraft() {
+        if (busy) return
+        if (draft?.hasChanges != true) { finish(); return }
+        AlertDialog.Builder(this)
+            .setTitle("変更を破棄する")
+            .setMessage("適用していない辞書の変更を破棄しますか？")
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton("破棄する") { _, _ ->
+                draft?.let { manager.discardSettingsDraft(it.id) }
+                draft = null
+                finish()
+            }
+            .show()
     }
 
     @Deprecated("基底 Activity では Activity Result API を利用できないため")
@@ -353,36 +426,23 @@ class DictionarySettingsActivity : Activity() {
     }
 
     private fun applyImport(name: String, request: ImportRequest, document: SkkDictionaryDocument) {
+        val current = draft ?: run { setBusy(false); setStatus(R.string.dictionary_apply_failed); return }
         setStatus(R.string.dictionary_applying)
-        val operationSourceId = request.id.takeIf { request.kind == ImportKind.UPDATE_SYSTEM }
-        operationSourceId?.let(::beginSourceOperation)
-        val callback: (DictionaryManagerWriteResult<DictionarySourceInfo>) -> Unit = { result ->
-            if (active) {
-                operationSourceId?.let { finishSourceOperation(it, result) }
-                setBusy(false)
-                showWriteResult(result)
-                if (result == DictionaryManagerWriteResult.Failed) {
-                    showImportFailure(getString(R.string.dictionary_import_apply_failed))
-                }
-                refreshSources()
+        val staged = runCatching {
+            when (request.kind) {
+                ImportKind.NEW_SYSTEM, ImportKind.UPDATE_SYSTEM -> current.stageImport(
+                    requireNotNull(request.id), request.name ?: name, document, request.expectedGeneration)
+                ImportKind.MERGE_PERSONAL, ImportKind.REPLACE_PERSONAL -> current.stagePersonal(
+                    document, requireNotNull(request.expectedGeneration), request.kind == ImportKind.MERGE_PERSONAL)
             }
         }
-        when (request.kind) {
-            ImportKind.NEW_SYSTEM -> manager.importSystem(
-                requireNotNull(request.id),
-                name,
-                document,
-                callback = callback,
-            )
-            ImportKind.UPDATE_SYSTEM -> manager.importSystem(
-                requireNotNull(request.id),
-                requireNotNull(request.name),
-                document,
-                request.expectedGeneration,
-                callback,
-            )
-            ImportKind.MERGE_PERSONAL -> manager.mergePersonal(document, request.expectedGeneration, callback)
-            ImportKind.REPLACE_PERSONAL -> manager.replacePersonal(document, request.expectedGeneration, callback)
+        setBusy(false)
+        if (staged.isSuccess) {
+            renderSources(current.sources)
+            statusView.text = "変更を一時保存しました。画面を閉じるときに適用します。"
+        } else {
+            statusView.text = staged.exceptionOrNull()?.message ?: getString(R.string.dictionary_apply_failed)
+            statusView.announceForAccessibility(statusView.text)
         }
     }
 
@@ -427,12 +487,14 @@ class DictionarySettingsActivity : Activity() {
             when (result) {
                 is DictionaryManagerWriteResult.Applied -> {
                     sourceAvailability = managerSourceAvailability()
-                    renderSources(result.value)
+                    val current = draft ?: manager.createSettingsDraft(result.value).also { draft = it }
+                    renderSources(current.sources)
                     refreshSuppressions()
                 }
                 is DictionaryManagerWriteResult.SavedButNotApplied -> {
                     sourceAvailability = managerSourceAvailability()
-                    renderSources(result.value)
+                    val current = draft ?: manager.createSettingsDraft(result.value).also { draft = it }
+                    renderSources(current.sources)
                     refreshSuppressions()
                 }
                 DictionaryManagerWriteResult.Failed -> {
@@ -558,7 +620,7 @@ class DictionarySettingsActivity : Activity() {
         addView(TextView(this@DictionarySettingsActivity).apply {
             text = getString(
                 R.string.dictionary_source_state,
-                sourceRowStatusText(sourceRowStatus(source.id, sourceAvailability, sourceOperation)),
+                sourceRowStatusText(sourceRowStatus(source.id, sourceAvailability, null)),
                 getString(if (source.enabled) R.string.dictionary_source_enabled else R.string.dictionary_source_disabled),
                 index + 1,
             )
@@ -569,15 +631,8 @@ class DictionarySettingsActivity : Activity() {
             isEnabled = !busy
             setOnCheckedChangeListener { _, checked ->
                 if (busy) return@setOnCheckedChangeListener
-                beginSourceOperation(source.id)
-                setBusy(true)
-                manager.setSourceEnabled(source.id, checked) { result ->
-                    if (!active) return@setSourceEnabled
-                    finishSourceOperation(source.id, result)
-                    setBusy(false)
-                    showWriteResult(result)
-                    refreshSources()
-                }
+                draft?.stageEnabled(source.id, checked)
+                draft?.let { renderSources(it.sources) }
             }
         })
         addView(LinearLayout(this@DictionarySettingsActivity).apply {
@@ -633,28 +688,18 @@ class DictionarySettingsActivity : Activity() {
     }
 
     private fun removeSystem(source: DictionarySourceInfo) {
-        setStatus(R.string.dictionary_removing)
-        beginSourceOperation(source.id)
-        manager.removeSystem(source.id, source.generation) { result ->
-            if (!active) return@removeSystem
-            finishSourceOperation(source.id, result)
-            setBusy(false)
-            showWriteResult(result)
-            refreshSources()
-        }
+        draft?.stageRemove(source)
+        setBusy(false)
+        draft?.let { renderSources(it.sources) }
+        statusView.text = "変更を一時保存しました。画面を閉じるときに適用します。"
     }
 
     private fun moveSource(from: Int, to: Int) {
         if (busy || from !in systemSources.indices || to !in systemSources.indices) return
         val reordered = systemSources.toMutableList().apply { add(to, removeAt(from)) }
-        setBusy(true)
-        setStatus(R.string.dictionary_applying)
-        manager.setSystemOrder(reordered.map { it.id }) { result ->
-            if (!active) return@setSystemOrder
-            setBusy(false)
-            showWriteResult(result)
-            refreshSources()
-        }
+        draft?.stageOrder(reordered.map { it.id })
+        draft?.let { renderSources(it.sources) }
+        statusView.text = "変更を一時保存しました。画面を閉じるときに適用します。"
     }
 
     private fun showWriteResult(result: DictionaryManagerWriteResult<*>) {
@@ -717,19 +762,6 @@ class DictionarySettingsActivity : Activity() {
         if (::suppressionContainer.isInitialized) refreshSuppressions()
     }
 
-    private fun beginSourceOperation(sourceId: String) {
-        sourceOperation = DictionarySourceOperation.Processing(sourceId)
-        if (::sourceContainer.isInitialized && sourcesLoadedOnce) drawSources()
-    }
-
-    private fun finishSourceOperation(sourceId: String, result: DictionaryManagerWriteResult<*>) {
-        sourceOperation = when (result) {
-            DictionaryManagerWriteResult.Failed -> DictionarySourceOperation.Failed(sourceId)
-            is DictionaryManagerWriteResult.Applied, is DictionaryManagerWriteResult.SavedButNotApplied -> null
-        }
-        if (::sourceContainer.isInitialized && sourcesLoadedOnce) drawSources()
-    }
-
     private fun sourceRowStatusText(status: DictionarySourceRowStatus): String = getString(
         when (status) {
             DictionarySourceRowStatus.AVAILABLE -> R.string.dictionary_source_available
@@ -743,11 +775,15 @@ class DictionarySettingsActivity : Activity() {
 
     private fun updatePrimaryControls() {
         if (!::addSystemButton.isInitialized) return
-        addSystemButton.isEnabled = !busy
-        mergePersonalButton.isEnabled = !busy && personalSource != null
-        replacePersonalButton.isEnabled = !busy && personalSource != null
+        addSystemButton.isEnabled = !busy && draft != null
+        mergePersonalButton.isEnabled = !busy && draft != null && personalSource != null
+        replacePersonalButton.isEnabled = !busy && draft != null && personalSource != null
         exportPersonalButton.isEnabled = !busy
+        exportPersonalButton.text = if (draft?.hasChanges == true) {
+            "個人辞書を書き出す（適用済みの内容）"
+        } else getString(R.string.dictionary_export_personal)
         reloadButton.isEnabled = !busy
+        applyButton.isEnabled = !busy
         encodingSpinner.isEnabled = !busy
     }
 
@@ -808,6 +844,7 @@ class DictionarySettingsActivity : Activity() {
         private const val STATE_PICKER = "dictionary.picker.operation"
         private const val STATE_IMPORT_ERROR = "dictionary.import.error"
         private const val STATE_IMPORT_IN_PROGRESS = "dictionary.import.in_progress"
+        private const val STATE_DRAFT = "dictionary.settings.draft"
     }
 }
 

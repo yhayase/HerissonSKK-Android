@@ -360,6 +360,161 @@ class DictionaryManagerTest {
         manager.close(); serial.runAll()
     }
 
+    @Test fun `設定変更は確定まで公開せず複数編集でも全辞書の読込は一回だけ`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        repository.importSystem("a", "A", document("かな /A/"))
+        val serial = ManualExecutor()
+        var loads = 0
+        val manager = DictionaryManager(repository, serial, Executor { it.run() },
+            loadSnapshot = { loads++; repository.loadSnapshot() })
+        manager.loadAsync(); serial.runAll()
+        val draft = manager.createSettingsDraft(repository.listSources())
+        draft.stageImport("b", "B", document("かな /B/"), null)
+        draft.stageEnabled("a", false)
+        draft.stageOrder(listOf("b", "a"))
+
+        assertEquals(1, loads)
+        assertEquals(listOf("A"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        assertEquals(listOf("personal", "a"), repository.listSources().map { it.id })
+
+        var result: DictionaryManagerWriteResult<Unit>? = null
+        manager.applySettingsDraft(draft.id) { result = it }
+        serial.runAll()
+        assertTrue(result is DictionaryManagerWriteResult.Applied)
+        assertEquals(2, loads)
+        assertEquals(listOf("B"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        assertEquals(listOf("personal", "b", "a"), repository.listSources().map { it.id })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `設定確定中の世代衝突は全編集を取り消し下書きを保持する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        manager.loadAsync(); serial.runAll()
+        val draft = manager.createSettingsDraft(repository.listSources())
+        draft.stageImport("b", "B", document("かな /B/"), null)
+        draft.stagePersonal(document("かな /取り込み/"), 0, merge = false)
+        manager.savePersonalCandidate("かな", SkkDictionaryCandidate("学習"), true) { }
+        serial.runAll()
+
+        var result: DictionaryManagerWriteResult<Unit>? = null
+        manager.applySettingsDraft(draft.id) { result = it }
+        serial.runAll()
+        assertEquals(DictionaryManagerWriteResult.Failed, result)
+        assertTrue(manager.settingsDraft(draft.id)?.hasChanges == true)
+        assertEquals(listOf("personal"), repository.listSources().map { it.id })
+        assertEquals(listOf("学習"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `システム辞書の下書き中に学習しても学習結果と下書きの両方を残す`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        manager.loadAsync(); serial.runAll()
+        val draft = manager.createSettingsDraft(repository.listSources())
+        draft.stageImport("b", "B", document("かな /追加/"), null)
+        manager.savePersonalCandidate("かな", SkkDictionaryCandidate("学習"), true) { }
+        serial.runAll()
+
+        var result: DictionaryManagerWriteResult<Unit>? = null
+        manager.applySettingsDraft(draft.id) { result = it }
+        serial.runAll()
+        assertTrue(result is DictionaryManagerWriteResult.Applied)
+        assertEquals(listOf("学習", "追加"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `下書きは管理器の ID で再取得でき破棄後は辞書を変えない`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        val draft = manager.createSettingsDraft(repository.listSources())
+        draft.stageImport("b", "B", document("かな /未確定/"), null)
+
+        assertEquals(draft, manager.settingsDraft(draft.id))
+        manager.discardSettingsDraft(draft.id)
+        assertEquals(null, manager.settingsDraft(draft.id))
+        assertEquals(listOf("personal"), repository.listSources().map { it.id })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `追加後に無効化して再取り込みしても最後の内容と優先順を保存する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        repository.importSystem("a", "A", document("かな /A/"))
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        val draft = manager.createSettingsDraft(repository.listSources())
+        draft.stageImport("b", "B", document("かな /旧/"), null)
+        draft.stageEnabled("b", false)
+        draft.stageOrder(listOf("b", "a"))
+        draft.stageImport("b", "B", document("かな /新/"), 0)
+        var result: DictionaryManagerWriteResult<Unit>? = null
+        manager.applySettingsDraft(draft.id) { result = it }
+        serial.runAll()
+
+        assertTrue(result is DictionaryManagerWriteResult.Applied)
+        assertEquals(listOf("personal", "b", "a"), repository.listSources().map { it.id })
+        assertFalse(repository.listSources().first { it.id == "b" }.enabled)
+        assertEquals(listOf("A"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        manager.setSourceEnabled("b", true) { }
+        serial.runAll()
+        assertEquals(listOf("新", "A"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `保存後の再構築中と完了直後に画面が復帰しても再保存せず完了を通知する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        val serial = ManualExecutor()
+        var duringLoad: () -> Unit = { }
+        var loads = 0
+        val manager = DictionaryManager(repository, serial, Executor { it.run() },
+            loadSnapshot = { loads++; duringLoad(); repository.loadSnapshot() })
+        val draft = manager.createSettingsDraft(repository.listSources())
+        draft.stageImport("b", "B", document("かな /保存/"), null)
+        val results = mutableListOf<DictionaryManagerWriteResult<Unit>>()
+        duringLoad = {
+            assertEquals(draft, manager.settingsDraft(draft.id))
+            assertTrue(manager.isSettingsDraftApplying(draft.id))
+            assertEquals(null, manager.consumeSettingsDraftCompletion(draft.id))
+            manager.applySettingsDraft(draft.id) { results += it }
+        }
+        manager.applySettingsDraft(draft.id) { results += it }
+        serial.runAll()
+        assertEquals(2, results.size)
+        assertTrue(results.all { it is DictionaryManagerWriteResult.Applied })
+        assertEquals(null, manager.settingsDraft(draft.id))
+        assertFalse(manager.isSettingsDraftApplying(draft.id))
+        // 復帰画面の状態取得直後に完了しても、同じ結果を受け取れます。
+        manager.applySettingsDraft(draft.id) { results += it }
+        serial.runAll()
+        assertEquals(3, results.size)
+        assertTrue(results.all { it is DictionaryManagerWriteResult.Applied })
+        assertEquals(1, loads)
+        assertEquals(1L, repository.listSources().first { it.id == "b" }.generation)
+        assertTrue(manager.consumeSettingsDraftCompletion(draft.id) is DictionaryManagerWriteResult.Applied)
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `個人辞書の複数取り込みは最初だけ保存世代を照合し操作順に統合する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        val draft = manager.createSettingsDraft(repository.listSources())
+        draft.stagePersonal(document("かな /破棄/"), 0, merge = true)
+        draft.stagePersonal(document("かな /置換/"), 0, merge = false)
+        draft.stagePersonal(document("かな /統合一/"), 0, merge = true)
+        draft.stagePersonal(document("かな /統合二/"), 0, merge = true)
+        var result: DictionaryManagerWriteResult<Unit>? = null
+        manager.applySettingsDraft(draft.id) { result = it }
+        serial.runAll()
+        assertTrue(result is DictionaryManagerWriteResult.Applied)
+        assertEquals(listOf("統合二", "統合一", "置換"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+        assertEquals(3L, repository.listSources().first { it.kind == DictionarySourceKind.PERSONAL }.generation)
+        manager.close(); serial.runAll()
+    }
+
     private fun document(text: String): SkkDictionaryDocument = SkkDictionaryCodec.parseText(text)
 
     private fun databaseName(): String = "dictionary-manager-${UUID.randomUUID()}.db".also(databases::add)

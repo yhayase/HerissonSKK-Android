@@ -2,6 +2,7 @@ package jp.hayase.skk.input
 
 import android.os.Build
 import android.os.SystemClock
+import android.view.KeyEvent
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import jp.hayase.skk.core.editing.EditCommand
@@ -37,7 +38,7 @@ data class EditorEditResult(
     val expectedSelectionStart: Int? = null,
     val expectedSelectionEnd: Int? = null,
 ) {
-    enum class Outcome { APPLIED, NO_CHANGE, UNSUPPORTED, STALE, FAILED_OR_UNKNOWN, BUSY }
+    enum class Outcome { APPLIED, NO_CHANGE, NATIVE_ISSUED, UNSUPPORTED, STALE, FAILED_OR_UNKNOWN, BUSY }
     enum class Reason { INACTIVE, UNAVAILABLE, INVALID_SNAPSHOT, INSUFFICIENT_CONTEXT, API_REJECTED, TIMEOUT, EXCEPTION, POSTCHECK_MISMATCH }
 }
 
@@ -62,6 +63,10 @@ class EditorEditPort(
     private val active = AtomicBoolean(true)
     private val failed = AtomicBoolean(false)
     private val busy = AtomicBoolean(false)
+    private val nativeNavigation = AtomicBoolean(false)
+    val isNativeNavigation: Boolean get() = nativeNavigation.get()
+
+    fun resetNativeNavigation() { nativeNavigation.set(false) }
     @Volatile private var pending: Operation? = null
     private var verticalGoal: Int? = null
     private var verticalState: EditorEditState? = null
@@ -129,11 +134,26 @@ class EditorEditPort(
     }
 
     private fun execute(operation: Operation, command: EditCommand) {
+        if (nativeNavigation.get() && command in NATIVE_NAVIGATION_COMMANDS) {
+            return issueNative(operation, command)
+        }
+        // 通常編集は新しい取得・選択位置の照合から再開します。
+        // ただし標準キーの適用と取得を原子的に順序付ける API はありません。
+        nativeNavigation.set(false)
         if (!check(operation)) return
         val first = read() ?: return unsupported(operation, EditorEditResult.Reason.UNAVAILABLE)
         if (!matchesSelection(first, operation.initial)) return unsupported(operation, EditorEditResult.Reason.INVALID_SNAPSHOT)
+        if (command in listOf(EditCommand.PAGE_DOWN, EditCommand.PAGE_UP,
+                EditCommand.BUFFER_START, EditCommand.BUFFER_END)) {
+            return executeNative(operation, command, first)
+        }
+        if (command in listOf(EditCommand.CUT, EditCommand.COPY, EditCommand.NEWLINE)) {
+            return executeClipboardOrNewline(operation, command, first)
+        }
         val prepared = prepare(first, command, operation.initial)
-            ?: return unsupported(operation, EditorEditResult.Reason.INSUFFICIENT_CONTEXT)
+            ?: return if (canUseNativeMovement(first, command)) {
+                executeNative(operation, command, first)
+            } else unsupported(operation, EditorEditResult.Reason.INSUFFICIENT_CONTEXT)
         if (!check(operation)) return
         // 同じ取得経路を使い、フォールバックによる別形式の混在を避けます。
         val second = read(first.source) ?: return unsupported(operation, EditorEditResult.Reason.UNAVAILABLE)
@@ -175,10 +195,7 @@ class EditorEditPort(
             val end = prepared.offset - first.offset + removed.end
             first.text.removeRange(begin, end)
         }
-        val begin = first.offset.toLong() - after.offset
-        val end = begin + expectedText.length
-        val contentMatches = begin >= 0 && end <= after.text.length &&
-            after.text.regionMatches(begin.toInt(), expectedText, 0, expectedText.length)
+        val contentMatches = matchesOverlappingText(first.offset, expectedText, after, target)
         if (!contentMatches || after.absoluteStart != target || after.absoluteEnd != target) {
             return fail(operation, EditorEditResult.Reason.POSTCHECK_MISMATCH)
         }
@@ -186,6 +203,110 @@ class EditorEditPort(
         verticalState = state().copy(selectionStart = target, selectionEnd = target)
         finish(operation, EditorEditResult(EditorEditResult.Outcome.APPLIED,
             expectedSelectionStart = target, expectedSelectionEnd = target))
+    }
+
+    private fun canUseNativeMovement(window: Window, command: EditCommand): Boolean {
+        return window.start == window.end &&
+            (command == EditCommand.LEFT || command == EditCommand.RIGHT)
+    }
+
+    private fun executeNative(operation: Operation, command: EditCommand, first: Window) {
+        if (!check(operation)) return
+        val second = read(first.source) ?: return unsupported(operation, EditorEditResult.Reason.UNAVAILABLE)
+        if (first != second) return finish(operation, result(EditorEditResult.Outcome.STALE))
+        if (!check(operation)) return
+        issueNative(operation, command)
+    }
+
+    private fun issueNative(operation: Operation, command: EditCommand) {
+        if (operation.delivered.get()) return
+        if (clock() >= operation.deadline) return fail(operation, EditorEditResult.Reason.TIMEOUT)
+        val current = state()
+        if (!usable(current) || current.revision != operation.initial.revision) {
+            return finish(operation, result(EditorEditResult.Outcome.STALE))
+        }
+        val (code, meta) = when (command) {
+            EditCommand.LEFT -> KeyEvent.KEYCODE_DPAD_LEFT to 0
+            EditCommand.RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT to 0
+            EditCommand.PAGE_DOWN -> KeyEvent.KEYCODE_PAGE_DOWN to 0
+            EditCommand.PAGE_UP -> KeyEvent.KEYCODE_PAGE_UP to 0
+            EditCommand.BUFFER_START -> KeyEvent.KEYCODE_MOVE_HOME to KeyEvent.META_CTRL_ON
+            EditCommand.BUFFER_END -> KeyEvent.KEYCODE_MOVE_END to KeyEvent.META_CTRL_ON
+            else -> return unsupported(operation, EditorEditResult.Reason.INSUFFICIENT_CONTEXT)
+        }
+        val now = clock()
+        val down = KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta)
+        val up = KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta)
+        nativeNavigation.set(true)
+        if (!connection.sendKeyEvent(down)) return fail(operation, EditorEditResult.Reason.API_REJECTED)
+        // 下向きイベントが既に適用された可能性があるので、失敗時も再送しません。
+        connection.sendKeyEvent(up)
+        verticalGoal = null
+        // キーの受付は適用完了を保証せず、直後の取得も完了確認にはなりません。
+        // 以後のネイティブ移動も同じ接続へ順に送り、選択位置は入力先の通知だけで更新します。
+        finish(operation, EditorEditResult(EditorEditResult.Outcome.NATIVE_ISSUED))
+    }
+
+    private fun executeClipboardOrNewline(operation: Operation, command: EditCommand, first: Window) {
+        val initial = operation.initial
+        val selection = first.start != first.end
+        if (command != EditCommand.NEWLINE && !selection) {
+            finish(operation, EditorEditResult(EditorEditResult.Outcome.NO_CHANGE,
+                expectedSelectionStart = initial.selectionStart, expectedSelectionEnd = initial.selectionEnd))
+            return
+        }
+        // 選択範囲の操作は入力先自身の選択を使い、取得窓の文字境界を削除計画に変換しません。
+        if (!check(operation)) return
+        val second = read(first.source) ?: return unsupported(operation, EditorEditResult.Reason.UNAVAILABLE)
+        if (first != second) return finish(operation, result(EditorEditResult.Outcome.STALE))
+        if (!check(operation)) return
+        val low = minOf(first.start, first.end)
+        val high = maxOf(first.start, first.end)
+        val expected = when (command) {
+            EditCommand.CUT -> first.text.removeRange(low, high)
+            EditCommand.COPY -> first.text
+            else -> first.text.replaceRange(low, high, "\n")
+        }
+        val target = if (command == EditCommand.COPY) initial.selectionEnd else
+            first.offset + low + if (command == EditCommand.NEWLINE) 1 else 0
+        if (command != EditCommand.COPY && !beforeRequest(initial, target)) {
+            return finish(operation, result(EditorEditResult.Outcome.STALE))
+        }
+        if (!check(operation)) return
+        val accepted = when (command) {
+            EditCommand.CUT -> connection.performContextMenuAction(android.R.id.cut)
+            EditCommand.COPY -> connection.performContextMenuAction(android.R.id.copy)
+            else -> connection.commitText("\n", 1)
+        }
+        if (!accepted) return fail(operation, EditorEditResult.Reason.API_REJECTED)
+        if (command == EditCommand.COPY) { if (!check(operation)) return }
+        else if (!checkAfterRequest(operation, target)) return
+        val after = read(first.source) ?: return fail(operation, EditorEditResult.Reason.POSTCHECK_MISMATCH)
+        if (command == EditCommand.COPY) { if (!check(operation)) return }
+        else if (!checkAfterRequest(operation, target)) return
+        if (!matchesOverlappingText(first.offset, expected, after, target,
+                requirePreviousCharacter = command == EditCommand.NEWLINE) ||
+            after.absoluteStart != (if (command == EditCommand.COPY) initial.selectionStart else target) ||
+            after.absoluteEnd != target) {
+            return fail(operation, EditorEditResult.Reason.POSTCHECK_MISMATCH)
+        }
+        verticalGoal = null
+        finish(operation, EditorEditResult(EditorEditResult.Outcome.APPLIED,
+            expectedSelectionStart = if (command == EditCommand.COPY) initial.selectionStart else target,
+            expectedSelectionEnd = target))
+    }
+
+    private fun matchesOverlappingText(expectedOffset: Int, expected: String, after: Window,
+        target: Int, requirePreviousCharacter: Boolean = false): Boolean {
+        if (expected.isEmpty()) return after.text.isEmpty() && after.offset == expectedOffset &&
+            target == expectedOffset
+        val start = maxOf(expectedOffset.toLong(), after.offset.toLong())
+        val end = minOf(expectedOffset.toLong() + expected.length,
+            after.offset.toLong() + after.text.length)
+        if (start >= end || target.toLong() !in start..end ||
+            requirePreviousCharacter && target.toLong() - 1 !in start until end) return false
+        return after.text.regionMatches((start - after.offset).toInt(), expected,
+            (start - expectedOffset).toInt(), (end - start).toInt())
     }
 
     private fun usable(current: EditorEditState): Boolean = active.get() && !failed.get() &&
@@ -340,6 +461,8 @@ class EditorEditPort(
     private fun result(outcome: EditorEditResult.Outcome, reason: EditorEditResult.Reason? = null) = EditorEditResult(outcome, reason)
 
     companion object {
+        private val NATIVE_NAVIGATION_COMMANDS = setOf(EditCommand.LEFT, EditCommand.RIGHT,
+            EditCommand.PAGE_UP, EditCommand.PAGE_DOWN, EditCommand.BUFFER_START, EditCommand.BUFFER_END)
         private const val CONTEXT = 2_048
         private const val TIMEOUT_MILLIS = 500L
         // セッションごとにスレッドを増やさず、停止した接続の後ろに無制限に積みません。

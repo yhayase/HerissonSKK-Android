@@ -144,6 +144,29 @@ class CustomizationE2eTest {
             key(KeyEvent.KEYCODE_P, KeyEvent.META_CTRL_ON)
             awaitEditorState(editor, lines, 11)
         }
+
+        withInitialEditor("abcd", 4) { editor ->
+            key(KeyEvent.KEYCODE_F, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abcd", 4)
+            key(KeyEvent.KEYCODE_B, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abcd", 3)
+            repeatKey(KeyEvent.KEYCODE_B, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abcd", 1)
+            repeatKey(KeyEvent.KEYCODE_F, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abcd", 3)
+        }
+
+        withInitialEditor("abc", 3) { editor ->
+            key(KeyEvent.KEYCODE_M, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\n", 4)
+        }
+
+        withInitialEditor("abc\ndef", 2) { editor ->
+            key(KeyEvent.KEYCODE_COMMA, KeyEvent.META_ALT_ON or KeyEvent.META_SHIFT_ON)
+            awaitEditorState(editor, "abc\ndef", 0)
+            key(KeyEvent.KEYCODE_PERIOD, KeyEvent.META_ALT_ON or KeyEvent.META_SHIFT_ON)
+            awaitEditorState(editor, "abc\ndef", 7)
+        }
     }
 
     private fun withInitialEditor(initial: String, selection: Int, block: (EditText) -> Unit) {
@@ -305,6 +328,17 @@ class CustomizationE2eTest {
         instrumentation.sendKeySync(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta,
             KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD))
         instrumentation.sendKeySync(KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, meta,
+            KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD))
+        instrumentation.waitForIdleSync()
+    }
+
+    private fun repeatKey(code: Int, meta: Int) {
+        val downTime = SystemClock.uptimeMillis()
+        instrumentation.sendKeySync(KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, code, 0, meta,
+            KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD))
+        instrumentation.sendKeySync(KeyEvent(downTime, SystemClock.uptimeMillis(), KeyEvent.ACTION_DOWN, code, 1, meta,
+            KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD))
+        instrumentation.sendKeySync(KeyEvent(downTime, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, meta,
             KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD))
         instrumentation.waitForIdleSync()
     }

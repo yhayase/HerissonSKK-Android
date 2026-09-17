@@ -333,6 +333,41 @@ class SQLiteDictionaryRepository internal constructor(
         }
     }
 
+    /** 設定画面の編集を一つの DB トランザクションで確定します。失敗時は全操作を取り消します。 */
+    @Synchronized
+    fun applySettingsEdits(edits: List<DictionarySettingsEdit>, baselineSystems: List<DictionarySourceInfo>) {
+        if (edits.isEmpty()) return
+        val database = helper.writableDatabase
+        database.inTransaction {
+            // 個別操作の入れ子トランザクションは外側の確定まで永続化されません。
+            if (edits.any { it is DictionarySettingsEdit.ImportSystem || it is DictionarySettingsEdit.RemoveSystem ||
+                    it is DictionarySettingsEdit.SetEnabled || it is DictionarySettingsEdit.SetOrder }) {
+                check(querySources(database).filter { it.kind == DictionarySourceKind.SYSTEM } == baselineSystems) {
+                    "システム辞書は編集開始後に変更されました"
+                }
+            }
+            var personalChanged = false
+            edits.filterNot { it is DictionarySettingsEdit.SetOrder }.forEach { edit ->
+                when (edit) {
+                    is DictionarySettingsEdit.ImportSystem -> importSystem(
+                        edit.id, edit.name, edit.document, edit.expectedGeneration)
+                    is DictionarySettingsEdit.RemoveSystem -> removeSystem(edit.id, edit.expectedGeneration)
+                    is DictionarySettingsEdit.ReplacePersonal -> {
+                        replacePersonal(edit.document, if (personalChanged) null else edit.expectedGeneration)
+                        personalChanged = true
+                    }
+                    is DictionarySettingsEdit.MergePersonal -> {
+                        mergePersonal(edit.document, if (personalChanged) null else edit.expectedGeneration)
+                        personalChanged = true
+                    }
+                    is DictionarySettingsEdit.SetEnabled -> setSourceEnabled(edit.id, edit.enabled)
+                    is DictionarySettingsEdit.SetOrder -> Unit
+                }
+            }
+            edits.filterIsInstance<DictionarySettingsEdit.SetOrder>().lastOrNull()?.let { setSystemOrder(it.ids) }
+        }
+    }
+
     /** 有効な辞書について [key] の行だけを索引検索し、検索開始時の世代と順を固定します。 */
     @Synchronized
     fun lookup(key: String): DictionaryLookupSnapshot {

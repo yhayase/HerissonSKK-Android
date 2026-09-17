@@ -239,7 +239,7 @@ private class AtomicCustomizationFile(path: File) : CustomizationFileAccess {
 }
 
 private object CustomizationJson {
-    private const val SCHEMA_VERSION = 2
+    private const val SCHEMA_VERSION = 3
     private const val MAX_JSON_DEPTH = 16
     private val ROOT_FIELDS = setOf(
         "documentVersion", "generation", "profile", "customRules", "punctuation",
@@ -247,9 +247,9 @@ private object CustomizationJson {
     )
     private val RULE_FIELDS = setOf("input", "output", "remaining", "terminalOutput")
     private val PUNCTUATION_FIELDS = setOf(
-        "period", "comma", "fullwidthParentheses", "fullwidthBrackets",
+        "period", "comma", "fullwidthParentheses", "fullwidthBrackets", "fullwidthSymbols",
     )
-    private val CANDIDATE_FIELDS = setOf("labels", "pageMode", "fixedPageSize")
+    private val CANDIDATE_FIELDS = setOf("labels", "pageMode", "fixedPageSize", "inlineCandidateCount")
 
     fun encode(settings: CustomizationSettings): ByteArray {
         val rules = JSONArray()
@@ -271,11 +271,13 @@ private object CustomizationJson {
                 put("comma", settings.punctuation.comma)
                 put("fullwidthParentheses", settings.punctuation.fullwidthParentheses)
                 put("fullwidthBrackets", settings.punctuation.fullwidthBrackets)
+                put("fullwidthSymbols", settings.punctuation.fullwidthSymbols)
             })
             put("candidateDisplay", JSONObject().apply {
                 put("labels", settings.candidateDisplay.labels)
                 put("pageMode", settings.candidateDisplay.pageMode.name)
                 put("fixedPageSize", settings.candidateDisplay.fixedPageSize)
+                put("inlineCandidateCount", settings.candidateDisplay.inlineCandidateCount)
             })
             put("emacsEnabled", settings.emacsEnabled)
             put("keyBindings", JSONArray().apply {
@@ -296,7 +298,7 @@ private object CustomizationJson {
         rejectDuplicateFields(text)
         val root = JSONObject(text)
         val version = root.requiredInteger("documentVersion")
-        if (version != 1L && version != SCHEMA_VERSION.toLong()) {
+        if (version !in 1L..SCHEMA_VERSION.toLong()) {
             throw InvalidCustomizationFileException()
         }
         root.requireFields(if (version == 1L) ROOT_FIELDS - "keyBindings" else ROOT_FIELDS)
@@ -326,26 +328,30 @@ private object CustomizationJson {
                 terminal,
             )
         }
-        val punctuationObject = root.requiredObject("punctuation").requireFields(PUNCTUATION_FIELDS)
+        val punctuationObject = root.requiredObject("punctuation").requireFields(if (version < 3) PUNCTUATION_FIELDS - "fullwidthSymbols" else PUNCTUATION_FIELDS)
         val punctuation = PunctuationConfig(
             punctuationObject.requiredString("period"),
             punctuationObject.requiredString("comma"),
             punctuationObject.requiredBoolean("fullwidthParentheses"),
             punctuationObject.requiredBoolean("fullwidthBrackets"),
+            if (version < 3) false else punctuationObject.requiredBoolean("fullwidthSymbols"),
         )
-        val candidateObject = root.requiredObject("candidateDisplay").requireFields(CANDIDATE_FIELDS)
+        val candidateObject = root.requiredObject("candidateDisplay").requireFields(if (version < 3) CANDIDATE_FIELDS - "inlineCandidateCount" else CANDIDATE_FIELDS)
         val pageSize = candidateObject.requiredInteger("fixedPageSize")
         if (pageSize !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
             throw InvalidCustomizationFileException()
         }
+        val inlineCount = if (version < 3) 2L else candidateObject.requiredInteger("inlineCandidateCount")
+        if (inlineCount !in 0L..9L) throw InvalidCustomizationFileException()
         val candidate = CandidateDisplayConfig(
             candidateObject.requiredString("labels"),
             enumValue<CandidatePageMode>(candidateObject.requiredString("pageMode")),
             pageSize.toInt(),
+            inlineCount.toInt(),
         )
         val bindings = if (version == 1L) KeyBindings() else {
             val values = root.requiredArray("keyBindings")
-            if (values.length() != SkkCommand.entries.size) throw InvalidCustomizationFileException()
+            if (values.length() > SkkCommand.entries.size) throw InvalidCustomizationFileException()
             val keys = LinkedHashMap<SkkCommand, KeyGesture>()
             repeat(values.length()) { index ->
                 val row = (values.opt(index) as? JSONObject ?: throw InvalidCustomizationFileException())
@@ -361,7 +367,12 @@ private object CustomizationJson {
                     row.requiredBoolean("ignoreShift"))
                 if (keys.put(command, key) != null) throw InvalidCustomizationFileException()
             }
-            KeyBindings(keys)
+            if (version == 2L) {
+                if (keys.keys != SkkCommand.entries.toSet() - KeyBindings.optionalCommands) {
+                    throw InvalidCustomizationFileException()
+                }
+                KeyBindings.addDefaultsPreservingExisting(keys)
+            } else KeyBindings(keys)
         }
         return CustomizationSettings(
             generation,

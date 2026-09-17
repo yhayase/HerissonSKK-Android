@@ -157,24 +157,47 @@ class PhysicalInputTest {
         }
     }
 
-    /** K06: 4番目からの一覧ラベルで選び、注釈を本文へ混ぜません。 */
+    @Test fun cancelRegistrationRestoresLastSingleCandidate() {
+        withSendEditor { editor, counter ->
+            type("Nihon   ")
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            awaitText(editor, "二本")
+            key(KeyEvent.KEYCODE_ENTER)
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
+    @Test fun cancelRegistrationRestoresLastMenuAndItsLabel() {
+        withSendEditor { editor, counter ->
+            type("Tesuto" + " ".repeat(11))
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            awaitText(editor, "候補10")
+            type("a")
+            awaitText(editor, "候補10")
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitText(counter, "入力先への Enter／アクション: 1 回")
+        }
+    }
+
+    /** K06: 3番目からの一覧ラベルで選び、注釈を本文へ混ぜません。 */
     @Test fun menuLabelCommitsCandidateWithoutAnnotation() {
         withSendEditor { editor, counter ->
-            type("Tesuto    ")
-            awaitText(editor, "候補4")
+            type("Tesuto   ")
+            awaitText(editor, "候補3")
             val deadline = SystemClock.uptimeMillis() + 5000
             var menuShown = false
             while (SystemClock.uptimeMillis() < deadline && !menuShown) {
                 menuShown = instrumentation.uiAutomation.windows.any { window ->
                     val root = window.root
-                    root?.findAccessibilityNodeInfosByText("注釈4")?.isNotEmpty() == true &&
+                    root?.findAccessibilityNodeInfosByText("注釈3")?.isNotEmpty() == true &&
                         root.findAccessibilityNodeInfosByText("a:").isNotEmpty()
                 }
                 if (!menuShown) SystemClock.sleep(20)
             }
             assertTrue("候補一覧のラベルと注釈が表示されません", menuShown)
             type("a")
-            awaitText(editor, "候補4")
+            awaitText(editor, "候補3")
             assertEquals("入力先への Enter／アクション: 0 回", text(counter))
             key(KeyEvent.KEYCODE_ENTER)
             awaitText(counter, "入力先への Enter／アクション: 1 回")

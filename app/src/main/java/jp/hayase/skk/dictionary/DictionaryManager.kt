@@ -73,6 +73,10 @@ class DictionaryManager(
     private val fallbackSystems = fallbackSystems.toList()
     private val contextOwner = Any()
     private val backupHandles = mutableSetOf<Closeable>()
+    private val settingsDrafts = linkedMapOf<String, DictionarySettingsDraft>()
+    private val applyingSettingsDrafts = mutableSetOf<String>()
+    private val settingsDraftCallbacks = mutableMapOf<String, MutableList<(DictionaryManagerWriteResult<Unit>) -> Unit>>()
+    private val completedSettingsDrafts = linkedMapOf<String, DictionaryManagerWriteResult<Unit>>()
     private var nextObserverId = 0L
     @Volatile
     private var closed = false
@@ -330,6 +334,76 @@ class DictionaryManager(
         writeThenReload(callback) { repository.setSystemOrder(requested) }
     }
 
+    /** 編集中の文書を画面再生成中だけ保持します。DB と公開済み辞書は変更しません。 */
+    @Synchronized
+    fun createSettingsDraft(sources: List<DictionarySourceInfo>): DictionarySettingsDraft {
+        check(!closed)
+        return DictionarySettingsDraft(sources).also { settingsDrafts[it.id] = it }
+    }
+
+    @Synchronized
+    fun settingsDraft(id: String): DictionarySettingsDraft? = settingsDrafts[id]
+
+    @Synchronized
+    fun isSettingsDraftApplying(id: String): Boolean = id in applyingSettingsDrafts
+
+    @Synchronized
+    fun consumeSettingsDraftCompletion(id: String): DictionaryManagerWriteResult<Unit>? = completedSettingsDrafts.remove(id)
+
+    @Synchronized
+    fun discardSettingsDraft(id: String) {
+        settingsDrafts.remove(id)
+    }
+
+    /** 一回の保存と一回の全辞書公開を直列化します。公開失敗でも保存済み編集は再実行しません。 */
+    @Synchronized
+    fun applySettingsDraft(id: String, callback: (DictionaryManagerWriteResult<Unit>) -> Unit) {
+        check(!closed)
+        completedSettingsDrafts[id]?.let { result ->
+            deliver(callback, result)
+            return
+        }
+        val draft = settingsDrafts[id] ?: run {
+            deliver(callback, DictionaryManagerWriteResult.Failed)
+            return
+        }
+        settingsDraftCallbacks.getOrPut(id) { mutableListOf() } += callback
+        if (!applyingSettingsDrafts.add(id)) return
+        val edits = draft.snapshot()
+        if (edits.isEmpty()) {
+            finishSettingsDraftCallbacks(id, DictionaryManagerWriteResult.Applied(Unit))
+            return
+        }
+        serialExecutor.execute {
+            if (runCatching { repository.applySettingsEdits(edits, draft.baselineSystems) }.isFailure) {
+                finishSettingsDraftCallbacks(id, DictionaryManagerWriteResult.Failed)
+                return@execute
+            }
+            val loaded = runCatching { buildPublished(loadSnapshot()) }
+            if (loaded.isSuccess) {
+                publish(loaded.getOrThrow())
+                finishSettingsDraftCallbacks(id, DictionaryManagerWriteResult.Applied(Unit))
+            } else {
+                publishRefreshFailure()
+                finishSettingsDraftCallbacks(id, DictionaryManagerWriteResult.SavedButNotApplied(Unit))
+            }
+        }
+    }
+
+    private fun finishSettingsDraftCallbacks(id: String, result: DictionaryManagerWriteResult<Unit>) {
+        val callbacks = synchronized(this) {
+            applyingSettingsDrafts.remove(id)
+            if (result != DictionaryManagerWriteResult.Failed) {
+                // 再構築中の画面再生成には下書きを返し、完了記録と同時に破棄します。
+                settingsDrafts.remove(id)
+                completedSettingsDrafts[id] = result
+                while (completedSettingsDrafts.size > 8) completedSettingsDrafts.remove(completedSettingsDrafts.keys.first())
+            }
+            settingsDraftCallbacks.remove(id).orEmpty()
+        }
+        callbacks.forEach { deliver(it, result) }
+    }
+
     /** 設定画面向けにソースのメタデータを直列 I/O で取得します。 */
     @Synchronized
     fun listSources(callback: (DictionaryManagerWriteResult<List<DictionarySourceInfo>>) -> Unit) {
@@ -508,6 +582,10 @@ class DictionaryManager(
         if (closed) return
         closed = true
         observers.clear()
+        settingsDrafts.clear()
+        applyingSettingsDrafts.clear()
+        settingsDraftCallbacks.clear()
+        completedSettingsDrafts.clear()
         published = Published(null, DictionaryManagerStatus.Unavailable(DictionaryUnavailableReason.FAILED))
         serialExecutor.execute {
             val handles = synchronized(this) { backupHandles.toList() }

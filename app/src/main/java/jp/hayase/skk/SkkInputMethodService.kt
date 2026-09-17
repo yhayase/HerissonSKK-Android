@@ -20,6 +20,7 @@ import jp.hayase.skk.input.EditorSession
 import jp.hayase.skk.input.HardwareKeyMapper
 import jp.hayase.skk.input.KeyPressLedger
 import jp.hayase.skk.core.InputMode
+import jp.hayase.skk.core.BasicSkkAction
 import jp.hayase.skk.dictionary.DictionaryRuntime
 import jp.hayase.skk.dictionary.DictionaryManager
 import jp.hayase.skk.dictionary.DictionaryManagerStatus
@@ -197,7 +198,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val handled = presses.down(event.deviceId, keyCode, event.downTime, generation,
             event.repeatCount, keyCode != KeyEvent.KEYCODE_ENTER && keyCode != KeyEvent.KEYCODE_NUMPAD_ENTER &&
-                keyCode != KeyEvent.KEYCODE_ESCAPE && !event.isCtrlPressed) {
+                keyCode != KeyEvent.KEYCODE_ESCAPE) {
             val current = session
             if (current == null || current.protectedInput || current.failed) false
             else {
@@ -219,7 +220,30 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         false
                     }
                     HardwareKeyMapper.Decoded.Wait -> true
-                    is HardwareKeyMapper.Decoded.Action -> current.handle(decoded.action)
+                    is HardwareKeyMapper.Decoded.Action -> {
+                        val repeatableEdit = (decoded.action as? BasicSkkAction.Edit)?.command in setOf(
+                            jp.hayase.skk.core.editing.EditCommand.HOME,
+                            jp.hayase.skk.core.editing.EditCommand.END,
+                            jp.hayase.skk.core.editing.EditCommand.LEFT,
+                            jp.hayase.skk.core.editing.EditCommand.RIGHT,
+                            jp.hayase.skk.core.editing.EditCommand.UP,
+                            jp.hayase.skk.core.editing.EditCommand.DOWN,
+                            jp.hayase.skk.core.editing.EditCommand.WORD_BACKWARD,
+                            jp.hayase.skk.core.editing.EditCommand.WORD_FORWARD,
+                            jp.hayase.skk.core.editing.EditCommand.PAGE_DOWN,
+                            jp.hayase.skk.core.editing.EditCommand.PAGE_UP,
+                            jp.hayase.skk.core.editing.EditCommand.BACKSPACE,
+                            jp.hayase.skk.core.editing.EditCommand.DELETE,
+                            jp.hayase.skk.core.editing.EditCommand.KILL_LINE,
+                        )
+                        val repeatableAction = repeatableEdit || decoded.action is BasicSkkAction.Text ||
+                            decoded.action in setOf(BasicSkkAction.Backspace, BasicSkkAction.Delete,
+                                BasicSkkAction.Left, BasicSkkAction.Right, BasicSkkAction.Home, BasicSkkAction.End,
+                                BasicSkkAction.ConvertNext, BasicSkkAction.PreviousCandidate,
+                                BasicSkkAction.CompleteForward, BasicSkkAction.CompleteBackward)
+                        if (event.repeatCount > 0 && !repeatableAction) true
+                        else current.handle(decoded.action)
+                    }
                 }
             }
         }

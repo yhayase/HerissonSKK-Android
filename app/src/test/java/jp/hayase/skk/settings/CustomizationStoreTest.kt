@@ -21,7 +21,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35])
 class CustomizationStoreTest {
-    @Test fun `AZIKとカスタムキーを版2で保存し旧版は標準割当として読む`() {
+    @Test fun `AZIKとカスタムキーを版3で保存し旧版は標準割当として読む`() {
         val path = temporaryPath()
         val direct = Executor { it.run() }
         path.writeText(validJson())
@@ -31,11 +31,47 @@ class CustomizationStoreTest {
         val requested = CustomizationSettings(0, CustomizationProfile.AZIK, emacsEnabled = true)
         store.save(requested, 0) { assertTrue(it is CustomizationWriteResult.Applied) }
         val json = org.json.JSONObject(path.readText())
-        assertEquals(2, json.getInt("documentVersion"))
+        assertEquals(3, json.getInt("documentVersion"))
         store.close()
         val reopened = CustomizationStore(path, direct, direct).also { it.loadAsync() }
         assertEquals(requested.withGeneration(1), reopened.snapshot)
         reopened.close()
+        deleteAtomicFiles(path)
+    }
+
+    @Test fun `版2のカスタムキーを保持し衝突する新操作は未割当で移行する`() {
+        val path = temporaryPath()
+        val direct = Executor { it.run() }
+        val oldBindings = jp.hayase.skk.core.keys.KeyBindings.defaults
+            .filterKeys { it !in jp.hayase.skk.core.keys.KeyBindings.optionalCommands }.toMutableMap()
+        oldBindings[jp.hayase.skk.core.keys.SkkCommand.EDIT_LEFT] =
+            jp.hayase.skk.core.keys.KeyGesture("v", ctrl = true)
+        val initial = CustomizationSettings(0, emacsEnabled = true,
+            keyBindings = jp.hayase.skk.core.keys.KeyBindings(oldBindings))
+        CustomizationStore(path, direct, direct).use { store ->
+            store.loadAsync(); store.save(initial, 0) {}
+        }
+        val legacy = org.json.JSONObject(path.readText()).apply {
+            put("documentVersion", 2)
+            getJSONObject("punctuation").remove("fullwidthSymbols")
+            getJSONObject("candidateDisplay").remove("inlineCandidateCount")
+        }
+        path.writeText(legacy.toString())
+        CustomizationStore(path, direct, direct).use { store ->
+            store.loadAsync()
+            assertTrue(store.status is CustomizationStoreStatus.Ready)
+            assertEquals(1L, store.snapshot.generation)
+            assertEquals(oldBindings.getValue(jp.hayase.skk.core.keys.SkkCommand.EDIT_LEFT),
+                store.snapshot.keyBindings.bindings[jp.hayase.skk.core.keys.SkkCommand.EDIT_LEFT])
+            org.junit.Assert.assertFalse(store.snapshot.keyBindings.bindings.containsKey(
+                jp.hayase.skk.core.keys.SkkCommand.EDIT_PAGE_DOWN))
+            assertEquals(2, store.snapshot.candidateDisplay.inlineCandidateCount)
+            store.save(store.snapshot, 1) { assertTrue(it is CustomizationWriteResult.Applied) }
+        }
+        CustomizationStore(path, direct, direct).use { store ->
+            store.loadAsync(); assertTrue(store.status is CustomizationStoreStatus.Ready)
+            assertEquals(2L, store.snapshot.generation)
+        }
         deleteAtomicFiles(path)
     }
 

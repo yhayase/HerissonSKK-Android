@@ -10,6 +10,7 @@ import jp.hayase.skk.core.InputPhase
 import jp.hayase.skk.core.keys.KeyBindings
 import jp.hayase.skk.core.keys.KeyGesture
 import jp.hayase.skk.core.keys.SpecialKey
+import jp.hayase.skk.core.editing.EditCommand
 
 class HardwareKeyMapper {
     sealed interface Decoded {
@@ -64,6 +65,14 @@ class HardwareKeyMapper {
                     alt = event.isAltPressed, shift = event.isShiftPressed), state, view, emacsEnabled)
                 if (action != null) { reset(); return Decoded.Action(action) }
             }
+            if (emacsEnabled && event.isCtrlPressed && !event.isAltPressed && !event.isShiftPressed) {
+                val command = when (special) {
+                    SpecialKey.HOME -> EditCommand.BUFFER_START
+                    SpecialKey.END -> EditCommand.BUFFER_END
+                    else -> null
+                }
+                if (command != null) { reset(); return Decoded.Action(BasicSkkAction.Edit(command)) }
+            }
             return Decoded.Pass
         }
         val special = specialKey(event.keyCode)
@@ -74,6 +83,11 @@ class HardwareKeyMapper {
             // 再割当済みの確定・補完キーを従来の固定操作として実行しません。
             if (special == SpecialKey.ENTER || special == SpecialKey.TAB) return Decoded.Pass
             if (event.isShiftPressed) return Decoded.Pass
+            if (emacsEnabled && special in listOf(SpecialKey.PAGE_UP, SpecialKey.PAGE_DOWN)) {
+                reset()
+                return Decoded.Action(BasicSkkAction.Edit(
+                    if (special == SpecialKey.PAGE_UP) EditCommand.PAGE_UP else EditCommand.PAGE_DOWN))
+            }
         }
         if (state.mode == InputMode.DIRECT && !altText && accent == 0 && unicode != 0 &&
             unicode and KeyCharacterMap.COMBINING_ACCENT == 0 && !Character.isISOControl(unicode)) {
@@ -106,6 +120,8 @@ class HardwareKeyMapper {
             KeyEvent.KEYCODE_DPAD_RIGHT -> SpecialKey.RIGHT
             KeyEvent.KEYCODE_MOVE_HOME -> SpecialKey.HOME
             KeyEvent.KEYCODE_MOVE_END -> SpecialKey.END
+            KeyEvent.KEYCODE_PAGE_UP -> SpecialKey.PAGE_UP
+            KeyEvent.KEYCODE_PAGE_DOWN -> SpecialKey.PAGE_DOWN
             KeyEvent.KEYCODE_DEL -> SpecialKey.BACKSPACE
             KeyEvent.KEYCODE_FORWARD_DEL -> SpecialKey.DELETE
             else -> null

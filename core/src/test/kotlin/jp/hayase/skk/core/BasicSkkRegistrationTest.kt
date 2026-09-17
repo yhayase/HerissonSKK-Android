@@ -118,10 +118,9 @@ class BasicSkkRegistrationTest {
         exhausted.type("Nihon  ")
         assertEquals(1, exhausted.state.registrationDepth)
         val canceledCandidate = exhausted.dispatch(BasicSkkAction.Cancel)
-        assertEquals(InputPhase.IDLE, exhausted.state.phase)
+        assertEquals(InputPhase.SELECTING, exhausted.state.phase)
         assertEquals(0, exhausted.state.registrationDepth)
-        assertNull(canceledCandidate.view.composing)
-        assertNull(canceledCandidate.view.candidate)
+        assertEquals("日本", canceledCandidate.view.candidate?.selected?.text)
         assertNull(canceledCandidate.commit)
 
         val nested = engine()
@@ -131,6 +130,24 @@ class BasicSkkRegistrationTest {
         assertEquals(1, nested.state.registrationDepth)
         assertEquals("", parent.view.registration?.body)
         assertNull(parent.view.registration?.innerComposing)
+    }
+
+    @Test fun `再帰登録の取消は単独候補とメニューの最終選択へ戻る`() {
+        for (count in listOf(1, 4)) {
+            val choices = (1..count).map { DictionaryCandidate("候補$it") }
+            val engine = engine(mapOf(DictionaryQuery("にほん") to choices))
+            engine.type("Michi Nihon ")
+            repeat(count) { engine.dispatch(BasicSkkAction.Text(" ")) }
+            assertEquals(2, engine.state.registrationDepth)
+            val canceled = engine.dispatch(BasicSkkAction.Cancel)
+            assertEquals(1, engine.state.registrationDepth)
+            assertEquals(InputPhase.SELECTING, engine.state.phase)
+            assertEquals(count - 1, engine.state.candidateIndex)
+            assertEquals("候補$count", canceled.view.registration?.innerCandidate?.selected?.text)
+            assertEquals(count >= 3, canceled.view.registration!!.innerCandidate!!.menu.isNotEmpty())
+            assertEquals("", canceled.view.registration?.body)
+            assertNull(canceled.commit)
+        }
     }
 
     @Test fun `K10 子の保存成功は親だけへ挿入する`() {

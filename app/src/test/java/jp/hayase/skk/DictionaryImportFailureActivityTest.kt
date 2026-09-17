@@ -56,6 +56,25 @@ class DictionaryImportFailureActivityTest {
         }
     }
 
+    @Test fun `一括保存後の公開失敗は閉じずに通知し画面再作成でも残す`() {
+        var controller = Robolectric.buildActivity(DictionarySettingsActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            ReflectionHelpers.callInstanceMethod<Unit>(activity, "onDraftApplied",
+                ReflectionHelpers.ClassParameter.from(
+                    jp.hayase.skk.dictionary.DictionaryManagerWriteResult::class.java,
+                    jp.hayase.skk.dictionary.DictionaryManagerWriteResult.SavedButNotApplied(Unit)))
+            org.junit.Assert.assertFalse(activity.isFinishing)
+            val dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+            assertTrue(dialog.isShowing)
+            assertTrue(dialog.findViewById<TextView>(android.R.id.message).text.contains("保存しました"))
+            dialog.dismiss()
+            controller = controller.recreate()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(status(controller.get()).contains("反映できません"))
+        } finally { controller.destroy() }
+    }
+
     private fun status(activity: DictionarySettingsActivity): String =
         ReflectionHelpers.getField<TextView>(activity, "statusView").text.toString()
 }
