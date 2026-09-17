@@ -9,9 +9,11 @@ import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.Switch
 import androidx.test.core.app.ActivityScenario
@@ -68,13 +70,20 @@ class CandidateDisplayE2eTest {
             assertTrue("候補確定後に入力先のフォーカスを失いました", editorHasFocus(editor))
         }
 
-        // 辞書を変更せず、長い登録本文でも状態領域全体が上限内に留まることを確認します。
+        // 画面下端の入力欄でも、長い状態表示によって入力欄やアプリ領域が隠れないことを確認します。
         ActivityScenario.launch<InputTestActivity>(
             android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
                 .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true),
         ).use { scenario ->
-            val editor = scenario.editorStartingWith("複数行 A")
-            scenario.onActivity { editor.requestFocus() }
+            lateinit var editor: EditText
+            lateinit var viewport: ScrollView
+            scenario.onActivity { activity ->
+                activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                viewport = descendants(activity.window.decorView).filterIsInstance<ScrollView>().first()
+                editor = descendants(activity.window.decorView).filterIsInstance<EditText>().last()
+                editor.requestFocus()
+                viewport.fullScroll(View.FOCUS_DOWN)
+            }
             awaitImeReady(editor)
             key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
             type("/n09-display-unmatched ")
@@ -83,6 +92,26 @@ class CandidateDisplayE2eTest {
             assertTrue("長い登録本文が通常表示へ展開されました",
                 status.text?.toString().orEmpty().length < 1_000)
             assertCandidateBounds()
+            awaitCondition("候補表示が画面下端の入力欄またはアプリ領域を覆っています") {
+                val candidateTop = Rect().also(awaitViewId("candidate_status_container")::getBoundsInScreen).top
+                var visible = false
+                instrumentation.runOnMainSync {
+                    val editorRect = Rect()
+                    val viewportRect = Rect()
+                    val editorVisible = editor.getGlobalVisibleRect(editorRect)
+                    val viewportVisible = viewport.getGlobalVisibleRect(viewportRect)
+                    val line = editor.layout?.getLineForOffset(editor.selectionStart)
+                    val caretBottom = line?.let { editorRect.top + editor.totalPaddingTop +
+                        editor.layout.getLineBottom(it) - editor.scrollY }
+                    visible = editorVisible && viewportVisible &&
+                        !editorRect.isEmpty && !viewportRect.isEmpty &&
+                        editorRect.height() >= editor.height - 2 &&
+                        editorRect.bottom <= candidateTop + 2 &&
+                        caretBottom != null && caretBottom <= candidateTop + 2 &&
+                        viewportRect.bottom <= candidateTop + 2
+                }
+                visible
+            }
         }
     }
 

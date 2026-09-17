@@ -40,7 +40,13 @@
     <string name="dictionary_preview_conflicts">注釈の競合: %1$d 件</string>
     <string name="dictionary_replace_warning">現在の個人辞書をこの内容で置き換えます。既存の登録・学習内容は残りません。</string>
     <string name="dictionary_apply">適用する</string>
-    <string name="dictionary_import_invalid">このファイルは読み込めません。形式と文字コードを確認してください。</string>
+    <string name="dictionary_import_failure_title">辞書を読み込めませんでした</string>
+    <string name="dictionary_import_too_large">辞書ファイルが 64 MiB の上限を超えています。小さい辞書に分けて読み込んでください。</string>
+    <string name="dictionary_import_encoding_failed">文字コードを判別できませんでした。UTF-8 または EUC-JP の辞書を選び、文字コードの指定を確認してください。</string>
+    <string name="dictionary_import_format_failed">%1$s ファイルの形式を確認してください。</string>
+    <string name="dictionary_import_read_failed">辞書ファイルを開けませんでした。ファイルへのアクセスを確認し、もう一度選んでください。</string>
+    <string name="dictionary_import_apply_failed">辞書を保存できませんでした。設定画面を開き直してファイルを選び直し、端末の空き容量も確認してください。現在の辞書は保持されています。</string>
+    <string name="dictionary_import_interrupted">画面の再作成で辞書ファイルの確認が中断されました。ファイルをもう一度選んでください。</string>
     <string name="dictionary_applying">辞書を適用しています…</string>
     <string name="dictionary_apply_complete">辞書を適用しました。</string>
     <string name="dictionary_saved_not_applied">保存しましたが、現在の変換には反映できませんでした。設定画面を開き直すか、入力方法を再起動して読み込み直してください。</string>

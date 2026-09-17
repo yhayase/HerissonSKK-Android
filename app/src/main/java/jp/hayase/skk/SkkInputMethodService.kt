@@ -67,10 +67,13 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         generation++
         mapper.reset()
         lastDevice = null
-        requestedVisible = false
         super.onStartInput(attribute, restarting)
-        val connection = currentInputConnection ?: return
-        val info = attribute ?: return
+        val connection = currentInputConnection
+        val info = attribute
+        if (connection == null || info == null) {
+            clearStatusWindow()
+            return
+        }
         val requestedGeneration = generation
         if (customization.status is CustomizationStoreStatus.Loading) {
             // 設定の準備前には標準規則で処理せず、元のキーを入力先へ渡します。
@@ -157,7 +160,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         session = null
         generation++
         mapper.reset()
-        setCandidatesViewShown(false)
+        clearStatusWindow()
         super.onFinishInput()
     }
 
@@ -166,24 +169,26 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         session = null
         generation++
         mapper.reset()
+        clearStatusWindow()
         super.onUnbindInput()
     }
 
     override fun onEvaluateInputViewShown(): Boolean {
         super.onEvaluateInputViewShown()
-        return false
+        // 物理キーボード使用中も状態表示を input frame に置き、入力先へ高さを通知します。
+        return true
     }
     override fun onEvaluateFullscreenMode() = false
 
     override fun onShowInputRequested(flags: Int, configChange: Boolean): Boolean =
-        session?.let { !it.protectedInput && it.active } == true
+        shouldShowStatus()
 
     override fun onWindowHidden() {
         requestedVisible = false
         super.onWindowHidden()
     }
 
-    override fun onCreateCandidatesView(): View = CandidateStatusView(this).apply {
+    override fun onCreateInputView(): View = CandidateStatusView(this).apply {
         candidateStatusView = this
         statusView = statusTextView
         updateStatus()
@@ -286,20 +291,29 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     private fun render() {
         updateStatus()
-        val current = session
-        val enabled = getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("show_status", true)
-        val show = current != null && !current.protectedInput &&
-            (enabled || current.hasComposition || current.failed)
+        val show = shouldShowStatus()
         if (show && !requestedVisible) {
             requestedVisible = true
-            setCandidatesViewShown(true)
-            // Android のウィンドウ管理にも表示を要求します。文字キーの画面は作りません。
-            if (Build.VERSION.SDK_INT >= 28) requestShowSelf(0)
-        } else if (!show && requestedVisible) {
+            // candidates frame は入力先をリサイズしません。キーのない input frame を表示します。
+            if (Build.VERSION.SDK_INT >= 28) requestShowSelf(0) else showWindow(true)
+        } else if (!show && (requestedVisible || isInputViewShown)) {
             requestedVisible = false
-            setCandidatesViewShown(false)
             requestHideSelf(0)
         }
+    }
+
+    private fun shouldShowStatus(): Boolean {
+        val current = session ?: return false
+        val enabled = getSharedPreferences("settings", Context.MODE_PRIVATE)
+            .getBoolean("show_status", true)
+        return current.active && !current.protectedInput &&
+            (enabled || current.hasComposition || current.failed)
+    }
+
+    private fun clearStatusWindow() {
+        candidateStatusView?.show(CandidateStatusPresentation(""))
+        if (isInputViewShown) hideWindow()
+        requestedVisible = false
     }
 
     private fun updateStatus() {

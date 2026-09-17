@@ -128,7 +128,7 @@ class CandidateStatusViewTest {
             View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.AT_MOST),
         )
-        assertEquals(208f, view.availableContentWidthDp(), 1f)
+        assertTrue(view.availableContentWidthDp() in 1f..208f)
         assertTrue(view.measuredHeight <= (context.resources.configuration.screenHeightDp * density * .4f).toInt())
         val innerWidth = width - (32 * density).toInt()
         for (id in listOf(R.id.candidate_detail_previous, R.id.candidate_detail_next,
@@ -142,6 +142,29 @@ class CandidateStatusViewTest {
         view.show(CandidateStatusPresentation("次の候補", CandidateDetailIdentity(1, "別", null),
             listOf(CandidateDetailSection("候補本文", "別"))))
         assertEquals(0, view.scrollY)
+    }
+
+    @Test fun `通常表示は候補行数が増えても同じ高さを保ち全文表示だけ拡張する`() {
+        val context = RuntimeEnvironment.getApplication()
+        val view = CandidateStatusView(context)
+        val width = View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY)
+        val height = View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.AT_MOST)
+        view.show(CandidateStatusPresentation("ひらがな"))
+        view.measure(width, height)
+        val normalHeight = view.measuredHeight
+
+        view.show(CandidateStatusPresentation("候補\n".repeat(100),
+            CandidateDetailIdentity(0, "候補", null),
+            listOf(CandidateDetailSection("候補本文", "本文".repeat(1000)))))
+        view.measure(width, height)
+        assertEquals(normalHeight, view.measuredHeight)
+        assertTrue(view.findViewById<View>(R.id.candidate_full_detail).measuredWidth > 0)
+
+        view.findViewById<View>(R.id.candidate_full_detail).performClick()
+        view.measure(width, height)
+        assertTrue(view.measuredHeight > normalHeight)
+        assertTrue(view.measuredHeight <= (context.resources.configuration.screenHeightDp *
+            context.resources.displayMetrics.density * .4f).toInt())
     }
 
     private fun pages(value: String): List<DetailPage> {

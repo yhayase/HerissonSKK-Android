@@ -159,9 +159,7 @@ internal object CandidateTextBounds {
         start + Character.charCount(value.codePointAt(start))
 }
 
-/**
- * IME 内に留まる候補表示です。通常表示と全文表示を含む全体を画面高の40%に制限します。
- */
+/** 物理キーボード用の状態表示です。通常時の高さを固定し、全文表示は画面高の40%まで広げます。 */
 internal class CandidateStatusView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -222,12 +220,18 @@ internal class CandidateStatusView @JvmOverloads constructor(
         addView(detailControls, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
-    private val content = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        addView(statusTextView, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    private val header = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.TOP
+        addView(statusTextView, LinearLayout.LayoutParams(0,
+            ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         addView(detailButton, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+    private val content = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(header, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         addView(detailContainer, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
@@ -284,7 +288,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     fun availableContentWidthDp(): Float {
-        val pixels = (measuredWidth - content.paddingLeft - content.paddingRight).takeIf { it > 0 }
+        val pixels = statusTextView.measuredWidth.takeIf { it > 0 }
             ?: ((resources.configuration.screenWidthDp * resources.displayMetrics.density).toInt() -
                 content.paddingLeft - content.paddingRight)
         return pixels.coerceAtLeast(1) / resources.displayMetrics.density
@@ -293,11 +297,13 @@ internal class CandidateStatusView @JvmOverloads constructor(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val windowHeight = (resources.configuration.screenHeightDp * resources.displayMetrics.density)
             .toInt().takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-        val cap = (windowHeight * 0.4f).toInt().coerceAtLeast(dp(48))
-        val boundedHeight = MeasureSpec.makeMeasureSpec(
-            minOf(MeasureSpec.getSize(heightMeasureSpec).takeIf { it > 0 } ?: cap, cap),
-            MeasureSpec.AT_MOST,
-        )
+        val cap = if (isDetailOpen) (windowHeight * 0.4f).toInt().coerceAtLeast(dp(48))
+            else minOf(dp(96), (windowHeight * 0.25f).toInt().coerceAtLeast(dp(48)))
+        val available = MeasureSpec.getSize(heightMeasureSpec).takeIf {
+            MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED && it > 0
+        } ?: cap
+        val boundedHeight = MeasureSpec.makeMeasureSpec(minOf(available, cap),
+            if (isDetailOpen) MeasureSpec.AT_MOST else MeasureSpec.EXACTLY)
         super.onMeasure(widthMeasureSpec, boundedHeight)
     }
 

@@ -70,6 +70,31 @@ class ConfiguredKeyMapperTest {
         assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.PreviousCandidate), decode('h', true))
     }
 
+    @Test fun `C-bはEmacs有効時に読みと直接入力の編集へ配送する`() {
+        val engine = engine()
+        val mapper = HardwareKeyMapper()
+        val ctrlB = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_B, 0,
+            KeyEvent.META_CTRL_ON, KeyCharacterMap.VIRTUAL_KEYBOARD, 0)
+        fun decode(enabled: Boolean) = mapper.decodeConfigured(ctrlB, engine.state, engine.currentView,
+            KeyBindings(), enabled)
+
+        engine.dispatch(BasicSkkAction.StartReading)
+        engine.dispatch(BasicSkkAction.Text("ni", interpretCommands = false))
+        val original = engine.state.cursor
+        assertEquals(HardwareKeyMapper.Decoded.Pass, decode(false))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.LEFT)), decode(true))
+        val moved = engine.dispatch((decode(true) as HardwareKeyMapper.Decoded.Action).action)
+        assertNull(moved.commit)
+        assertEquals(original - 1, engine.state.cursor)
+        assertEquals("に", engine.state.reading)
+
+        engine.dispatch(BasicSkkAction.Cancel)
+        engine.dispatch(BasicSkkAction.ToDirect)
+        assertEquals(InputMode.DIRECT, engine.state.mode)
+        assertEquals(HardwareKeyMapper.Decoded.Pass, decode(false))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.LEFT)), decode(true))
+    }
+
     @Test fun `登録の直接入力でも英字を入力先へ漏らさない`() {
         val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() }, RegistrationPolicy(enabled = true))
         engine.dispatch(BasicSkkAction.Text("Ka l"))

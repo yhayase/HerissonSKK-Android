@@ -56,11 +56,12 @@ class CompletionServiceTest {
         val service = controller.get()
         ReflectionHelpers.setField(service, "dictionaries", manager)
         ReflectionHelpers.setField(service, "customization", customization)
-        val status = service.onCreateCandidatesView().findViewById<TextView>(R.id.input_status)
+        val status = service.onCreateInputView().findViewById<TextView>(R.id.input_status)
 
         try {
             attach(service, Connection())
             service.onStartInput(editorInfo(InputType.TYPE_CLASS_TEXT), false)
+            assertFalse(service.onShowInputRequested(0, false))
             preferences.edit().putBoolean("dynamic_completion", true).commit()
             val oldSession = session(service)
             oldSession.handle(BasicSkkAction.Text("Ni"))

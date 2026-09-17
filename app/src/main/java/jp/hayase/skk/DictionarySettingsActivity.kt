@@ -22,6 +22,8 @@ import java.util.concurrent.Executors
 import jp.hayase.skk.core.dictionary.SkkDictionaryCodec
 import jp.hayase.skk.core.dictionary.SkkDictionaryDocument
 import jp.hayase.skk.core.dictionary.SkkDictionaryEncoding
+import jp.hayase.skk.core.dictionary.SkkDictionaryError
+import jp.hayase.skk.core.dictionary.SkkDictionaryFormatException
 import jp.hayase.skk.dictionary.DictionaryManager
 import jp.hayase.skk.dictionary.DictionaryFreshness
 import jp.hayase.skk.dictionary.DictionaryManagerStatus
@@ -66,6 +68,8 @@ class DictionarySettingsActivity : Activity() {
     private var busy = false
     private var sourceAvailability = DictionarySourceAvailability.UNKNOWN
     private var sourceOperation: DictionarySourceOperation? = null
+    private var importFailureMessage: String? = null
+    private var importInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,6 +77,10 @@ class DictionarySettingsActivity : Activity() {
         manager = DictionaryRuntime.get(this)
         pickerState = DictionaryPickerState.restore(savedInstanceState?.getString(STATE_PICKER))
         restorePendingImport(savedInstanceState)
+        importFailureMessage = savedInstanceState?.getString(STATE_IMPORT_ERROR)
+        if (savedInstanceState?.getBoolean(STATE_IMPORT_IN_PROGRESS) == true) {
+            importFailureMessage = getString(R.string.dictionary_import_interrupted)
+        }
         if (pickerState.pending == DictionaryPickerOperation.IMPORT && pendingImport == null) {
             pickerState.consume(DictionaryPickerOperation.IMPORT)
         }
@@ -168,6 +176,7 @@ class DictionarySettingsActivity : Activity() {
             setText(R.string.dictionary_loading)
             isFocusable = true
         }
+        importFailureMessage?.let { statusView.text = it }
         content.addView(statusView)
         setContentView(ScrollView(this).apply { addView(content) })
         applySystemInsets()
@@ -185,6 +194,8 @@ class DictionarySettingsActivity : Activity() {
             request.expectedGeneration?.let { outState.putLong(STATE_GENERATION, it) }
         }
         pickerState.savedValue()?.let { outState.putString(STATE_PICKER, it) }
+        importFailureMessage?.let { outState.putString(STATE_IMPORT_ERROR, it) }
+        outState.putBoolean(STATE_IMPORT_IN_PROGRESS, importInProgress)
         super.onSaveInstanceState(outState)
     }
 
@@ -283,6 +294,7 @@ class DictionarySettingsActivity : Activity() {
     }
 
     private fun readAndPreview(uri: Uri, request: ImportRequest) {
+        importInProgress = true
         setStatus(R.string.dictionary_reading)
         fileExecutor.execute {
             val loaded = runCatching {
@@ -295,11 +307,12 @@ class DictionarySettingsActivity : Activity() {
             }
             runOnUiThread {
                 if (!active) return@runOnUiThread
+                importInProgress = false
                 loaded.fold(
                     onSuccess = { (name, document) -> showPreview(name, request, document) },
-                    onFailure = {
+                    onFailure = { error ->
                         setBusy(false)
-                        setStatus(R.string.dictionary_import_invalid)
+                        showImportFailure(importFailureText(error))
                     },
                 )
             }
@@ -348,6 +361,9 @@ class DictionarySettingsActivity : Activity() {
                 operationSourceId?.let { finishSourceOperation(it, result) }
                 setBusy(false)
                 showWriteResult(result)
+                if (result == DictionaryManagerWriteResult.Failed) {
+                    showImportFailure(getString(R.string.dictionary_import_apply_failed))
+                }
                 refreshSources()
             }
         }
@@ -673,10 +689,10 @@ class DictionarySettingsActivity : Activity() {
         sourceAvailability = sourceAvailabilityForStatus(status)
         if (::sourceContainer.isInitialized && sourcesLoadedOnce) drawSources()
         when (status) {
-            DictionaryManagerStatus.Loading -> if (!busy) setStatus(R.string.dictionary_loading)
+            DictionaryManagerStatus.Loading -> if (!busy && importFailureMessage == null) setStatus(R.string.dictionary_loading)
             is DictionaryManagerStatus.Ready -> {
                 refreshSources()
-                if (!busy) {
+                if (!busy && importFailureMessage == null) {
                     setStatus(
                         if (status.freshness == DictionaryFreshness.STALE) {
                             R.string.dictionary_reload_stale
@@ -688,12 +704,13 @@ class DictionarySettingsActivity : Activity() {
             }
             is DictionaryManagerStatus.Unavailable -> {
                 refreshSources()
-                if (!busy) setStatus(R.string.dictionary_reload_failed)
+                if (!busy && importFailureMessage == null) setStatus(R.string.dictionary_reload_failed)
             }
         }
     }
 
     private fun setBusy(value: Boolean) {
+        if (value) importFailureMessage = null
         busy = value
         updatePrimaryControls()
         if (::sourceContainer.isInitialized && sourcesLoadedOnce) drawSources()
@@ -757,6 +774,27 @@ class DictionarySettingsActivity : Activity() {
         }
     }
 
+    private fun showImportFailure(message: String) {
+        importFailureMessage = message
+        statusView.text = message
+        statusView.announceForAccessibility(message)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dictionary_import_failure_title)
+            .setMessage(message)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun importFailureText(error: Throwable): String = when (error) {
+        is SkkDictionaryFormatException -> when (error.error) {
+            SkkDictionaryError.FILE_TOO_LARGE -> getString(R.string.dictionary_import_too_large)
+            SkkDictionaryError.DECODING_FAILED -> getString(R.string.dictionary_import_encoding_failed)
+            else -> getString(R.string.dictionary_import_format_failed, error.message)
+        }
+        is DictionaryFileTooLargeException -> getString(R.string.dictionary_import_too_large)
+        else -> getString(R.string.dictionary_import_read_failed)
+    }
+
     companion object {
         private const val REQUEST_IMPORT = 100
         private const val REQUEST_EXPORT = 101
@@ -768,6 +806,8 @@ class DictionarySettingsActivity : Activity() {
         private const val STATE_NAME = "dictionary.import.name"
         private const val STATE_GENERATION = "dictionary.import.generation"
         private const val STATE_PICKER = "dictionary.picker.operation"
+        private const val STATE_IMPORT_ERROR = "dictionary.import.error"
+        private const val STATE_IMPORT_IN_PROGRESS = "dictionary.import.in_progress"
     }
 }
 
@@ -842,7 +882,9 @@ internal fun readBounded(input: InputStream, maxBytes: Int): ByteArray {
         if (read < 0) return output.toByteArray()
         if (read == 0) continue
         total += read
-        if (total > maxBytes) throw IllegalArgumentException("辞書ファイルが上限を超えています")
+        if (total > maxBytes) throw DictionaryFileTooLargeException()
         output.write(buffer, 0, read)
     }
 }
+
+internal class DictionaryFileTooLargeException : IllegalArgumentException("辞書ファイルが上限を超えています")

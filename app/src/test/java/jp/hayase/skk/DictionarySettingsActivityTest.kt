@@ -46,7 +46,7 @@ class DictionarySettingsActivityTest {
     fun `上限を一バイトでも超えるストリームを拒否する`() {
         val bytes = ByteArray(33) { it.toByte() }
 
-        assertThrows(IllegalArgumentException::class.java) {
+        assertThrows(DictionaryFileTooLargeException::class.java) {
             readBounded(ByteArrayInputStream(bytes), 32)
         }
     }

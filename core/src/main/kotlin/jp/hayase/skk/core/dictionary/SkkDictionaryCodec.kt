@@ -194,11 +194,11 @@ object SkkDictionaryCodec {
         val textAtom = if (semicolon < 0) token else token.substring(0, semicolon)
         var annotationAtom = if (semicolon < 0) null else token.substring(semicolon + 1)
         if (textAtom.isEmpty()) fail(lineNumber, SkkDictionaryError.INVALID_VALUE)
-        val value = decodeAtom(textAtom, lineNumber)
+        val value = decodeAtom(textAtom, lineNumber, annotation = false)
         if (annotationAtom?.startsWith("*") == true) annotationAtom = annotationAtom.substring(1)
         val annotation = annotationAtom
             ?.takeIf { it.isNotEmpty() }
-            ?.let { decodeAtom(it, lineNumber) }
+            ?.let { decodeAtom(it, lineNumber, annotation = true) }
             ?.takeIf { it.isNotEmpty() }
         validateValue(value, lineNumber)
         annotation?.let { validateValue(it, lineNumber) }
@@ -227,9 +227,9 @@ object SkkDictionaryCodec {
         return -1
     }
 
-    private fun decodeAtom(atom: String, lineNumber: Int): String {
+    private fun decodeAtom(atom: String, lineNumber: Int, annotation: Boolean): String {
         if (!atom.startsWith("(")) {
-            if (atom.contains('"') || atom.startsWith("[") || atom == "]") {
+            if (!annotation && (atom.contains('"') || atom.startsWith("[") || atom == "]")) {
                 fail(lineNumber, SkkDictionaryError.INVALID_VALUE)
             }
             return atom
@@ -237,12 +237,16 @@ object SkkDictionaryCodec {
         if (atom.startsWith("(concat") && !atom.endsWith(")")) {
             fail(lineNumber, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
         }
-        if (!atom.endsWith(")") || atom.length < 3 || atom[1].code > 0x7f) {
-            if (atom.contains('"')) fail(lineNumber, SkkDictionaryError.INVALID_VALUE)
+        if (!atom.endsWith(")") || atom.length < 3 || atom[1].code > 0x7f ||
+            !atom.startsWith("concat", 1)
+        ) {
+            if (atom.contains('"')) fail(lineNumber, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
+            if (!annotation && atom.endsWith(")") && atom.length >= 3 && atom[1].code <= 0x7f) {
+                fail(lineNumber, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
+            }
             return atom
         }
         var index = 1
-        if (!atom.startsWith("concat", index)) fail(lineNumber, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
         index += "concat".length
         if (index >= atom.length || atom[index] != ' ') {
             fail(lineNumber, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
@@ -302,11 +306,10 @@ object SkkDictionaryCodec {
     }
 
     private fun validateKey(key: String, lineNumber: Int) {
-        if (key.isEmpty() || key.contains('/') || key.any { it.isWhitespace() }) {
+        if (key.isEmpty() || key.any { it.isWhitespace() }) {
             fail(lineNumber, SkkDictionaryError.INVALID_KEY)
         }
         validateValue(key, lineNumber)
-        if (isOkuriAriKey(key) && key.length < 2) fail(lineNumber, SkkDictionaryError.INVALID_KEY)
     }
 
     private fun validateValue(value: String, lineNumber: Int) {
@@ -456,7 +459,7 @@ object SkkDictionaryCodec {
         }
     }
 
-    private fun isOkuriAriKey(key: String): Boolean = key.lastOrNull() in 'a'..'z'
+    private fun isOkuriAriKey(key: String): Boolean = key.length > 1 && key.lastOrNull() in 'a'..'z'
 
     private fun compareCodePoints(left: String, right: String): Int {
         var leftIndex = 0

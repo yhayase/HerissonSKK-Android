@@ -66,6 +66,37 @@ class SkkDictionaryCodecTest {
     }
 
     @Test
+    fun `L 辞書で使われる注釈と記号の見出しを読み書きする`() {
+        val source = """
+            ゆるb /弛;[文語]/緩;[文語]/
+            もっとm /最;(most)/尤;(reasonable)「それも-もだ」/
+            drpepper /ドクターペッパー;www.drpepper.com/Dr Pepper;"Dr"はドットなし/
+            #/# /#0月#0日/#1／#1/
+            / /／/÷/
+            a /α;alpha/エー/
+        """.trimIndent()
+
+        val parsed = SkkDictionaryCodec.parseText(source)
+        val reparsed = SkkDictionaryCodec.parse(SkkDictionaryCodec.encodeUtf8(parsed))
+
+        assertEquals(6, parsed.entries.size)
+        assertEquals("[文語]", parsed.entries[0].candidates[0].annotation)
+        assertEquals("(most)", parsed.entries[1].candidates[0].annotation)
+        assertEquals("\"Dr\"はドットなし", parsed.entries[2].candidates[1].annotation)
+        assertEquals(parsed.entries.associateBy { it.key }, reparsed.entries.associateBy { it.key })
+    }
+
+    @Test
+    fun `候補の任意式は L 辞書の注釈を許可しても拒否する`() {
+        for (source in listOf("かな /(progn x)/", "かな /(progn \"危険\")/")) {
+            val error = assertThrows(SkkDictionaryFormatException::class.java) {
+                SkkDictionaryCodec.parseText(source)
+            }
+            assertEquals(SkkDictionaryError.UNSUPPORTED_EXPRESSION, error.error)
+        }
+    }
+
+    @Test
     fun `限定 concat と個人注釈マーカーを評価せず復号する`() {
         val source = """てすと /(concat "C\057C++\073guide\\path\"");*(concat "注\057釈\073補足")/"""
 

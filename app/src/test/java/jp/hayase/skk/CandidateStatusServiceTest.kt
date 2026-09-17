@@ -53,7 +53,7 @@ class CandidateStatusServiceTest {
         val service = controller.get()
         ReflectionHelpers.setField(service, "dictionaries", manager)
         ReflectionHelpers.setField(service, "customization", customization)
-        val surface = service.onCreateCandidatesView() as CandidateStatusView
+        val surface = service.onCreateInputView() as CandidateStatusView
         val connection = Connection()
         try {
             attach(service, connection)
@@ -87,6 +87,9 @@ class CandidateStatusServiceTest {
             assertTrue(service.onKeyDown(enter.keyCode, enter))
             assertTrue(service.onKeyUp(enter.keyCode, KeyEvent.changeAction(enter, KeyEvent.ACTION_UP)))
             assertEquals(longCandidate, connection.editable.toString())
+            assertTrue(surface.statusTextView.text.isNotEmpty())
+            service.onFinishInput()
+            assertEquals("", surface.statusTextView.text.toString())
         } finally {
             controller.destroy()
             customization.close()
