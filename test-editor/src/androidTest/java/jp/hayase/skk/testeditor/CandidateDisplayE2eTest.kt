@@ -195,10 +195,20 @@ class CandidateDisplayE2eTest {
             awaitImeReady(editor)
             key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
             type("Tesuto   ")
-            fun menuRow(label: Char, number: Int): AccessibilityNodeInfo =
-                awaitNode("候補一覧の $label が表示されません") { root ->
+            fun menuRow(label: Char, number: Int): AccessibilityNodeInfo = try {
+                awaitNode("候補一覧の $label: 候補$number が表示されません") { root ->
                     descendants(root).firstOrNull { it.contentDescription?.toString()?.startsWith("$label: 候補$number") == true }
                 }
+            } catch (failure: AssertionError) {
+                automation.takeScreenshot()?.let { bitmap ->
+                    java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "candidate-page-failure.png")
+                        .outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                    bitmap.recycle()
+                }
+                val visible = automation.windows.mapNotNull { it.root }.flatMap { descendants(it) }
+                    .mapNotNull { it.contentDescription?.toString() }.filter { it.contains("候補") }
+                throw AssertionError("${failure.message} / 本文=${editorText(editor)} / 表示=$visible", failure)
+            }
             menuRow('a', 3)
             // ノード生成直後は IME の高さが更新前の場合があるため、全行の配置完了を待ちます。
             awaitCondition("候補一覧の全行がスクロールなしで可視になりません") {

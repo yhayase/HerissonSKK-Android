@@ -13,6 +13,8 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -247,6 +249,8 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     private var expandedStatus = false
+    private var renderedMenuItems: List<CandidateMenuItem> = emptyList()
+    private var renderedMenuColumns = 1
     private var identity: CandidateDetailIdentity? = null
     private var sections: List<CandidateDetailSection> = emptyList()
     private val history = mutableListOf<Pair<Int, Int>>()
@@ -256,6 +260,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
         id = R.id.candidate_status_container
         isFillViewport = false
         isFocusable = false
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         setBackgroundColor(0xfff1f3f4.toInt())
         val horizontal = dp(16)
         val vertical = dp(8)
@@ -270,48 +275,63 @@ internal class CandidateStatusView @JvmOverloads constructor(
     fun show(presentation: CandidateStatusPresentation) {
         expandedStatus = presentation.expandedStatus
         statusTextView.text = presentation.text
-        menuContainer.removeAllViews()
         val columns = menuColumns().coerceAtMost(presentation.menuItems.size.coerceAtLeast(1))
-        presentation.menuItems.chunked(columns).forEach { items ->
-            val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-            items.forEach { item ->
-                val tile = LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(4), dp(2), dp(4), dp(2))
-                    isFocusable = false
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-                    contentDescription = buildString {
-                        append(item.label).append(": ").append(item.text)
-                        item.annotation?.let { append("、注釈: ").append(it) }
+        if (renderedMenuItems != presentation.menuItems || renderedMenuColumns != columns) {
+            renderedMenuItems = presentation.menuItems.toList()
+            renderedMenuColumns = columns
+            menuContainer.removeAllViews()
+            presentation.menuItems.chunked(columns).forEach { items ->
+                val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+                items.forEach { item ->
+                    val tile = LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(4), dp(2), dp(4), dp(2))
+                        isFocusable = false
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                        contentDescription = buildString {
+                            append(item.label).append(": ").append(item.text)
+                            item.annotation?.let { append("、注釈: ").append(it) }
+                        }
                     }
-                }
-                tile.addView(TextView(context).apply {
-                    text = "${item.label}: ${item.text}"
-                    textSize = 18f
-                    setTextColor(0xff202124.toInt())
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                }, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-                item.annotation?.let { annotation ->
                     tile.addView(TextView(context).apply {
-                        text = annotation
-                        textSize = 13f
-                        setTextColor(0xff5f6368.toInt())
+                        text = "${item.label}: ${item.text}"
+                        textSize = 18f
+                        setTextColor(0xff202124.toInt())
                         maxLines = 1
                         ellipsize = TextUtils.TruncateAt.END
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }, LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    item.annotation?.let { annotation ->
+                        tile.addView(TextView(context).apply {
+                            text = annotation
+                            textSize = 13f
+                            setTextColor(0xff5f6368.toInt())
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        }, LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    }
+                    row.addView(tile, LinearLayout.LayoutParams(0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 }
-                row.addView(tile, LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                menuContainer.addView(row, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }
-            menuContainer.addView(row, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            menuContainer.visibility = if (presentation.menuItems.isEmpty()) View.GONE else View.VISIBLE
+            // API 26 では子 View の入替えだけでは読み上げ用の古い候補が残るため、一覧全体の変更を通知します。
+            post {
+                if (!context.getSystemService(AccessibilityManager::class.java).isEnabled) return@post
+                val event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED).apply {
+                    contentChangeTypes = AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE
+                    setSource(this@CandidateStatusView)
+                    packageName = context.packageName
+                    className = CandidateStatusView::class.java.name
+                }
+                sendAccessibilityEventUnchecked(event)
+            }
         }
-        menuContainer.visibility = if (presentation.menuItems.isEmpty()) View.GONE else View.VISIBLE
         val newSections = presentation.detailSections.filter { it.value.isNotEmpty() }
         val sameIdentity = presentation.detailIdentity?.sameAs(identity) ?: (identity == null)
         val changed = !sameIdentity || !sameSectionReferences(sections, newSections)

@@ -2,15 +2,20 @@ package jp.hayase.skk
 
 import android.view.KeyEvent
 import android.view.View
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityManager
 import android.widget.TextView
 import android.widget.Button
+import android.os.Looper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -222,6 +227,37 @@ class CandidateStatusViewTest {
         assertTrue(annotation.currentTextColor != candidate.currentTextColor)
         assertTrue(tile.contentDescription.contains("a: 候補、注釈: 説明"))
         assertTrue(tile.right <= view.width)
+    }
+
+    @Test fun `候補ページ更新は一覧全体の読み上げキャッシュを更新する`() {
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        shadowOf(activity.getSystemService(AccessibilityManager::class.java)).setEnabled(true)
+        val view = CandidateStatusView(activity)
+        activity.setContentView(view)
+        val first = listOf(CandidateMenuItem('a', "候補3", "注釈3"))
+        view.show(CandidateStatusPresentation("状態", menuItems = first))
+        shadowOf(Looper.getMainLooper()).idle()
+        val content = view.getChildAt(0) as android.view.ViewGroup
+        val menu = content.getChildAt(0) as android.view.ViewGroup
+        val changes = mutableListOf<Int>()
+        view.accessibilityDelegate = object : View.AccessibilityDelegate() {
+            override fun sendAccessibilityEventUnchecked(host: View, event: AccessibilityEvent) {
+                if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+                    changes += event.contentChangeTypes
+                }
+                super.sendAccessibilityEventUnchecked(host, event)
+            }
+        }
+        view.show(CandidateStatusPresentation("次", menuItems = first))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("候補が同じなのに一覧を再通知しました", changes.isEmpty())
+        view.show(CandidateStatusPresentation("次", menuItems = listOf(
+            CandidateMenuItem('a', "候補5", "注釈5"))))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("変更した候補の読み上げキャッシュが更新されません",
+            changes.any { it and AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE != 0 })
+        val tile = ((menu.getChildAt(0) as android.view.ViewGroup).getChildAt(0) as View)
+        assertEquals("a: 候補5、注釈: 注釈5", tile.contentDescription.toString())
     }
 
     @Test
