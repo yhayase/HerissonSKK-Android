@@ -5,6 +5,7 @@ import android.graphics.Typeface
 import android.graphics.text.LineBreaker
 import android.text.Layout
 import android.text.SpannableString
+import android.text.TextUtils
 import android.text.Spanned
 import android.text.style.StyleSpan
 import android.util.AttributeSet
@@ -26,6 +27,8 @@ internal data class CandidateStatusPresentation(
     val text: CharSequence,
     val detailIdentity: CandidateDetailIdentity? = null,
     val detailSections: List<CandidateDetailSection> = emptyList(),
+    val menuRows: List<String> = emptyList(),
+    val expandedStatus: Boolean = false,
 )
 
 /** 巨大な文字列を比較せず、選択中の候補が変わったことを検出するための参照識別子です。 */
@@ -159,7 +162,7 @@ internal object CandidateTextBounds {
         start + Character.charCount(value.codePointAt(start))
 }
 
-/** 物理キーボード用の状態表示です。通常時の高さを固定し、全文表示は画面高の40%まで広げます。 */
+/** 物理キーボード用の状態表示です。一覧・登録・全文は画面高の40%まで広げます。 */
 internal class CandidateStatusView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -204,10 +207,10 @@ internal class CandidateStatusView @JvmOverloads constructor(
         isFocusable = false
     }
     private val detailControls = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
+        orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_HORIZONTAL
         val buttonParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         addView(previous, buttonParams)
         addView(next, LinearLayout.LayoutParams(buttonParams))
         addView(close, LinearLayout.LayoutParams(buttonParams))
@@ -215,9 +218,9 @@ internal class CandidateStatusView @JvmOverloads constructor(
     private val detailContainer = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         visibility = View.GONE
-        addView(detailText, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         addView(detailControls, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        addView(detailText, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
     private val header = LinearLayout(context).apply {
@@ -228,14 +231,21 @@ internal class CandidateStatusView @JvmOverloads constructor(
         addView(detailButton, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
+    private val menuContainer = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        visibility = View.GONE
+    }
     private val content = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
+        addView(menuContainer, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         addView(header, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         addView(detailContainer, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
+    private var expandedStatus = false
     private var identity: CandidateDetailIdentity? = null
     private var sections: List<CandidateDetailSection> = emptyList()
     private val history = mutableListOf<Pair<Int, Int>>()
@@ -257,7 +267,20 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     fun show(presentation: CandidateStatusPresentation) {
+        expandedStatus = presentation.expandedStatus
         statusTextView.text = presentation.text
+        menuContainer.removeAllViews()
+        presentation.menuRows.forEach { row ->
+            menuContainer.addView(TextView(context).apply {
+                text = row
+                textSize = 18f
+                setTextColor(0xff202124.toInt())
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                isFocusable = false
+            })
+        }
+        menuContainer.visibility = if (presentation.menuRows.isEmpty()) View.GONE else View.VISIBLE
         val newSections = presentation.detailSections.filter { it.value.isNotEmpty() }
         val sameIdentity = presentation.detailIdentity?.sameAs(identity) ?: (identity == null)
         val changed = !sameIdentity || !sameSectionReferences(sections, newSections)
@@ -287,6 +310,15 @@ internal class CandidateStatusView @JvmOverloads constructor(
         historyIndex = 0
     }
 
+    /** 候補一覧をスクロールせずに読める件数を、選択開始時の画面高で制限します。 */
+    fun visibleMenuRowCapacity(): Int {
+        val height = resources.configuration.screenHeightDp * resources.displayMetrics.density
+        val metrics = statusTextView.paint.fontMetricsInt
+        val rowHeight = (metrics.bottom - metrics.top).coerceAtLeast(1)
+        return ((height * .4f - content.paddingTop - content.paddingBottom) / rowHeight)
+            .toInt().coerceAtLeast(1)
+    }
+
     fun availableContentWidthDp(): Float {
         val pixels = statusTextView.measuredWidth.takeIf { it > 0 }
             ?: ((resources.configuration.screenWidthDp * resources.displayMetrics.density).toInt() -
@@ -297,13 +329,13 @@ internal class CandidateStatusView @JvmOverloads constructor(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val windowHeight = (resources.configuration.screenHeightDp * resources.displayMetrics.density)
             .toInt().takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-        val cap = if (isDetailOpen) (windowHeight * 0.4f).toInt().coerceAtLeast(dp(48))
+        val cap = if (isDetailOpen || expandedStatus || menuContainer.visibility == View.VISIBLE) (windowHeight * 0.4f).toInt().coerceAtLeast(dp(48))
             else minOf(dp(96), (windowHeight * 0.25f).toInt().coerceAtLeast(dp(48)))
         val available = MeasureSpec.getSize(heightMeasureSpec).takeIf {
             MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED && it > 0
         } ?: cap
         val boundedHeight = MeasureSpec.makeMeasureSpec(minOf(available, cap),
-            if (isDetailOpen) MeasureSpec.AT_MOST else MeasureSpec.EXACTLY)
+            if (isDetailOpen || expandedStatus || menuContainer.visibility == View.VISIBLE) MeasureSpec.AT_MOST else MeasureSpec.EXACTLY)
         super.onMeasure(widthMeasureSpec, boundedHeight)
     }
 

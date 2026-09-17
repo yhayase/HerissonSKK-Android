@@ -231,7 +231,7 @@ class BasicSkkEngineTest {
     @Test fun `末尾候補の次は読みを保持し登録未対応を通知する`() {
         val engine = engine()
         engine.type("Nihon ")
-        repeat(11) { engine.dispatch(BasicSkkAction.Text(" ")) }
+        repeat(3) { engine.dispatch(BasicSkkAction.Text(" ")) }
         val result = engine.dispatch(BasicSkkAction.Text(" "))
         assertEquals(InputPhase.READING, engine.state.phase)
         assertEquals("にほn", result.view.composing)

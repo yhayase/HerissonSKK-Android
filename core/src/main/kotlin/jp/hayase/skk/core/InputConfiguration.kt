@@ -36,6 +36,7 @@ data class CandidateDisplayConfig(
     val pageMode: CandidatePageMode = CandidatePageMode.FIXED,
     val fixedPageSize: Int = 7,
     val inlineCandidateCount: Int = 2,
+    val showCompositionMarkers: Boolean = false,
 ) {
     init {
         require(labels.length in 1..16 && labels.all { it.code in 0x21..0x7e } &&

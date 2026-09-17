@@ -115,6 +115,89 @@ class CandidateDisplayE2eTest {
         }
     }
 
+    @Test fun menuPageShowsFirstAndLastLabelsWithoutScrolling() {
+        reopenCustomizationWithKeyboard()
+        resetCustomizationWithKeyboard()
+        enableStatusDisplay()
+        ActivityScenario.launch<InputTestActivity>(
+            android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
+                .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true),
+        ).use { scenario ->
+            val editor = scenario.editorStartingWith("複数行 A")
+            scenario.onActivity { editor.requestFocus() }
+            awaitImeReady(editor)
+            key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
+            type("Tesuto   ")
+            fun menuRow(label: Char, number: Int): AccessibilityNodeInfo =
+                awaitNode("候補一覧の $label が表示されません") { root ->
+                    descendants(root).firstOrNull { it.text?.toString()?.startsWith("$label: 候補$number") == true }
+                }
+            menuRow('a', 3)
+            // ノード生成直後は IME の高さが更新前の場合があるため、全行の配置完了を待ちます。
+            awaitCondition("候補一覧の全行がスクロールなしで可視になりません") {
+                val node = awaitViewId("candidate_status_container")
+                val frame = Rect().also(node::getBoundsInScreen)
+                val currentRows = descendants(node).filter {
+                    it.text?.toString()?.matches(Regex("[asdfjkl]: 候補[0-9]+.*")) == true
+                }
+                currentRows.isNotEmpty() && currentRows.all {
+                    val bounds = Rect().also(it::getBoundsInScreen)
+                    val fullBounds = Rect().also(it::getBoundsInParent)
+                    it.isVisibleToUser && !bounds.isEmpty && frame.contains(bounds) &&
+                        bounds.height() == fullBounds.height()
+                }
+            }
+            val containerNode = awaitViewId("candidate_status_container")
+            val rows = descendants(containerNode).filter {
+                it.text?.toString()?.matches(Regex("[asdfjkl]: 候補[0-9]+.*")) == true
+            }
+            assertTrue("候補ページが空です", rows.isNotEmpty())
+            val pageSize = rows.size
+            assertTrue("候補ラベルの上限を超えています", pageSize <= 7)
+            val configuration = instrumentation.targetContext.resources.configuration
+            if (configuration.fontScale <= 1f && configuration.screenHeightDp >= 600) {
+                assertEquals("通常の縦画面で七候補を表示できません", 7, pageSize)
+            }
+            assertEquals("候補ラベルがページ内の順序と一致しません", "asdfjkl".take(pageSize),
+                rows.joinToString("") { it.text.toString().take(1) })
+            val container = Rect().also(containerNode::getBoundsInScreen)
+            rows.forEach { row ->
+                val bounds = Rect().also(row::getBoundsInScreen)
+                assertTrue("候補行が可視ではありません: ${row.text}", row.isVisibleToUser && !bounds.isEmpty)
+                assertTrue("スクロールなしで候補行全体を表示できません: $bounds / $container", container.contains(bounds))
+                val fullBounds = Rect().also(row::getBoundsInParent)
+                assertEquals("候補行が親の表示領域で縦に切れています: ${row.text}",
+                    fullBounds.height(), bounds.height())
+            }
+            assertCandidateBounds()
+            assertFalse("一覧に単独候補の表示が重複しています",
+                awaitViewId("input_status").text?.toString().orEmpty().contains("3/10 候補3"))
+            assertEquals("候補3", editorText(editor))
+            // アクセシビリティ通知の後に描画が反映されるため、撮影前にフレームを待ちます。
+            instrumentation.waitForIdleSync()
+            SystemClock.sleep(600)
+            automation.takeScreenshot()?.let { screenshot ->
+                java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "candidate-menu-api35.png")
+                    .outputStream().use { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                screenshot.recycle()
+            }
+            var pageStart = 3
+            while (pageStart + pageSize <= 10) {
+                key(KeyEvent.KEYCODE_SPACE)
+                pageStart += pageSize
+                menuRow('a', pageStart)
+            }
+            key(KeyEvent.KEYCODE_SPACE)
+            awaitCondition("末尾ページの次が登録になりません") {
+                awaitViewId("input_status").text?.toString().orEmpty().contains("単語登録")
+            }
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            menuRow('a', pageStart)
+            type("a")
+            assertEquals("候補$pageStart", editorText(editor))
+        }
+    }
+
     @Test fun keyboardOnlyCustomizationNavigationSaveDiscardAndReset() {
         openSettings()
         focusAndPressEnter("設定への移動") { root ->

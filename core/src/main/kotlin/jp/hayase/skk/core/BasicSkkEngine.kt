@@ -163,7 +163,7 @@ class BasicSkkEngine(
     constructor(dictionary: BasicSkkDictionary) : this(dictionary, RegistrationPolicy())
 
     init {
-        require(romanRuleSet.inputCharacters.none { it in 'A'..'Z' }) {
+        require(romanRuleSet.supportsSkkCaseConventions) {
             "SKKの入力規則は大文字を読み・送り開始に使うため、小文字で定義します"
         }
     }
@@ -872,6 +872,16 @@ class BasicSkkEngine(
     }
 
     private fun onCharacter(character: Char, interpretCommands: Boolean = true): Outcome {
+        // z 記号などの継続規則は、モード切替・変換・送り開始より先に解決します。
+        if (mode.isKana && phase in listOf(InputPhase.IDLE, InputPhase.READING) &&
+            romanRuleSet.continues(romanizer.pending, character.toString())) {
+            val output = romanizer.feed(character.toString())
+            if (phase == InputPhase.IDLE) return Outcome(true, renderKana(output, mode))
+            insertBuffer(output, pendingTargetsOkuri)
+            if (romanizer.pending.isEmpty()) pendingTargetsOkuri = false
+            return if (okuriBoundary != null && okuriText().isNotEmpty() && romanizer.pending.isEmpty()) lookup()
+                else Outcome(true)
+        }
         if (phase == InputPhase.SELECTING) {
             menuIndexFor(character)?.let { return commitCandidate(it) }
             if (interpretCommands) {
@@ -927,7 +937,7 @@ class BasicSkkEngine(
             }
             mode == InputMode.DIRECT -> Outcome(true, character.toString())
             mode == InputMode.FULLWIDTH -> Outcome(true, KanaTransforms.toFullwidthAscii(character.toString()))
-            romanRuleSet.accepts(character.lowercaseChar()) || interpretCommands && character.isRomajiInput -> {
+            romanRuleSet.canStart(character.lowercaseChar()) || interpretCommands && character.isRomajiInput -> {
                 val output = romanizer.feed(character.lowercaseChar().toString())
                 Outcome(true, renderKana(output, mode))
             }
@@ -942,7 +952,7 @@ class BasicSkkEngine(
             okuriConsonant = character.lowercaseChar()
             pendingTargetsOkuri = true
         }
-        if (romanRuleSet.accepts(character.lowercaseChar()) || interpretCommands && character.isRomajiInput) {
+        if (romanRuleSet.canStart(character.lowercaseChar()) || interpretCommands && character.isRomajiInput) {
             if (romanizer.pending.isEmpty()) {
                 pendingTargetsOkuri = okuriBoundary?.let { buffer.cursor >= it } == true
             }
@@ -1339,8 +1349,10 @@ class BasicSkkEngine(
     }
 
     private fun selectNext(): Outcome {
-        if (candidateIndex + 1 < candidates.size) {
-            candidateIndex++
+        val nextIndex = if (candidateIndex < inlineCandidateCount) candidateIndex + 1 else
+            inlineCandidateCount + ((candidateIndex - inlineCandidateCount) / candidatePageSize + 1) * candidatePageSize
+        if (nextIndex < candidates.size) {
+            candidateIndex = nextIndex
             return Outcome(true)
         }
         if (registrationPolicy.enabled) {
@@ -1355,7 +1367,12 @@ class BasicSkkEngine(
 
     private fun selectPrevious(): Outcome {
         if (candidateIndex > 0) {
-            candidateIndex--
+            candidateIndex = if (candidateIndex < inlineCandidateCount) candidateIndex - 1 else {
+                val pageStart = inlineCandidateCount +
+                    ((candidateIndex - inlineCandidateCount) / candidatePageSize) * candidatePageSize
+                if (pageStart == inlineCandidateCount) (inlineCandidateCount - 1).coerceAtLeast(0)
+                else pageStart - candidatePageSize
+            }
         } else {
             restoreSelectionReturnState()
         }

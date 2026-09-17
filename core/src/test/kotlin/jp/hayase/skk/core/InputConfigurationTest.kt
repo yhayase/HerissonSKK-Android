@@ -98,12 +98,31 @@ class InputConfigurationTest {
         assertEquals(listOf("候補4", "候補5"), engine.currentView.candidate!!.menu.map { it.candidate.text })
         width = 7
         assertEquals(2, engine.currentView.candidate!!.menu.size)
-        repeat(2) { engine.dispatch(BasicSkkAction.Text(" ")) }
+        engine.dispatch(BasicSkkAction.Text(" "))
         assertEquals(listOf("候補6", "候補7"), engine.currentView.candidate!!.menu.map { it.candidate.text })
         assertEquals("候補7", engine.dispatch(BasicSkkAction.Text("2")).commit)
         engine.dispatch(BasicSkkAction.Text("Ka "))
         repeat(3) { engine.dispatch(BasicSkkAction.Text(" ")) }
         assertEquals(6, engine.currentView.candidate!!.menu.size)
+    }
+
+    @Test fun `一覧のSpaceは次ページへ進み末尾で登録し取消すと同じページへ戻る`() {
+        val dictionary = BasicSkkDictionary { (1..18).map { DictionaryCandidate("候補$it") } }
+        val engine = BasicSkkEngine(dictionary, RegistrationPolicy(enabled = true))
+        engine.dispatch(BasicSkkAction.Text("Ka   "))
+        assertEquals((3..9).map { "候補$it" }, engine.currentView.candidate!!.menu.map { it.candidate.text })
+        engine.dispatch(BasicSkkAction.Text(" "))
+        assertEquals((10..16).map { "候補$it" }, engine.currentView.candidate!!.menu.map { it.candidate.text })
+        engine.dispatch(BasicSkkAction.Text("x"))
+        assertEquals(2, engine.state.candidateIndex)
+        engine.dispatch(BasicSkkAction.Text("  "))
+        assertEquals(listOf("候補17", "候補18"), engine.currentView.candidate!!.menu.map { it.candidate.text })
+        engine.dispatch(BasicSkkAction.Text(" "))
+        assertTrue(engine.currentView.registration != null)
+        engine.dispatch(BasicSkkAction.Cancel)
+        assertEquals(16, engine.state.candidateIndex)
+        assertEquals(listOf("候補17", "候補18"), engine.currentView.candidate!!.menu.map { it.candidate.text })
+        assertEquals("候補18", engine.dispatch(BasicSkkAction.Text("s")).commit)
     }
 
     @Test fun `既定は三番目からメニューでラベルを選べる`() {

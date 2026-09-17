@@ -10,12 +10,14 @@ import jp.hayase.skk.core.InputPhase
 import jp.hayase.skk.core.keys.KeyBindings
 import jp.hayase.skk.core.keys.KeyGesture
 import jp.hayase.skk.core.keys.SpecialKey
+import jp.hayase.skk.core.keys.SkkCommand
 import jp.hayase.skk.core.editing.EditCommand
 
 class HardwareKeyMapper {
     sealed interface Decoded {
         data object Pass : Decoded
         data object Wait : Decoded
+        data object QuoteNext : Decoded
         data class Action(val action: BasicSkkAction) : Decoded
     }
     private var accent = 0
@@ -54,6 +56,19 @@ class HardwareKeyMapper {
             }
             reset()
             return Decoded.Action(BasicSkkAction.Enter)
+        }
+        if (!event.isMetaPressed && !altText) {
+            val special = specialKey(event.keyCode)
+            val scalar = if (special == null && plain != 0 &&
+                plain and KeyCharacterMap.COMBINING_ACCENT == 0 && !Character.isISOControl(plain))
+                String(Character.toChars(plain)) else null
+            if (special != null || scalar != null) {
+                val gesture = KeyGesture(scalar, special, event.isCtrlPressed, event.isAltPressed,
+                    event.isShiftPressed)
+                if (bindings.resolveCommand(gesture, state, view, emacsEnabled) == SkkCommand.QUOTE_NEXT) {
+                    reset(); return Decoded.QuoteNext
+                }
+            }
         }
         if (event.isMetaPressed) return Decoded.Pass
         if (!altText && (event.isCtrlPressed || event.isAltPressed)) {
@@ -101,7 +116,7 @@ class HardwareKeyMapper {
         if (view.deletion != null && text in listOf("y", "n")) {
             return Decoded.Action(BasicSkkAction.Text(text, interpretCommands = false))
         }
-        if (rules !== jp.hayase.skk.core.romaji.RomanRuleSet.standard && rules.continues(state.pendingRomaji, text)) {
+        if (rules.continues(state.pendingRomaji, text)) {
             return Decoded.Action(BasicSkkAction.Text(text, interpretCommands = false))
         }
         if (!altText && unicode and KeyCharacterMap.COMBINING_ACCENT == 0 && text.codePointCount(0, text.length) == 1) {
@@ -141,7 +156,6 @@ class HardwareKeyMapper {
             return when (plain.toChar().lowercaseChar()) {
                 'j' -> { reset(); Decoded.Action(BasicSkkAction.Kana) }
                 'g' -> { reset(); Decoded.Action(BasicSkkAction.Cancel) }
-                'q' -> { reset(); Decoded.Action(BasicSkkAction.Halfwidth) }
                 else -> Decoded.Pass
             }
         }

@@ -20,6 +20,40 @@ class ConfiguredKeyMapperTest {
     }
     private fun engine() = BasicSkkEngine(BasicSkkDictionary { List(8) { DictionaryCandidate("候補$it") } })
 
+    @Test fun `C-qは次キー引用となり半角カナは再割当できる`() {
+        val engine = engine()
+        val mapper = HardwareKeyMapper()
+        val cQ = key('q', KeyEvent.META_CTRL_ON)
+        assertEquals(HardwareKeyMapper.Decoded.QuoteNext,
+            mapper.decodeConfigured(cQ, engine.state, engine.currentView, KeyBindings(), true))
+        val custom = KeyBindings(KeyBindings.defaults - SkkCommand.QUOTE_NEXT +
+            (SkkCommand.HALFWIDTH to KeyGesture("z", ctrl = true)))
+        assertEquals(HardwareKeyMapper.Decoded.Pass,
+            mapper.decodeConfigured(cQ, engine.state, engine.currentView, custom, true))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Halfwidth),
+            mapper.decodeConfigured(key('z', KeyEvent.META_CTRL_ON), engine.state,
+                engine.currentView, custom, true))
+
+        val shifted = KeyBindings(KeyBindings.defaults +
+            (SkkCommand.HALFWIDTH to KeyGesture("Q", ctrl = true, shift = true)))
+        val cShiftQ = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Q, 0,
+            KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON, KeyCharacterMap.VIRTUAL_KEYBOARD, 0)
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Halfwidth),
+            mapper.decodeConfigured(cShiftQ, engine.state, engine.currentView, shifted, true))
+    }
+
+    @Test fun `zの記号規則は既定コマンドより先に文字として渡す`() {
+        for (reading in listOf(false, true)) for (second in listOf('l', 'L', '/', ' ')) {
+            val engine = engine()
+            if (reading) engine.dispatch(BasicSkkAction.StartReading)
+            engine.dispatch(BasicSkkAction.Text("z", interpretCommands = false))
+            val decoded = HardwareKeyMapper().decodeConfigured(key(second), engine.state,
+                engine.currentView, KeyBindings(), false)
+            assertEquals("reading=$reading second=$second",
+                HardwareKeyMapper.Decoded.Action(BasicSkkAction.Text(second.toString(), false)), decoded)
+        }
+    }
+
     @Test fun `標準割当の実キー列は旧コマンド文法と同じ結果になる`() {
         for (sequence in listOf("nihon", "nqkaq", "Qka ", "Ka   a", "Ka lABC", "Ka LABC", "Ka /API ", "Dai>", "Ka >kai")) {
             val original = engine()
@@ -166,7 +200,7 @@ class ConfiguredKeyMapperTest {
             RegistrationPolicy(enabled = true))
         engine.dispatch(BasicSkkAction.Text("Ka"))
         engine.dispatch(BasicSkkAction.RegisterCandidate)
-        engine.dispatch(BasicSkkAction.Text("Ka    "))
+        engine.dispatch(BasicSkkAction.Text("Ka   "))
         assertNull(engine.currentView.candidate)
         assertTrue(engine.currentView.registration!!.innerCandidate!!.menu.isNotEmpty())
         val decoded = HardwareKeyMapper().decodeConfigured(key('l'), engine.state, engine.currentView, KeyBindings(), false)

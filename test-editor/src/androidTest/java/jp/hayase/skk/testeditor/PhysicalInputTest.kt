@@ -114,12 +114,11 @@ class PhysicalInputTest {
             type("n")
             key(KeyEvent.KEYCODE_ENTER)
             awaitText(editor, "んン")
-            key(KeyEvent.KEYCODE_Q, KeyEvent.META_CTRL_ON)
             type("kana")
-            awaitText(editor, "んンｶﾅ")
+            awaitText(editor, "んンカナ")
             key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
             type("kitte")
-            awaitText(editor, "んンｶﾅきって")
+            awaitText(editor, "んンカナきって")
             assertEquals("入力先への Enter／アクション: 0 回", text(counter))
         }
     }
@@ -184,11 +183,28 @@ class PhysicalInputTest {
 
     @Test fun cancelRegistrationRestoresLastMenuAndItsLabel() {
         withSendEditor { editor, counter ->
-            type("Tesuto" + " ".repeat(11))
+            type("Tesuto   ")
+            var lastCandidate = text(editor)
+            var registrationShown = false
+            repeat(12) {
+                if (!registrationShown) {
+                    lastCandidate = text(editor)
+                    key(KeyEvent.KEYCODE_SPACE)
+                    val deadline = SystemClock.uptimeMillis() + 1000
+                    while (SystemClock.uptimeMillis() < deadline) {
+                        registrationShown = instrumentation.uiAutomation.windows.any { window ->
+                            window.root?.findAccessibilityNodeInfosByText("単語登録")?.isNotEmpty() == true
+                        }
+                        if (registrationShown || text(editor) != lastCandidate) break
+                        SystemClock.sleep(20)
+                    }
+                }
+            }
+            assertTrue("候補を使い切っても登録に移りません", registrationShown)
             key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
-            awaitText(editor, "候補10")
+            awaitText(editor, lastCandidate)
             type("a")
-            awaitText(editor, "候補10")
+            awaitText(editor, lastCandidate)
             assertEquals("入力先への Enter／アクション: 0 回", text(counter))
             key(KeyEvent.KEYCODE_ENTER)
             awaitText(counter, "入力先への Enter／アクション: 1 回")

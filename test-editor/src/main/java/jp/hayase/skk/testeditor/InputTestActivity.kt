@@ -17,6 +17,12 @@ import android.widget.TextView
 
 /** 外部へ送信せず、Enter が入力先まで届いた回数を表示します。 */
 class InputTestActivity : Activity() {
+    val receivedKeys = mutableListOf<KeyEvent>()
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        receivedKeys.add(KeyEvent(event))
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val layout = LinearLayout(this).apply {

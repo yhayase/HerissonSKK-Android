@@ -19,6 +19,7 @@ import jp.hayase.skk.settings.CustomizationStoreStatus
 import jp.hayase.skk.input.EditorSession
 import jp.hayase.skk.input.HardwareKeyMapper
 import jp.hayase.skk.input.KeyPressLedger
+import jp.hayase.skk.input.QuoteNextKey
 import jp.hayase.skk.core.InputMode
 import jp.hayase.skk.core.BasicSkkAction
 import jp.hayase.skk.dictionary.DictionaryRuntime
@@ -44,6 +45,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private var sessionCustomization: jp.hayase.skk.settings.CustomizationSettings? = null
     private val mapper = HardwareKeyMapper()
     private val presses = KeyPressLedger()
+    private val quoteNext = QuoteNextKey()
     private var statusView: TextView? = null
     private var candidateStatusView: CandidateStatusView? = null
     private var lastDevice: Int? = null
@@ -67,6 +69,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         dictionaryRestoreNotice = null
         generation++
         mapper.reset()
+        quoteNext.reset()
         lastDevice = null
         super.onStartInput(attribute, restarting)
         val connection = currentInputConnection
@@ -151,7 +154,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     candidateStatusView?.availableContentWidthDp()
                         ?: resources.configuration.screenWidthDp.toFloat(),
                     resources.configuration.fontScale,
-                )
+                ).coerceAtMost(candidateStatusView?.visibleMenuRowCapacity() ?: 7)
             })
         render()
     }
@@ -161,6 +164,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         session = null
         generation++
         mapper.reset()
+        quoteNext.reset()
         clearStatusWindow()
         super.onFinishInput()
     }
@@ -170,6 +174,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         session = null
         generation++
         mapper.reset()
+        quoteNext.reset()
         clearStatusWindow()
         super.onUnbindInput()
     }
@@ -200,8 +205,12 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             event.repeatCount, keyCode != KeyEvent.KEYCODE_ENTER && keyCode != KeyEvent.KEYCODE_NUMPAD_ENTER &&
                 keyCode != KeyEvent.KEYCODE_ESCAPE) {
             val current = session
-            if (current == null || current.protectedInput || current.failed) false
+            if (current == null || current.protectedInput || current.failed) {
+                quoteNext.reset()
+                false
+            }
             else {
+                if (quoteNext.consumeDown(event)) return@down false
                 if (candidateStatusView?.handleDetailPaging(event) == true) return@down true
                 if (!KeyEvent.isModifierKey(keyCode)) candidateStatusView?.closeDetail()
                 if (lastDevice != null && lastDevice != event.deviceId) {
@@ -212,6 +221,13 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 val config = checkNotNull(sessionCustomization)
                 when (val decoded = mapper.decodeConfigured(event, current.engine.state, current.view,
                     config.keyBindings, config.emacsEnabled, config.romanRuleSet)) {
+                    HardwareKeyMapper.Decoded.QuoteNext -> {
+                        if (event.repeatCount == 0) {
+                            current.preserveText()
+                            quoteNext.begin(event)
+                        }
+                        true
+                    }
                     HardwareKeyMapper.Decoded.Pass -> {
                         if (!KeyEvent.isModifierKey(keyCode)) {
                             current.preserveText()
@@ -248,17 +264,22 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             }
         }
         render()
+        if (quoteNext.quotedDown(event)) return false
         return handled || super.onKeyDown(keyCode, event)
     }
 
-    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
-        presses.up(event.deviceId, keyCode, event.downTime) || super.onKeyUp(keyCode, event)
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        val handled = presses.up(event.deviceId, keyCode, event.downTime, generation)
+        if (quoteNext.quotedUp(event)) return false
+        return handled || super.onKeyUp(keyCode, event)
+    }
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int,
                                    candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         if (session?.onSelection(newSelStart, newSelEnd, candidatesStart, candidatesEnd) == true) {
             mapper.reset()
+            quoteNext.reset()
             generation++
         }
         render()
@@ -268,6 +289,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         generation++
         session?.preserveText()
         mapper.reset()
+        quoteNext.reset()
         super.onConfigurationChanged(newConfig)
         candidateStatusView?.requestLayout()
     }
@@ -284,6 +306,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             generation++
             session?.preserveText()
             mapper.reset()
+            quoteNext.reset()
             lastDevice = null
             render()
         }
@@ -296,6 +319,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         session?.close()
         session = null
         mapper.reset()
+        quoteNext.reset()
         getSystemService(InputManager::class.java).unregisterInputDeviceListener(this)
         super.onDestroy()
     }
@@ -307,6 +331,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         if (context != null && current != null && !dictionaries.isInputWriteContextCurrent(context.value)) {
             current.preserveText()
             mapper.reset()
+            quoteNext.reset()
             context.value = dictionaries.captureInputWriteContext()
             dictionaryRestoreNotice = "辞書を復元しました。未確定の表示文字を残し、変換・登録・削除の確認を終了しました。"
         }
@@ -358,6 +383,13 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 var completionSuffixStart = -1
                 var completionSuffixLength = 0
                 val details = buildList<String> {
+                    registration?.let {
+                        add(getString(R.string.registration_heading, it.depth, preview(it.readingKey, 64)))
+                        val cursor = it.cursor.coerceIn(0, it.body.length)
+                        add(previewAroundCursor(it.body, cursor))
+                        it.innerComposing?.takeIf(String::isNotEmpty)?.let { value -> add("▽${preview(value)}") }
+                        add(getString(if (it.saving) R.string.registration_saving else R.string.registration_help))
+                    }
                     add(getString(R.string.local_dictionary_status))
                     when (val status = dictionaries.status) {
                         DictionaryManagerStatus.Loading -> add(getString(R.string.dictionary_loading_status))
@@ -367,13 +399,6 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                             DictionaryFreshness.STALE -> add(getString(R.string.dictionary_stale_status))
                             DictionaryFreshness.CURRENT -> Unit
                         }
-                    }
-                    registration?.let {
-                        add(getString(R.string.registration_heading, it.depth, preview(it.readingKey, 64)))
-                        val cursor = it.cursor.coerceIn(0, it.body.length)
-                        add(previewAroundCursor(it.body, cursor))
-                        it.innerComposing?.takeIf(String::isNotEmpty)?.let { value -> add("▽${preview(value)}") }
-                        add(getString(if (it.saving) R.string.registration_saving else R.string.registration_help))
                     }
                     current.view.completion?.let { completion ->
                         val prefix = preview(completion.prefix, 64)
@@ -390,13 +415,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         if (deletion.numericTemplate) add("元の数値テンプレートと、その展開候補すべてが対象です")
                         add(if (deletion.saving) "削除を保存しています" else "y: 削除する / n・Ctrl+g: 戻る")
                     }
-                    candidate?.let {
+                    candidate?.takeIf { it.menu.isEmpty() }?.let {
                         add("${it.index + 1}/${it.total} ${preview(it.committedText)}")
                         it.selected.annotation?.let { note -> add(preview(note, 64)) }
-                        if (it.menu.isNotEmpty()) add(it.menu.joinToString("\n") { item ->
-                            val annotation = item.candidate.annotation?.let { note -> "（${preview(note, 32)}）" }.orEmpty()
-                            "${item.label}: ${preview(item.committedText, 48)}$annotation"
-                        })
                     }
                     current.notice?.let { add(preview(it, 64)) }
                     dictionaryRestoreNotice?.let { add(preview(it, 64)) }
@@ -416,7 +437,10 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                             add(CandidateDetailSection("注釈", annotation))
                         }
                     }
-                })
+                }, menuRows = candidate?.menu.orEmpty().map { item ->
+                    val annotation = item.candidate.annotation?.let { "（${preview(it, 32)}）" }.orEmpty()
+                    "${item.label}: ${preview(item.committedText, 48)}$annotation"
+                }, expandedStatus = registration != null)
             }
         }
         candidateStatusView?.show(presentation) ?: run { statusView?.text = presentation.text }

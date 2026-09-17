@@ -80,7 +80,7 @@ class HardwareKeyMapperTest {
             mapper.decode(key(KeyEvent.KEYCODE_DPAD_LEFT), false, true))
         assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Delete),
             mapper.decode(key(KeyEvent.KEYCODE_FORWARD_DEL), false, true))
-        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Halfwidth),
+        assertEquals(HardwareKeyMapper.Decoded.Pass,
             mapper.decode(key(KeyEvent.KEYCODE_Q, KeyEvent.META_CTRL_ON), false, false))
     }
     @Test fun `補完キーは未確定中だけ働き動的受諾を独立させる`() {

@@ -31,7 +31,7 @@ class CustomizationStoreTest {
         val requested = CustomizationSettings(0, CustomizationProfile.AZIK, emacsEnabled = true)
         store.save(requested, 0) { assertTrue(it is CustomizationWriteResult.Applied) }
         val json = org.json.JSONObject(path.readText())
-        assertEquals(3, json.getInt("documentVersion"))
+        assertEquals(4, json.getInt("documentVersion"))
         store.close()
         val reopened = CustomizationStore(path, direct, direct).also { it.loadAsync() }
         assertEquals(requested.withGeneration(1), reopened.snapshot)
@@ -44,6 +44,8 @@ class CustomizationStoreTest {
         val direct = Executor { it.run() }
         val oldBindings = jp.hayase.skk.core.keys.KeyBindings.defaults
             .filterKeys { it !in jp.hayase.skk.core.keys.KeyBindings.optionalCommands }.toMutableMap()
+        oldBindings[jp.hayase.skk.core.keys.SkkCommand.HALFWIDTH] =
+            jp.hayase.skk.core.keys.KeyGesture("q", ctrl = true)
         oldBindings[jp.hayase.skk.core.keys.SkkCommand.EDIT_LEFT] =
             jp.hayase.skk.core.keys.KeyGesture("v", ctrl = true)
         val initial = CustomizationSettings(0, emacsEnabled = true,
@@ -55,6 +57,7 @@ class CustomizationStoreTest {
             put("documentVersion", 2)
             getJSONObject("punctuation").remove("fullwidthSymbols")
             getJSONObject("candidateDisplay").remove("inlineCandidateCount")
+            getJSONObject("candidateDisplay").remove("showCompositionMarkers")
         }
         path.writeText(legacy.toString())
         CustomizationStore(path, direct, direct).use { store ->
@@ -71,6 +74,48 @@ class CustomizationStoreTest {
         CustomizationStore(path, direct, direct).use { store ->
             store.loadAsync(); assertTrue(store.status is CustomizationStoreStatus.Ready)
             assertEquals(2L, store.snapshot.generation)
+        }
+        deleteAtomicFiles(path)
+    }
+
+    @Test fun `版3の半角カナ標準キーを引用へ移し表示印はオフで読み込む`() {
+        val path = temporaryPath()
+        val direct = Executor { it.run() }
+        CustomizationStore(path, direct, direct).use { store ->
+            store.loadAsync()
+            store.save(CustomizationSettings(0), 0) {}
+        }
+        val legacy = org.json.JSONObject(path.readText()).apply {
+            put("documentVersion", 3)
+            getJSONObject("candidateDisplay").remove("showCompositionMarkers")
+            val rows = getJSONArray("keyBindings")
+            for (index in 0 until rows.length()) {
+                val row = rows.getJSONObject(index)
+                if (row.getString("command") == "QUOTE_NEXT") row.put("command", "HALFWIDTH")
+            }
+        }
+        path.writeText(legacy.toString())
+        CustomizationStore(path, direct, direct).use { store ->
+            store.loadAsync()
+            assertTrue(store.status is CustomizationStoreStatus.Ready)
+            assertEquals(jp.hayase.skk.core.keys.KeyBindings(), store.snapshot.keyBindings)
+            assertEquals(false, store.snapshot.candidateDisplay.showCompositionMarkers)
+        }
+        deleteAtomicFiles(path)
+    }
+
+    @Test fun `未確定表示印の設定を保存して再読込する`() {
+        val path = temporaryPath()
+        val direct = Executor { it.run() }
+        val requested = CustomizationSettings(0,
+            candidateDisplay = CandidateDisplayConfig(showCompositionMarkers = true))
+        CustomizationStore(path, direct, direct).use { store ->
+            store.loadAsync()
+            store.save(requested, 0) { assertTrue(it is CustomizationWriteResult.Applied) }
+        }
+        CustomizationStore(path, direct, direct).use { store ->
+            store.loadAsync()
+            assertEquals(true, store.snapshot.candidateDisplay.showCompositionMarkers)
         }
         deleteAtomicFiles(path)
     }
@@ -105,6 +150,8 @@ class CustomizationStoreTest {
         assertThrows(IllegalArgumentException::class.java) {
             custom(0, listOf(RomajiRule("Ka", "か")))
         }
+        CustomizationSettings(0, CustomizationProfile.CUSTOM,
+            jp.hayase.skk.core.romaji.Romanizer.standardRules)
         assertThrows(IllegalArgumentException::class.java) {
             custom(0, listOf(RomajiRule("tt", "っ", "T")))
         }

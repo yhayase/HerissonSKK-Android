@@ -263,10 +263,10 @@ class EditorSessionTest {
     @Test fun candidateMenuShowsLabelsAndAnnotationsButCommitsOnlyText() {
         val connection = Connection()
         val session = session(connection)
-        session.type("Tesuto    ")
+        session.type("Tesuto   ")
         val candidate = requireNotNull(session.view.candidate)
-        assertEquals("候補4", candidate.selected.text)
-        assertEquals("注釈4", candidate.selected.annotation)
+        assertEquals("候補3", candidate.selected.text)
+        assertEquals("注釈3", candidate.selected.annotation)
         assertEquals('a', candidate.menu.first().label)
         assertEquals("候補3", candidate.menu.first().candidate.text)
         assertEquals("注釈3", candidate.menu.first().candidate.annotation)

@@ -75,6 +75,16 @@ class CustomizationE2eTest {
         openSettings()
         clickAppText("入力規則・句読点・候補を設定する")
         awaitAppText("入力規則・句読点・候補")
+        setSwitch("Emacs 編集キーを有効にする", true)
+        setSwitch("未確定文字に ▽／▼ を表示する", true)
+        clickAppText("保存")
+        awaitAppText("入力設定を保存しました。次の入力欄から反映します。")
+        assertStandardSymbolsMarkersAndQuote()
+        openSettings()
+        clickAppText("入力規則・句読点・候補を設定する")
+        awaitAppText("入力規則・句読点・候補")
+        setSwitch("未確定文字に ▽／▼ を表示する", false)
+        setText("半角カナ", "C-S-Q")
         chooseSpinner("ローマ字規則（標準: 標準規則）", "AZIK規則")
         setSwitch("Emacs 編集キーを有効にする", true)
         setText("かな種別切替", "U-]")
@@ -104,7 +114,56 @@ class CustomizationE2eTest {
         }
     }
 
+    private fun assertStandardSymbolsMarkersAndQuote() {
+        withInitialEditor("", 0) { editor ->
+            type("zhzjzkzlz.z/fafifefo")
+            awaitText(editor, "←↓↑→…・ふぁふぃふぇふぉ")
+        }
+        withInitialEditor("", 0) { editor ->
+            type("Nihon")
+            awaitText(editor, "▽にほn")
+            key(KeyEvent.KEYCODE_SPACE)
+            awaitText(editor, "▼日本")
+            key(KeyEvent.KEYCODE_SPACE)
+            awaitText(editor, "▼二本")
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            awaitText(editor, "▽にほn")
+            key(KeyEvent.KEYCODE_SPACE)
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitText(editor, "日本")
+            type("Ka")
+            awaitText(editor, "日本▽か")
+            key(KeyEvent.KEYCODE_Q, KeyEvent.META_CTRL_ON)
+            awaitText(editor, "日本か")
+            key(KeyEvent.KEYCODE_N, KeyEvent.META_CTRL_ON)
+            awaitText(editor, "日本か")
+        }
+        ActivityScenario.launch<InputTestActivity>(
+            android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
+                .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true),
+        ).use { scenario ->
+            val editor = scenario.editorStartingWith("複数行 A")
+            scenario.onActivity { editor.requestFocus() }
+            awaitImeReady(editor)
+            scenario.onActivity { it.receivedKeys.clear() }
+            repeatKey(KeyEvent.KEYCODE_Q, KeyEvent.META_CTRL_ON)
+            repeatKey(KeyEvent.KEYCODE_N, KeyEvent.META_CTRL_ON)
+            scenario.onActivity { activity ->
+                assertTrue(activity.receivedKeys.none { it.keyCode == KeyEvent.KEYCODE_Q })
+                val quoted = activity.receivedKeys.filter { it.keyCode == KeyEvent.KEYCODE_N }
+                assertEquals(listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP), quoted.map { it.action })
+                assertTrue(quoted.all { it.isCtrlPressed })
+                assertEquals(1, quoted[1].repeatCount)
+            }
+        }
+    }
+
     private fun assertAzikAndEmacsEditing() {
+        withInitialEditor("", 0) { editor ->
+            key(KeyEvent.KEYCODE_Q, KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON)
+            type("kana")
+            awaitText(editor, "ｶﾅ")
+        }
         withInitialEditor("", 0) { editor ->
             key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
             type("qklx[xxa")

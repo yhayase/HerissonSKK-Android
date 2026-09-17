@@ -10,11 +10,19 @@ class RomanRuleSet private constructor(
     inputCharacters: Set<Char>,
 ) {
     val ruleCount: Int get() = byInput.size
+    /** zL は標準の矢印規則だけを例外とし、通常の読み・送り開始を保ちます。 */
+    val supportsSkkCaseConventions: Boolean = byInput.values.all { rule ->
+        rule == RomajiRule("zL", "⇒") ||
+            (rule.input.none { it.isUpperCase() } && rule.remaining.none { it.isUpperCase() })
+    }
 
     /** 規則入力に現れる文字です。呼出側から変更できないコピーを公開します。 */
     val inputCharacters: Set<Char> = Collections.unmodifiableSet(LinkedHashSet(inputCharacters))
 
     fun accepts(character: Char): Boolean = character in inputCharacters
+
+    /** 後続文字にしか現れない記号を、単独入力の句読点処理から奪いません。 */
+    fun canStart(character: Char): Boolean = character.toString() in prefixes
 
     /** 未消化入力を完成へ進める文字を、途中のモード切替より先に判定します。 */
     fun continues(pending: String, text: String): Boolean =
@@ -77,8 +85,9 @@ class RomanRuleSet private constructor(
         }
 
         private fun validateRule(rule: RomajiRule) {
-            require(rule.input.length in 1..MAX_INPUT_LENGTH && rule.input.all(::isGraphicalAscii)) {
-                "ローマ字規則の入力は${MAX_INPUT_LENGTH}文字以内のASCII図形文字にします: ${rule.input}"
+            require(rule.input.length in 1..MAX_INPUT_LENGTH && (rule.input.all(::isGraphicalAscii) ||
+                rule.input.length >= 2 && rule.input.last() == ' ' && rule.input.dropLast(1).all(::isGraphicalAscii))) {
+                "ローマ字規則の入力は${MAX_INPUT_LENGTH}文字以内のASCII図形文字にします（末尾の空白1文字だけ許可）: ${rule.input}"
             }
             require(rule.remaining.length <= MAX_INPUT_LENGTH && rule.remaining.all(::isGraphicalAscii)) {
                 "ローマ字規則の残余は${MAX_INPUT_LENGTH}文字以内のASCII図形文字にします: ${rule.input}"

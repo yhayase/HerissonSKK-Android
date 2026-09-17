@@ -34,6 +34,7 @@ class CustomizationSettingsActivity : Activity() {
     private lateinit var brackets: Spinner
     private lateinit var symbols: Spinner
     private lateinit var menuStart: Spinner
+    private lateinit var showCompositionMarkers: Switch
     private lateinit var labels: Spinner
     private lateinit var pageMode: Spinner
     private lateinit var count: Spinner
@@ -93,16 +94,18 @@ class CustomizationSettingsActivity : Activity() {
         pageMode = choice("一覧の候補数（標準: 固定）", listOf("固定", "画面幅と文字サイズに合わせる"))
         count = choice("固定時の候補数（標準: 7）", (1..7).map(Int::toString))
         menuStart = choice("候補一覧を開始する候補（標準: 3番目）", (1..10).map { "${it}番目" })
+        showCompositionMarkers = Switch(this).apply { text = "未確定文字に ▽／▼ を表示する" }
+        layout.addView(showCompositionMarkers); controls += showCompositionMarkers
         label("指定した候補から選択キー付きの一覧を表示します。表示中のラベルは画面幅が変わっても動かしません。")
         emacsEnabled = Switch(this).apply { text = "Emacs 編集キーを有効にする" }
         layout.addView(emacsEnabled); controls += emacsEnabled
         label("標準ではオフです。C-b / C-f などで読みや入力先のカーソルを動かすにはオンにします。オフではアプリへキーを渡します。保存後、次の入力欄から反映します。")
         label("キー表記は C-（Ctrl）、M-（Alt）、S-（Shift）、U-（Shift を区別しない）、<ENTER>、<TAB>、<SPACE> を使います。例: C-g、M-b、U-q、U-Q")
-        label("ページ移動・文書端移動・切り取り・コピー・改行の追加操作は、キー欄を空にすると未割当になります。以前の設定と競合する追加操作は未割当で引き継ぎます。")
+        label("半角カナ・次のキーをそのまま渡す・ページ移動・文書端移動・切り取り・コピー・改行は、キー欄を空にすると未割当になります。以前の設定と競合する追加操作は未割当で引き継ぎます。")
         SkkCommand.entries.forEach { command ->
             label(command.title)
             bindingFields[command] = keyField(command.title)
-            label("標準規則の初期キー: ${KeyGestureText.format(KeyBindings.defaults.getValue(command))}")
+            label("標準規則の初期キー: ${KeyBindings.defaults[command]?.let(KeyGestureText::format) ?: "未割当"}")
         }
         button("保存") { saveDraft() }
         button("変更を破棄して閉じる") { confirmDiscard() }
@@ -158,6 +161,7 @@ class CustomizationSettingsActivity : Activity() {
         brackets.setSelection(if (value.punctuation.fullwidthBrackets) 1 else 0)
         symbols.setSelection(if (value.punctuation.fullwidthSymbols) 0 else 1)
         menuStart.setSelection(value.candidateDisplay.inlineCandidateCount)
+        showCompositionMarkers.isChecked = value.candidateDisplay.showCompositionMarkers
         labels.setSelection(if (value.candidateDisplay.labels == "asdfjkl") 0 else 1)
         pageMode.setSelection(if (value.candidateDisplay.pageMode == CandidatePageMode.FIXED) 0 else 1)
         count.setSelection(value.candidateDisplay.fixedPageSize - 1)
@@ -190,7 +194,8 @@ class CustomizationSettingsActivity : Activity() {
                     PunctuationConfig(listOf("。", "．", ".")[draft.period], listOf("、", "，", ",")[draft.comma],
                         draft.parentheses == 0, draft.brackets == 1, draft.symbols == 0),
                     CandidateDisplayConfig(listOf("asdfjkl", "1234567")[draft.labels],
-                        if (draft.pageMode == 0) CandidatePageMode.FIXED else CandidatePageMode.AUTO, draft.count + 1, draft.menuStart),
+                        if (draft.pageMode == 0) CandidatePageMode.FIXED else CandidatePageMode.AUTO, draft.count + 1,
+                        draft.menuStart, draft.showCompositionMarkers),
                     draft.emacsEnabled,
                     KeyBindings(SkkCommand.entries.mapNotNull { command ->
                         val text = draft.keyBindings.getValue(command)
@@ -385,6 +390,7 @@ class CustomizationSettingsActivity : Activity() {
             (draft.brackets == 1) != base.punctuation.fullwidthBrackets ||
             (draft.symbols == 0) != base.punctuation.fullwidthSymbols ||
             draft.menuStart != base.candidateDisplay.inlineCandidateCount ||
+            draft.showCompositionMarkers != base.candidateDisplay.showCompositionMarkers ||
             listOf("asdfjkl", "1234567")[draft.labels] != base.candidateDisplay.labels ||
             (draft.pageMode == 0) != (base.candidateDisplay.pageMode == CandidatePageMode.FIXED) ||
             draft.count + 1 != base.candidateDisplay.fixedPageSize || draft.emacsEnabled != base.emacsEnabled ||
@@ -398,7 +404,8 @@ class CustomizationSettingsActivity : Activity() {
 
     private data class Draft(val base: CustomizationSettings, val rules: List<RomajiRule>, val profile: Int,
         val period: Int, val comma: Int, val parentheses: Int, val brackets: Int, val labels: Int,
-        val pageMode: Int, val count: Int, val symbols: Int, val menuStart: Int, val ruleSelection: Int, val ruleEditor: RuleEditor,
+        val pageMode: Int, val count: Int, val symbols: Int, val menuStart: Int,
+        val showCompositionMarkers: Boolean, val ruleSelection: Int, val ruleEditor: RuleEditor,
         val emacsEnabled: Boolean, val keyBindings: Map<SkkCommand, String>)
     private data class RuleEditor(val input: String, val output: String, val remaining: String,
         val terminal: String, val terminalEnabled: Boolean)
@@ -411,7 +418,8 @@ class CustomizationSettingsActivity : Activity() {
     private fun captureDraft(): Draft? = loaded?.let {
         Draft(it, rules.toList(), profile.selectedItemPosition, period.selectedItemPosition, comma.selectedItemPosition,
             parentheses.selectedItemPosition, brackets.selectedItemPosition, labels.selectedItemPosition,
-            pageMode.selectedItemPosition, count.selectedItemPosition, symbols.selectedItemPosition, menuStart.selectedItemPosition, ruleList.selectedItemPosition,
+            pageMode.selectedItemPosition, count.selectedItemPosition, symbols.selectedItemPosition, menuStart.selectedItemPosition,
+            showCompositionMarkers.isChecked, ruleList.selectedItemPosition,
             RuleEditor(input.text.toString(), output.text.toString(), remaining.text.toString(),
                 terminal.text.toString(), terminalEnabled.isChecked), emacsEnabled.isChecked,
             bindingFields.mapValues { (_, field) -> field.text.toString() }.toMap())
@@ -425,6 +433,7 @@ class CustomizationSettingsActivity : Activity() {
         parentheses.setSelection(draft.parentheses); brackets.setSelection(draft.brackets)
         labels.setSelection(draft.labels); pageMode.setSelection(draft.pageMode); count.setSelection(draft.count)
         symbols.setSelection(draft.symbols); menuStart.setSelection(draft.menuStart)
+        showCompositionMarkers.isChecked = draft.showCompositionMarkers
         refreshRules(draft.ruleSelection)
         input.setText(draft.ruleEditor.input); output.setText(draft.ruleEditor.output)
         remaining.setText(draft.ruleEditor.remaining); terminal.setText(draft.ruleEditor.terminal)

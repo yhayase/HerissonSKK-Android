@@ -121,6 +121,17 @@ class CustomizationActivityTest {
         assertEquals(KeyGesture("u", ctrl = true), saved.keyBindings.bindings.getValue(SkkCommand.KANA))
     }
 
+    @Test fun `引用キーと未確定表示印を設定画面から保存する`() {
+        val serial = ManualExecutor()
+        val activity = start(serial, MemoryFile())
+        assertEquals("C-q", bindings(activity).getValue(SkkCommand.QUOTE_NEXT).text.toString())
+        assertEquals("", bindings(activity).getValue(SkkCommand.HALFWIDTH).text.toString())
+        value<android.widget.Switch>(activity, "showCompositionMarkers").isChecked = true
+        call(activity, "saveDraft")
+        serial.runAll()
+        assertTrue(checkNotNull(store).snapshot.candidateDisplay.showCompositionMarkers)
+    }
+
     @Test fun `プロファイル変更は既定のかな種別切替だけを AZIK の既定へ移す`() {
         val serial = ManualExecutor()
         val activity = start(serial, MemoryFile())

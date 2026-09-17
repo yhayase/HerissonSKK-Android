@@ -69,6 +69,14 @@ class DictionaryManager(
         val inputWritesBlocked: Boolean = false,
     )
 
+    private data class PendingPromotion(
+        val key: String,
+        val candidate: SkkDictionaryCandidate,
+        val context: DictionaryInputWriteContext,
+        val permit: PersonalDataPolicy.Permit,
+    )
+    private val pendingPromotions = linkedMapOf<Any, PendingPromotion>()
+
     private val observers = linkedMapOf<Long, (DictionaryManagerStatus) -> Unit>()
     private val fallbackSystems = fallbackSystems.toList()
     private val contextOwner = Any()
@@ -88,8 +96,31 @@ class DictionaryManager(
     val status: DictionaryManagerStatus get() = published.status
 
     /** メモリー上の公開済み辞書だけを検索します。 */
-    override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> =
-        currentDictionary().lookup(query)
+    @Synchronized
+    override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> {
+        val candidates = currentDictionary().lookup(query).toMutableList()
+        pendingPromotions.entries.removeAll { (_, pending) ->
+            !acceptsInputWrite(pending.context) || !personalDataPolicy.accepts(pending.permit)
+        }
+        // 保存待ちの学習は既存候補の順位だけに反映し、保存由来や削除用の世代を作りません。
+        // 数値変換では表示文字列でなく学習先のテンプレートを照合します。
+        for (pending in pendingPromotions.values) {
+            val (promoted, remaining) = candidates.partition { candidate ->
+                val target = candidate.learningTarget
+                val key = target?.query?.readingKey ?: query.readingKey
+                val text = target?.templateText ?: candidate.text
+                val condition = target?.query?.okuri ?: query.okuri ?: candidate.okuriCondition
+                key == pending.key && text == pending.candidate.text &&
+                    condition == pending.candidate.okuriCondition
+            }
+            if (promoted.isNotEmpty()) {
+                candidates.clear()
+                candidates.addAll(promoted)
+                candidates.addAll(remaining)
+            }
+        }
+        return candidates
+    }
 
     override fun complete(query: jp.hayase.skk.core.CompletionQuery): List<String> =
         currentDictionary().complete(query)
@@ -190,6 +221,9 @@ class DictionaryManager(
             deliver(callback, PersonalWriteResult.Failed(PersonalWriteFailure.CONFLICT))
             return
         }
+        val promotionId = Any()
+        pendingPromotions[promotionId] = PendingPromotion(key, candidate, inputContext, permit)
+        if (pendingPromotions.size > 128) pendingPromotions.remove(pendingPromotions.keys.first())
         serialExecutor.execute {
             val saved = runCatching {
                 requireInputWrite(inputContext)
@@ -207,17 +241,16 @@ class DictionaryManager(
                     is PersonalDataPolicyRejectedException -> PersonalWriteFailure.POLICY_REJECTED
                     else -> PersonalWriteFailure.GENERAL
                 }
+                synchronized(this) { pendingPromotions.remove(promotionId) }
                 deliver(callback, PersonalWriteResult.Failed(reason))
                 return@execute
             }
             val loaded = runCatching { buildPublished(loadSnapshot()) }
-            if (loaded.isSuccess) {
-                publish(loaded.getOrThrow())
-                deliver(callback, PersonalWriteResult.Applied)
-            } else {
-                publishRefreshFailure()
-                deliver(callback, PersonalWriteResult.SavedButNotApplied)
+            synchronized(this) {
+                pendingPromotions.remove(promotionId)
+                if (loaded.isSuccess) publish(loaded.getOrThrow()) else publishRefreshFailure()
             }
+            deliver(callback, if (loaded.isSuccess) PersonalWriteResult.Applied else PersonalWriteResult.SavedButNotApplied)
         }
     }
 
@@ -544,7 +577,10 @@ class DictionaryManager(
 
     @Synchronized
     private fun invalidateInputContextsAfterRestore() {
-        if (!closed) published = published.copy(inputEpoch = Any(), inputWritesBlocked = true)
+        if (!closed) {
+            pendingPromotions.clear()
+            published = published.copy(inputEpoch = Any(), inputWritesBlocked = true)
+        }
     }
 
     @Synchronized private fun trackBackupHandle(handle: Closeable) {
@@ -581,6 +617,7 @@ class DictionaryManager(
     override fun close() {
         if (closed) return
         closed = true
+        pendingPromotions.clear()
         observers.clear()
         settingsDrafts.clear()
         applyingSettingsDrafts.clear()
@@ -674,6 +711,7 @@ class DictionaryManager(
     @Synchronized
     private fun publish(next: Published) {
         if (closed) return
+        if (next.inputEpoch !== published.inputEpoch || next.inputWritesBlocked) pendingPromotions.clear()
         published = next
         observers.keys.toList().forEach { deliverObserver(it, next.status) }
     }

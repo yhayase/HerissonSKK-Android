@@ -111,6 +111,9 @@ internal object StandardRomajiRules {
             row("n", "なにぬねの")
             row("h", "はひふへほ")
             add(RomajiRule("fu", "ふ"))
+            listOf("a" to "ぁ", "i" to "ぃ", "e" to "ぇ", "o" to "ぉ").forEach { (vowel, small) ->
+                add(RomajiRule("f$vowel", "ふ$small"))
+            }
             row("m", "まみむめも")
             add(RomajiRule("ya", "や")); add(RomajiRule("yi", "い")); add(RomajiRule("yu", "ゆ")); add(RomajiRule("yo", "よ"))
             row("r", "らりるれろ")
@@ -132,6 +135,13 @@ internal object StandardRomajiRules {
             }
             add(RomajiRule("nn", "ん")); add(RomajiRule("n'", "ん")); add(RomajiRule("n", "", terminalOutput = "ん"))
             "bcdfghjklmpqrstvwxyz".filter { it != 'n' }.forEach { consonant -> add(RomajiRule("n$consonant", "ん", consonant.toString())) }
+        // 入出力の対応は DDSKK の標準規則を参照しています。
+        mapOf("zh" to "←", "zj" to "↓", "zk" to "↑", "zl" to "→", "zL" to "⇒",
+            "z " to "　", "z*" to "※", "z," to "‥", "z-" to "〜", "z." to "…",
+            "z/" to "・", "z0" to "○", "z@" to "◎", "z[" to "『", "z]" to "』",
+            "z{" to "〖", "z}" to "〗", "z(" to "（", "z)" to "）").forEach { (input, output) ->
+            add(RomajiRule(input, output))
+        }
         add(RomajiRule("tt", "っ", "t"))
         "bcdfghjklmpqrsvwxyz".forEach { consonant -> add(RomajiRule("$consonant$consonant", "っ", consonant.toString())) }
     }

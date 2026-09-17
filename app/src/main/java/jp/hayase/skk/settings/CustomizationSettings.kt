@@ -48,7 +48,8 @@ class CustomizationSettings(
             }
             CustomizationProfile.CUSTOM -> {
                 require(this.customRules.none { rule ->
-                    rule.input.any { it.isUpperCase() } || rule.remaining.any { it.isUpperCase() }
+                    (rule.input.any { it.isUpperCase() } || rule.remaining.any { it.isUpperCase() }) &&
+                        rule !in Romanizer.standardRules
                 }) { "カスタム規則の入力と残余に大文字は使えません" }
                 romanRuleSet = RomanRuleSet.compile(this.customRules)
             }

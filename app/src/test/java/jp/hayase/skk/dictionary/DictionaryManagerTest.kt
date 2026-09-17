@@ -59,6 +59,134 @@ class DictionaryManagerTest {
         manager.close(); serial.runAll()
     }
 
+    @Test fun `学習の直列保存完了で同じ管理器の検索順位を再公開する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        val serial = ManualExecutor()
+        var loads = 0
+        val manager = DictionaryManager(repository, serial, Executor { it.run() },
+            fallbackSystems = listOf(BuiltinDictionary.source),
+            loadSnapshot = { loads++; repository.loadSnapshot() })
+        manager.loadAsync(); serial.runAll()
+        assertEquals(1, loads)
+        val query = DictionaryQuery("にほん")
+        assertEquals("日本", manager.lookup(query).first().text)
+        var result: PersonalWriteResult? = null
+        manager.savePersonalCandidate("にほん", SkkDictionaryCandidate("二本"), true) {
+            result = it
+            assertEquals("二本", manager.lookup(query).first().text)
+        }
+        assertEquals(null, result)
+        assertEquals("二本", manager.lookup(query).first().text)
+        serial.runAll()
+        assertEquals(PersonalWriteResult.Applied, result)
+        assertEquals(2, loads)
+        assertEquals(listOf("二本", "日本"), manager.lookup(query).map { it.text })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `保存失敗と保存禁止への変更は保存待ちの順位を取り消す`() {
+        for (policyRejected in listOf(false, true)) {
+            val repository = SQLiteDictionaryRepository(context, databaseName()) { point ->
+                if (!policyRejected && point == DictionaryWritePoint.BEFORE_PUBLICATION) error("保存失敗")
+            }
+            val serial = ManualExecutor()
+            val manager = DictionaryManager(repository, serial, Executor { it.run() },
+                fallbackSystems = listOf(BuiltinDictionary.source))
+            manager.loadAsync(); serial.runAll()
+            var result: PersonalWriteResult? = null
+            manager.savePersonalCandidate("にほん", SkkDictionaryCandidate("二本"), true) { result = it }
+            assertEquals("二本", manager.lookup(DictionaryQuery("にほん")).first().text)
+            if (policyRejected) {
+                manager.personalDataPolicy.setAllowed(false)
+                assertEquals("日本", manager.lookup(DictionaryQuery("にほん")).first().text)
+                manager.personalDataPolicy.setAllowed(true)
+            }
+            serial.runAll()
+            assertTrue(result is PersonalWriteResult.Failed)
+            assertEquals("日本", manager.lookup(DictionaryQuery("にほん")).first().text)
+            manager.close(); serial.runAll()
+        }
+    }
+
+    @Test fun `複数の保存待ち候補は最新の確定順を各保存の完了後も保つ`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() },
+            fallbackSystems = listOf(BuiltinDictionary.source))
+        manager.loadAsync(); serial.runAll()
+        manager.savePersonalCandidate("にほん", SkkDictionaryCandidate("二本"), true) { }
+        manager.savePersonalCandidate("にほん", SkkDictionaryCandidate("日本"), true) { }
+        val query = DictionaryQuery("にほん")
+        assertEquals("日本", manager.lookup(query).first().text)
+        serial.runNext()
+        assertEquals("日本", manager.lookup(query).first().text)
+        serial.runNext()
+        assertEquals(listOf("日本", "二本"), manager.lookup(query).map { it.text })
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `保存待ちの数値テンプレートと送り条件は候補の由来を保って照合する`() {
+        val repository = SQLiteDictionaryRepository(context, databaseName())
+        repository.replacePersonal(document("だい# /第#0/第#1/\nかk /書/描/"), 0)
+        val serial = ManualExecutor()
+        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        manager.loadAsync(); serial.runAll()
+        val numericQuery = DictionaryQuery("だい12")
+        val before = manager.lookup(numericQuery)
+        assertEquals(2, before.size)
+        manager.savePersonalCandidate("だい#", SkkDictionaryCandidate("第#1"), true) { }
+        val after = manager.lookup(numericQuery)
+        assertEquals(before.reversed().map { it.text }, after.map { it.text })
+        assertEquals(before.last().learningTarget, after.first().learningTarget)
+        assertEquals(before.last().selection!!.personalGeneration, after.first().selection!!.personalGeneration)
+        assertEquals(before.last().selection!!.origins, after.first().selection!!.origins)
+        manager.savePersonalCandidate("かk", SkkDictionaryCandidate("描", okuriCondition = "く"), true) { }
+        assertEquals("描", manager.lookup(DictionaryQuery("かk", "く")).first().text)
+        assertEquals("書", manager.lookup(DictionaryQuery("かk", "け")).first().text)
+        serial.runAll()
+        assertEquals(before.last().text, manager.lookup(numericQuery).first().text)
+        manager.close(); serial.runAll()
+    }
+
+    @Test fun `復元直後は公開成否によらず保存待ちの順位と旧入力許可を破棄する`() {
+        for (failPublication in listOf(false, true)) {
+            val repository = SQLiteDictionaryRepository(context, databaseName())
+            repository.replacePersonal(document("にほん /日本/二本/"), 0)
+            val bytes = java.io.ByteArrayOutputStream().also {
+                repository.writeCompleteBackup(it, emptyList(), "test")
+            }.toByteArray()
+            val serial = ManualExecutor()
+            var failLoad = false
+            val manager = DictionaryManager(repository, serial, Executor { it.run() },
+                loadSnapshot = { if (failLoad) error("公開失敗") else repository.loadSnapshot() })
+            manager.loadAsync(); serial.runAll()
+            val oldContext = manager.captureInputWriteContext()
+            var prepared: PreparedDictionaryRestore? = null
+            manager.prepareCompleteRestore(context, { bytes.inputStream() }) {
+                prepared = (it as CompleteBackupResult.Applied).value
+            }
+            serial.runAll()
+            var restored: CompleteBackupResult<RestoreSummary>? = null
+            manager.restoreComplete(checkNotNull(prepared)) { restored = it }
+            var learned: PersonalWriteResult? = null
+            manager.savePersonalCandidate("にほん", SkkDictionaryCandidate("二本"), true, oldContext) {
+                learned = it
+            }
+            assertEquals("二本", manager.lookup(DictionaryQuery("にほん")).first().text)
+            failLoad = failPublication
+            serial.runNext()
+            assertTrue(if (failPublication) restored is CompleteBackupResult.SavedButNotApplied
+                else restored is CompleteBackupResult.Applied)
+            assertFalse(manager.isInputWriteContextCurrent(oldContext))
+            assertEquals(null, learned)
+            assertEquals("日本", manager.lookup(DictionaryQuery("にほん")).first().text)
+            serial.runNext()
+            assertEquals(PersonalWriteResult.Failed(PersonalWriteFailure.CONFLICT), learned)
+            assertEquals("日本", manager.lookup(DictionaryQuery("にほん")).first().text)
+            manager.close(); serial.runAll()
+        }
+    }
+
     @Test fun `学習禁止の入力は保存キューへ入らず既存辞書を変更しない`() {
         val repository = SQLiteDictionaryRepository(context, databaseName())
         repository.replacePersonal(document("かな /既存/"), 0)

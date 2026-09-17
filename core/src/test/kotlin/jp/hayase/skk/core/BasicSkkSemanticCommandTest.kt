@@ -73,7 +73,7 @@ class BasicSkkSemanticCommandTest {
 
         val labeled = BasicSkkEngine(Dictionary(values))
         labeled.dispatch(BasicSkkAction.Text("Ka "))
-        repeat(3) { labeled.dispatch(BasicSkkAction.ConvertNext) }
+        repeat(2) { labeled.dispatch(BasicSkkAction.ConvertNext) }
         assertEquals("候補3", labeled.dispatch(
             BasicSkkAction.Text("a", interpretCommands = false),
         ).commit)

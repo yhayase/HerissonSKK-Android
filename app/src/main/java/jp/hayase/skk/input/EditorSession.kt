@@ -5,6 +5,8 @@ import android.os.Looper
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicReference
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.ExtractedText
+import android.view.inputmethod.ExtractedTextRequest
 import jp.hayase.skk.core.BasicSkkAction
 import jp.hayase.skk.core.BasicSkkDictionary
 import jp.hayase.skk.core.BasicSkkEngine
@@ -74,6 +76,26 @@ class EditorSession(
     private var composingStart = -1
     private var composingEnd = -1
     private var hasEditorComposition = false
+    private val compositionMarkersRequested = candidateDisplayConfig.showCompositionMarkers && !protectedInput
+    private var lastEditorText = ""
+    private var lastEditorMarkerLength = 0
+
+    private fun marker(): String {
+        if (!compositionMarkersRequested || selectionStart < 0 || readEditorSnapshot() == null) return ""
+        return when {
+            view.registration != null -> "▽"
+            view.candidate != null -> "▼"
+            engine.state.phase == InputPhase.READING || engine.state.phase == InputPhase.ABBREV -> "▽"
+            else -> ""
+        }
+    }
+
+    private fun readEditorSnapshot(): ExtractedText? =
+        connection.getExtractedText(ExtractedTextRequest().apply { hintMaxChars = 8192 }, 0)
+            ?.takeIf { it.text != null && it.startOffset >= 0 && it.partialStartOffset < 0 &&
+                it.selectionStart in 0..it.text.length && it.selectionEnd in 0..it.text.length &&
+                it.startOffset.toLong() + it.text.length <= Int.MAX_VALUE }
+
     private data class Selection(val start: Int, val end: Int, val composingStart: Int, val composingEnd: Int)
     private val expectedSelections = ArrayDeque<Selection>()
 
@@ -196,12 +218,17 @@ class EditorSession(
                 expectReplacement(text.length, composing = false)
                 if (!connection.commitText(text, 1)) return fail()
                 hasEditorComposition = false
+                lastEditorText = ""
+                lastEditorMarkerLength = 0
             }
-            val text = displayedComposition
+            val prefix = marker()
+            val text = prefix + displayedComposition
             if (text.isNotEmpty() || hasEditorComposition) {
                 expectReplacement(text.length, composing = text.isNotEmpty())
                 if (!connection.setComposingText(text, 1)) return fail()
                 hasEditorComposition = text.isNotEmpty()
+                lastEditorText = text
+                lastEditorMarkerLength = prefix.length
                 if (text.isEmpty()) {
                     connection.finishComposingText()
                 } else if (!placeInternalCursor(text)) {
@@ -293,7 +320,7 @@ class EditorSession(
         val observed = Selection(start, end, candidatesStart, candidatesEnd)
         if (selectionStart < 0 && hasEditorComposition && candidatesStart >= 0 &&
             start == end && end in candidatesStart..candidatesEnd &&
-            candidatesEnd - candidatesStart == displayedComposition.length) {
+            candidatesEnd - candidatesStart == lastEditorText.length) {
             selectionStart = start
             selectionEnd = end
             composingStart = candidatesStart
@@ -301,7 +328,12 @@ class EditorSession(
             publishEditState()
             return false
         }
-        val index = expectedSelections.indexOf(observed)
+        // 終了済み span の外部移動が過去の自分の通知と同じ位置でも、実際の選択を優先します。
+        val markerFinishedExternally = lastEditorMarkerLength > 0 && candidatesStart == -1 &&
+            candidatesEnd == -1 && readEditorSnapshot()?.let {
+                it.startOffset + it.selectionStart == start && it.startOffset + it.selectionEnd == end
+            } == true
+        val index = if (markerFinishedExternally) -1 else expectedSelections.indexOf(observed)
         if (index >= 0) {
             val hasNewerExpectedSelection = index < expectedSelections.lastIndex
             repeat(index + 1) { expectedSelections.removeFirst() }
@@ -315,10 +347,10 @@ class EditorSession(
             return false
         }
         if (observed == Selection(selectionStart, selectionEnd, composingStart, composingEnd)) return false
-        // 外部移動後は範囲を編集せず、既に表示された文字をその位置に残します。
-        preserveText()
+        // 外部移動時は実際の本文を照合して表示記号だけを除き、本文と移動先を保持します。
         selectionStart = start
         selectionEnd = end
+        preserveText()
         publishEditState()
         return true
     }
@@ -327,13 +359,51 @@ class EditorSession(
         if (!active) return
         publishEditState(invalidate = true)
         val finish = hasEditorComposition || composingStart >= 0
+        val markerRemoved = removeCompositionMarker()
         clearCoreComposition()
+        if (!markerRemoved) notice = "入力先の変更を確認できないため、表示記号を除去できませんでした"
         expectedSelections.clear()
         composingStart = -1
         composingEnd = -1
         hasEditorComposition = false
+        lastEditorText = ""
+        lastEditorMarkerLength = 0
         if (finish) connection.finishComposingText()
         publishEditState()
+    }
+
+    /** 終了済みの composing span へ本文を再挿入せず、照合できた表示記号だけを除きます。 */
+    private fun removeCompositionMarker(): Boolean {
+        if (lastEditorMarkerLength == 0) return true
+        if (composingStart < 0) return false
+        val snapshot = readEditorSnapshot() ?: return false
+        val text = snapshot.text
+        val relativeStart = composingStart - snapshot.startOffset
+        if (relativeStart < 0 || relativeStart + lastEditorText.length > text.length ||
+            !text.subSequence(relativeStart, relativeStart + lastEditorText.length).toString()
+                .equals(lastEditorText)) return false
+        val liveStart = snapshot.startOffset + snapshot.selectionStart
+        val liveEnd = snapshot.startOffset + snapshot.selectionEnd
+        val markerEnd = composingStart + lastEditorMarkerLength
+        fun adjusted(position: Int): Int = when {
+            position <= composingStart -> position
+            position <= markerEnd -> composingStart
+            else -> position - lastEditorMarkerLength
+        }
+        connection.beginBatchEdit()
+        try {
+            if (!connection.finishComposingText()) return false
+            if (!connection.setSelection(composingStart, markerEnd)) return false
+            if (!connection.commitText("", 1)) {
+                connection.setSelection(liveStart, liveEnd)
+                return false
+            }
+            selectionStart = adjusted(liveStart)
+            selectionEnd = adjusted(liveEnd)
+            return connection.setSelection(selectionStart, selectionEnd)
+        } finally {
+            connection.endBatchEdit()
+        }
     }
 
     fun close() {
@@ -345,7 +415,8 @@ class EditorSession(
     }
 
     private fun placeInternalCursor(text: String): Boolean {
-        val requested = if (view.candidate != null) text.length else view.cursor ?: text.length
+        val requested = if (view.candidate != null) text.length else
+            view.cursor?.plus(lastEditorMarkerLength) ?: text.length
         if (requested !in 0..text.length) return false
         if (requested == text.length || composingStart < 0 || composingEnd < composingStart) return true
         val absolute = composingStart + requested

@@ -161,6 +161,11 @@ class SafDictionaryE2eTest {
                 key(KeyEvent.KEYCODE_SPACE)
                 key(KeyEvent.KEYCODE_ENTER)
                 awaitText(editor, "二本")
+                // 保存完了待ちや別セッションを挟まず、直後の変換でも選択結果を優先します。
+                type("Nihon ")
+                awaitText(editor, "二本二本")
+                key(KeyEvent.KEYCODE_ENTER)
+                awaitText(editor, "二本二本")
             }
 
             ActivityScenario.launch(InputTestActivity::class.java).use { scenario ->

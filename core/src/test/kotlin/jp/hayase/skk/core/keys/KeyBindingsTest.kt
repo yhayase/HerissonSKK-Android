@@ -41,7 +41,7 @@ class KeyBindingsTest {
         engine.dispatch(BasicSkkAction.Text("Ka "))
         val map = KeyBindings()
         assertEquals(BasicSkkAction.ToDirect, map.resolve(KeyGesture("l"), engine.state, engine.currentView))
-        repeat(3) { engine.dispatch(BasicSkkAction.ConvertNext) }
+        repeat(2) { engine.dispatch(BasicSkkAction.ConvertNext) }
         assertTrue(engine.currentView.candidate!!.menu.isNotEmpty())
         assertNull(map.resolve(KeyGesture("l"), engine.state, engine.currentView))
     }
@@ -156,5 +156,21 @@ class KeyBindingsTest {
         engine.dispatch(BasicSkkAction.StartReading)
         assertEquals(BasicSkkAction.Enter,
             bindings.resolve(cM, engine.state, engine.currentView, true))
+    }
+
+    @Test fun `旧版の半角カナ標準キーは引用に移りカスタムC-qは保持する`() {
+        val legacy = KeyBindings(KeyBindings.defaults - SkkCommand.QUOTE_NEXT +
+            (SkkCommand.HALFWIDTH to KeyGesture("q", ctrl = true)))
+        val migrated = KeyBindings.migrateQuoteNext(legacy)
+        assertFalse(SkkCommand.HALFWIDTH in migrated.bindings)
+        assertEquals(KeyGesture("q", ctrl = true), migrated.bindings[SkkCommand.QUOTE_NEXT])
+
+        val custom = KeyBindings(KeyBindings.defaults - SkkCommand.QUOTE_NEXT +
+            (SkkCommand.HALFWIDTH to KeyGesture("z", ctrl = true)) +
+            (SkkCommand.EDIT_LEFT to KeyGesture("q", ctrl = true)))
+        val preserved = KeyBindings.migrateQuoteNext(custom)
+        assertEquals(KeyGesture("z", ctrl = true), preserved.bindings[SkkCommand.HALFWIDTH])
+        assertEquals(KeyGesture("q", ctrl = true), preserved.bindings[SkkCommand.EDIT_LEFT])
+        assertFalse(SkkCommand.QUOTE_NEXT in preserved.bindings)
     }
 }

@@ -239,7 +239,7 @@ private class AtomicCustomizationFile(path: File) : CustomizationFileAccess {
 }
 
 private object CustomizationJson {
-    private const val SCHEMA_VERSION = 3
+    private const val SCHEMA_VERSION = 4
     private const val MAX_JSON_DEPTH = 16
     private val ROOT_FIELDS = setOf(
         "documentVersion", "generation", "profile", "customRules", "punctuation",
@@ -249,7 +249,8 @@ private object CustomizationJson {
     private val PUNCTUATION_FIELDS = setOf(
         "period", "comma", "fullwidthParentheses", "fullwidthBrackets", "fullwidthSymbols",
     )
-    private val CANDIDATE_FIELDS = setOf("labels", "pageMode", "fixedPageSize", "inlineCandidateCount")
+    private val CANDIDATE_FIELDS = setOf("labels", "pageMode", "fixedPageSize", "inlineCandidateCount",
+        "showCompositionMarkers")
 
     fun encode(settings: CustomizationSettings): ByteArray {
         val rules = JSONArray()
@@ -278,6 +279,7 @@ private object CustomizationJson {
                 put("pageMode", settings.candidateDisplay.pageMode.name)
                 put("fixedPageSize", settings.candidateDisplay.fixedPageSize)
                 put("inlineCandidateCount", settings.candidateDisplay.inlineCandidateCount)
+                put("showCompositionMarkers", settings.candidateDisplay.showCompositionMarkers)
             })
             put("emacsEnabled", settings.emacsEnabled)
             put("keyBindings", JSONArray().apply {
@@ -336,7 +338,11 @@ private object CustomizationJson {
             punctuationObject.requiredBoolean("fullwidthBrackets"),
             if (version < 3) false else punctuationObject.requiredBoolean("fullwidthSymbols"),
         )
-        val candidateObject = root.requiredObject("candidateDisplay").requireFields(if (version < 3) CANDIDATE_FIELDS - "inlineCandidateCount" else CANDIDATE_FIELDS)
+        val candidateObject = root.requiredObject("candidateDisplay").requireFields(when {
+            version < 3 -> CANDIDATE_FIELDS - setOf("inlineCandidateCount", "showCompositionMarkers")
+            version < 4 -> CANDIDATE_FIELDS - "showCompositionMarkers"
+            else -> CANDIDATE_FIELDS
+        })
         val pageSize = candidateObject.requiredInteger("fixedPageSize")
         if (pageSize !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
             throw InvalidCustomizationFileException()
@@ -348,6 +354,7 @@ private object CustomizationJson {
             enumValue<CandidatePageMode>(candidateObject.requiredString("pageMode")),
             pageSize.toInt(),
             inlineCount.toInt(),
+            if (version < 4) false else candidateObject.requiredBoolean("showCompositionMarkers"),
         )
         val bindings = if (version == 1L) KeyBindings() else {
             val values = root.requiredArray("keyBindings")
@@ -368,11 +375,12 @@ private object CustomizationJson {
                 if (keys.put(command, key) != null) throw InvalidCustomizationFileException()
             }
             if (version == 2L) {
-                if (keys.keys != SkkCommand.entries.toSet() - KeyBindings.optionalCommands) {
+                if (keys.keys != (SkkCommand.entries.toSet() - KeyBindings.optionalCommands) + SkkCommand.HALFWIDTH) {
                     throw InvalidCustomizationFileException()
                 }
-                KeyBindings.addDefaultsPreservingExisting(keys)
-            } else KeyBindings(keys)
+                KeyBindings.migrateQuoteNext(KeyBindings.addDefaultsPreservingExisting(keys))
+            } else if (version == 3L) KeyBindings.migrateQuoteNext(KeyBindings(keys))
+            else KeyBindings(keys)
         }
         return CustomizationSettings(
             generation,
