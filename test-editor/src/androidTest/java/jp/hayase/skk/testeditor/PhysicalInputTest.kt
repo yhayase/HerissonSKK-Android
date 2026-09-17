@@ -157,6 +157,21 @@ class PhysicalInputTest {
         }
     }
 
+    @Test fun cancelEmptyLookupRegistrationRestoresEditableReading() {
+        withSendEditor { editor, counter ->
+            type("Mitorokupamyu ")
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            awaitText(editor, "みとろくぱみゅ")
+            instrumentation.runOnMainSync {
+                assertEquals(0, BaseInputConnection.getComposingSpanStart(editor.text))
+                assertEquals(editor.text.length, BaseInputConnection.getComposingSpanEnd(editor.text))
+            }
+            key(KeyEvent.KEYCODE_DEL)
+            awaitText(editor, "みとろくぱみ")
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
     @Test fun cancelRegistrationRestoresLastSingleCandidate() {
         withSendEditor { editor, counter ->
             type("Nihon   ")

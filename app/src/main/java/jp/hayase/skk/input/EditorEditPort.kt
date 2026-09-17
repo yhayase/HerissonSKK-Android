@@ -69,6 +69,7 @@ class EditorEditPort(
     fun resetNativeNavigation() { nativeNavigation.set(false) }
     @Volatile private var pending: Operation? = null
     private var verticalGoal: Int? = null
+    private var snapshotUnavailable = false
     private var verticalState: EditorEditState? = null
 
     private class Operation(
@@ -134,15 +135,31 @@ class EditorEditPort(
     }
 
     private fun execute(operation: Operation, command: EditCommand) {
-        if (nativeNavigation.get() && command in NATIVE_NAVIGATION_COMMANDS) {
+        if (nativeNavigation.get() && command == EditCommand.NEWLINE) {
+            return issueUnverifiedCommand(operation, command)
+        }
+        if (nativeNavigation.get() && command in NATIVE_SEQUENCE_COMMANDS) {
             return issueNative(operation, command)
         }
         // 通常編集は新しい取得・選択位置の照合から再開します。
         // ただし標準キーの適用と取得を原子的に順序付ける API はありません。
         nativeNavigation.set(false)
         if (!check(operation)) return
-        val first = read() ?: return unsupported(operation, EditorEditResult.Reason.UNAVAILABLE)
-        if (!matchesSelection(first, operation.initial)) return unsupported(operation, EditorEditResult.Reason.INVALID_SNAPSHOT)
+        val first = read() ?: return if (snapshotUnavailable) {
+            if (!check(operation)) return
+            if (command in setOf(EditCommand.NEWLINE, EditCommand.CUT, EditCommand.COPY)) issueUnverifiedCommand(operation, command)
+            else issueNative(operation, command)
+        } else unsupported(operation, EditorEditResult.Reason.INVALID_SNAPSHOT)
+        if (first.offset == -1 || !matchesSelection(first, operation.initial)) {
+            // Android の既定実装は相対選択だけを返し、絶対 offset を -1 にします。
+            // また選択通知が取得結果より遅れる入力先もあります。絶対位置を推測せず、
+            // 有効なスナップショットが二回一致した場合だけ入力先へ範囲決定を委ねます。
+            val relative = EditSnapshot(first.text, first.start, first.end, "editor-$generation", operation.initial.revision)
+            if (Editing.plan(relative, EditCommand.HOME, maxLength = Editing.EXTERNAL_LIMIT) !is EditResult.Ready) {
+                return unsupported(operation, EditorEditResult.Reason.INVALID_SNAPSHOT)
+            }
+            return executeNative(operation, command, first)
+        }
         if (command in listOf(EditCommand.PAGE_DOWN, EditCommand.PAGE_UP,
                 EditCommand.BUFFER_START, EditCommand.BUFFER_END)) {
             return executeNative(operation, command, first)
@@ -150,8 +167,8 @@ class EditorEditPort(
         if (command in listOf(EditCommand.CUT, EditCommand.COPY, EditCommand.NEWLINE)) {
             return executeClipboardOrNewline(operation, command, first)
         }
-        val prepared = prepare(first, command, operation.initial)
-            ?: return if (canUseNativeMovement(first, command)) {
+        val ready = prepare(first, command, operation.initial)
+            ?: return if (canUseNativeMovement(first, command, operation.initial)) {
                 executeNative(operation, command, first)
             } else unsupported(operation, EditorEditResult.Reason.INSUFFICIENT_CONTEXT)
         if (!check(operation)) return
@@ -163,8 +180,8 @@ class EditorEditPort(
             return
         }
         if (!check(operation)) return
-        val plan = prepared.plan
-        val target = prepared.offset + plan.cursor
+        val plan = ready.plan
+        val target = ready.offset + plan.cursor
         if (!plan.changed) {
             verticalGoal = plan.preferredColumn
             verticalState = operation.initial
@@ -191,8 +208,8 @@ class EditorEditPort(
         val after = read(first.source) ?: return fail(operation, EditorEditResult.Reason.POSTCHECK_MISMATCH)
         if (!checkAfterRequest(operation, target)) return
         val expectedText = if (removed == null) first.text else {
-            val begin = prepared.offset - first.offset + removed.start
-            val end = prepared.offset - first.offset + removed.end
+            val begin = ready.offset - first.offset + removed.start
+            val end = ready.offset - first.offset + removed.end
             first.text.removeRange(begin, end)
         }
         val contentMatches = matchesOverlappingText(first.offset, expectedText, after, target)
@@ -205,9 +222,17 @@ class EditorEditPort(
             expectedSelectionStart = target, expectedSelectionEnd = target))
     }
 
-    private fun canUseNativeMovement(window: Window, command: EditCommand): Boolean {
-        return window.start == window.end &&
-            (command == EditCommand.LEFT || command == EditCommand.RIGHT)
+    private fun canUseNativeMovement(window: Window, command: EditCommand, initial: EditorEditState): Boolean {
+        if (window.start != window.end || command !in NATIVE_SEQUENCE_COMMANDS) return false
+        // 不正な UTF-16 やクラスタ途中の位置を、取得窓不足と取り違えません。
+        val snapshot = EditSnapshot(window.text, window.start, window.end, "editor-$generation", initial.revision)
+        val plan = (Editing.plan(snapshot, command, maxLength = Editing.EXTERNAL_LIMIT) as? EditResult.Ready)?.plan
+            ?: return false
+        if (window.text.endsWith('\r') && (window.start == window.text.length ||
+                window.end == window.text.length || plan.cursor == window.text.length)) return false
+        // 削除後のクラスタ結合で位置補正が必要な計画は従来どおり拒否します。
+        val removed = plan.deletedRange
+        return removed == null || plan.cursor == removed.start
     }
 
     private fun executeNative(operation: Operation, command: EditCommand, first: Window) {
@@ -215,35 +240,68 @@ class EditorEditPort(
         val second = read(first.source) ?: return unsupported(operation, EditorEditResult.Reason.UNAVAILABLE)
         if (first != second) return finish(operation, result(EditorEditResult.Outcome.STALE))
         if (!check(operation)) return
-        issueNative(operation, command)
+        if (command in setOf(EditCommand.NEWLINE, EditCommand.CUT, EditCommand.COPY)) {
+            issueUnverifiedCommand(operation, command, first.start != first.end)
+        } else issueNative(operation, command)
     }
 
     private fun issueNative(operation: Operation, command: EditCommand) {
-        if (operation.delivered.get()) return
-        if (clock() >= operation.deadline) return fail(operation, EditorEditResult.Reason.TIMEOUT)
-        val current = state()
-        if (!usable(current) || current.revision != operation.initial.revision) {
-            return finish(operation, result(EditorEditResult.Outcome.STALE))
-        }
+        if (!checkNative(operation)) return
+        // 本文が取得できない場合や境界を証明できない場合は、入力先自身に
+        // 標準キーの範囲決定を任せます。変更 API の発行後にはこの経路へ戻りません。
         val (code, meta) = when (command) {
             EditCommand.LEFT -> KeyEvent.KEYCODE_DPAD_LEFT to 0
             EditCommand.RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT to 0
+            EditCommand.UP -> KeyEvent.KEYCODE_DPAD_UP to 0
+            EditCommand.DOWN -> KeyEvent.KEYCODE_DPAD_DOWN to 0
+            EditCommand.HOME -> KeyEvent.KEYCODE_MOVE_HOME to 0
+            EditCommand.END -> KeyEvent.KEYCODE_MOVE_END to 0
+            EditCommand.BACKSPACE -> KeyEvent.KEYCODE_DEL to 0
+            EditCommand.DELETE -> KeyEvent.KEYCODE_FORWARD_DEL to 0
             EditCommand.PAGE_DOWN -> KeyEvent.KEYCODE_PAGE_DOWN to 0
             EditCommand.PAGE_UP -> KeyEvent.KEYCODE_PAGE_UP to 0
             EditCommand.BUFFER_START -> KeyEvent.KEYCODE_MOVE_HOME to KeyEvent.META_CTRL_ON
             EditCommand.BUFFER_END -> KeyEvent.KEYCODE_MOVE_END to KeyEvent.META_CTRL_ON
             else -> return unsupported(operation, EditorEditResult.Reason.INSUFFICIENT_CONTEXT)
         }
+        if (command == EditCommand.BUFFER_START || command == EditCommand.BUFFER_END) {
+            // 「<」「>」入力用の物理 Shift が移動キーの範囲選択に残るのを防ぎます。
+            connection.clearMetaKeyStates(KeyEvent.META_SHIFT_MASK)
+            if (!checkNative(operation)) return
+        }
         val now = clock()
         val down = KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta)
         val up = KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta)
-        nativeNavigation.set(true)
+        nativeNavigation.set(command in NATIVE_SEQUENCE_COMMANDS)
         if (!connection.sendKeyEvent(down)) return fail(operation, EditorEditResult.Reason.API_REJECTED)
         // 下向きイベントが既に適用された可能性があるので、失敗時も再送しません。
         connection.sendKeyEvent(up)
         verticalGoal = null
         // キーの受付は適用完了を保証せず、直後の取得も完了確認にはなりません。
-        // 以後のネイティブ移動も同じ接続へ順に送り、選択位置は入力先の通知だけで更新します。
+        // 以後のネイティブ移動・削除も同じ接続へ順に送り、選択位置は入力先の通知だけで更新します。
+        finish(operation, EditorEditResult(EditorEditResult.Outcome.NATIVE_ISSUED))
+    }
+
+    private fun issueUnverifiedCommand(operation: Operation, command: EditCommand,
+        hasSelection: Boolean = operation.initial.selectionStart >= 0 &&
+            operation.initial.selectionEnd >= 0 && operation.initial.selectionStart != operation.initial.selectionEnd) {
+        if (command == EditCommand.NEWLINE) {
+            if (!checkNative(operation)) return
+            // 改行後の通知も遅れて届くため、入力先が範囲を決める編集の列として扱います。
+            // 次の移動・削除は古い取得結果から計画せず、同じ接続へ順に送ります。
+            nativeNavigation.set(true)
+        } else if (!check(operation)) return
+        if (command != EditCommand.NEWLINE && !hasSelection) {
+            return finish(operation, EditorEditResult(EditorEditResult.Outcome.NO_CHANGE))
+        }
+        // ENTER は送信・検索に変わるため、取得不能でも改行文字だけを一度送ります。
+        val accepted = when (command) {
+            EditCommand.CUT -> connection.performContextMenuAction(android.R.id.cut)
+            EditCommand.COPY -> connection.performContextMenuAction(android.R.id.copy)
+            else -> connection.commitText("\n", 1)
+        }
+        if (!accepted) return fail(operation, EditorEditResult.Reason.API_REJECTED)
+        verticalGoal = null
         finish(operation, EditorEditResult(EditorEditResult.Outcome.NATIVE_ISSUED))
     }
 
@@ -327,6 +385,20 @@ class EditorEditPort(
         return true
     }
 
+    private fun checkNative(operation: Operation): Boolean {
+        if (operation.delivered.get()) return false
+        if (clock() >= operation.deadline) {
+            fail(operation, EditorEditResult.Reason.TIMEOUT)
+            return false
+        }
+        val current = state()
+        if (!usable(current) || current.revision != operation.initial.revision) {
+            finish(operation, result(EditorEditResult.Outcome.STALE))
+            return false
+        }
+        return true
+    }
+
     private fun checkAfterRequest(operation: Operation, target: Int): Boolean {
         if (operation.delivered.get()) return false
         if (clock() >= operation.deadline) {
@@ -359,16 +431,31 @@ class EditorEditPort(
     private data class Prepared(val offset: Int, val plan: EditPlan)
 
     private fun read(source: Source? = null): Window? {
+        snapshotUnavailable = false
         if (Build.VERSION.SDK_INT >= 31 && (source == Source.SURROUNDING || source == null)) {
             val value = connection.getSurroundingText(CONTEXT, CONTEXT, 0)
-            if (value != null) return window(value.text, value.offset, value.selectionStart, value.selectionEnd, Source.SURROUNDING)
-            return null
+            if (value != null) {
+                if (value.offset != -1) return window(value.text, value.offset, value.selectionStart, value.selectionEnd, Source.SURROUNDING)
+                val relative = window(value.text, 0, value.selectionStart, value.selectionEnd, Source.SURROUNDING)
+                    ?.copy(offset = -1) ?: return null
+                if (source == null) {
+                    val extracted = read(Source.EXTRACTED)
+                    if (extracted != null) return extracted
+                    if (!snapshotUnavailable) return null
+                }
+                snapshotUnavailable = false
+                return relative
+            }
+            if (source == Source.SURROUNDING) return null
         }
         val request = ExtractedTextRequest().apply {
             hintMaxChars = Editing.EXTERNAL_LIMIT
             hintMaxLines = 0
         }
-        val value = connection.getExtractedText(request, 0) ?: return null
+        val value = connection.getExtractedText(request, 0) ?: run {
+            snapshotUnavailable = true
+            return null
+        }
         if (value.partialStartOffset != -1) return null
         return window(value.text, value.startOffset, value.selectionStart, value.selectionEnd, Source.EXTRACTED)
     }
@@ -439,7 +526,9 @@ class EditorEditPort(
     private fun finish(operation: Operation, value: EditorEditResult, failure: Boolean = false, immediately: Boolean = false) {
         if (!operation.delivered.compareAndSet(false, true)) return
         if (failure) {
-            failed.set(true)
+            // 非同期の入力先では受付直後の取得が古い場合があります。
+            // 同じ操作は再送せず、次の明示的な要求で改めて取得・照合します。
+            if (value.reason !in setOf(EditorEditResult.Reason.POSTCHECK_MISMATCH, EditorEditResult.Reason.API_REJECTED)) failed.set(true)
             verticalGoal = null
         }
         operation.timer?.cancel()
@@ -461,7 +550,9 @@ class EditorEditPort(
     private fun result(outcome: EditorEditResult.Outcome, reason: EditorEditResult.Reason? = null) = EditorEditResult(outcome, reason)
 
     companion object {
-        private val NATIVE_NAVIGATION_COMMANDS = setOf(EditCommand.LEFT, EditCommand.RIGHT,
+        private val NATIVE_SEQUENCE_COMMANDS = setOf(EditCommand.LEFT, EditCommand.RIGHT,
+            EditCommand.BACKSPACE, EditCommand.DELETE,
+            EditCommand.UP, EditCommand.DOWN, EditCommand.HOME, EditCommand.END,
             EditCommand.PAGE_UP, EditCommand.PAGE_DOWN, EditCommand.BUFFER_START, EditCommand.BUFFER_END)
         private const val CONTEXT = 2_048
         private const val TIMEOUT_MILLIS = 500L

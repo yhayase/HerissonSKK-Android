@@ -21,6 +21,11 @@ class ServiceConfigurationTest {
         }
         assertTrue(SkkInputMethodService.isPassword(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD))
         assertFalse(SkkInputMethodService.isPassword(InputType.TYPE_CLASS_TEXT))
+        for (variation in listOf(InputType.TYPE_TEXT_VARIATION_URI,
+            InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT, InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS)) {
+            assertFalse(SkkInputMethodService.isPassword(InputType.TYPE_CLASS_TEXT or variation or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS))
+        }
     }
 
     @Test fun imeRequiresSystemBindingPermissionAndHasNoNetworkPermission() {

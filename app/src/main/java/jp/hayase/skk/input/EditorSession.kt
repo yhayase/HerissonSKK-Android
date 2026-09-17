@@ -166,10 +166,18 @@ class EditorSession(
                 }
                 else -> {
                     synchronized(externalSelections) { externalSelections.clear() }
-                    queuedExternalCommands.clear()
+                    val canContinue = result.outcome == EditorEditResult.Outcome.FAILED_OR_UNKNOWN &&
+                        result.reason in setOf(EditorEditResult.Reason.POSTCHECK_MISMATCH,
+                            EditorEditResult.Reason.API_REJECTED) && editState.get().revision == revision
+                    if (!canContinue) queuedExternalCommands.clear()
                     if (!editNoticeShown) {
                         editNoticeShown = true
                         notice = "この入力欄ではこの編集操作を利用できません"
+                    }
+                    // 入力先の変換や遅延で直前の結果を確認できなくても、後続の明示的な要求は
+                    // 新しく取得・照合します。直前の操作は再送せず、別入力で版が変われば破棄します。
+                    if (canContinue && queuedExternalCommands.isNotEmpty()) {
+                        submitExternal(queuedExternalCommands.removeFirst())
                     }
                 }
             }

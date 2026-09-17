@@ -82,6 +82,7 @@ class CustomizationE2eTest {
         awaitAppText("入力設定を保存しました。次の入力欄から反映します。")
 
         assertAzikAndEmacsEditing()
+        WebEditorAssertions.run(instrumentation)
 
         clickAppText("入力設定を標準に戻す")
         awaitAppText("ローマ字規則・句読点・候補設定・Emacs 編集キー・各コマンドのキー設定を標準に戻して保存します。個人辞書と学習の設定は変更しません。")
@@ -134,7 +135,7 @@ class CustomizationE2eTest {
             awaitEditorState(editor, "A\r\nxy\r\nZ", 1)
         }
 
-        // 窓末尾を文書末尾と推測しないため、移動先の後にも既知の行を残します。
+        // 複数行の列保持と、別ケースで最終行への往復を確認します。
         val lines = "a👩‍💻b\r\nxy\r\nZabc\r\ntail"
         withInitialEditor(lines, 6) { editor ->
             key(KeyEvent.KEYCODE_N, KeyEvent.META_CTRL_ON)
@@ -159,22 +160,85 @@ class CustomizationE2eTest {
         withInitialEditor("abc", 3) { editor ->
             key(KeyEvent.KEYCODE_M, KeyEvent.META_CTRL_ON)
             awaitEditorState(editor, "abc\n", 4)
+            key(KeyEvent.KEYCODE_P, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\n", 0)
+            key(KeyEvent.KEYCODE_N, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\n", 4)
+            key(KeyEvent.KEYCODE_H, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc", 3)
+            key(KeyEvent.KEYCODE_M, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\n", 4)
+            key(KeyEvent.KEYCODE_B, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\n", 3)
+            key(KeyEvent.KEYCODE_D, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc", 3)
+        }
+
+        withInitialEditor("abc\nxyz", 7) { editor ->
+            key(KeyEvent.KEYCODE_P, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\nxyz", 3)
+            key(KeyEvent.KEYCODE_N, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\nxyz", 7)
+            key(KeyEvent.KEYCODE_H, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\nxy", 6)
+            key(KeyEvent.KEYCODE_B, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\nxy", 5)
+            key(KeyEvent.KEYCODE_D, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc\nx", 5)
+        }
+        withInitialEditor("A👩‍💻", 6) { editor ->
+            key(KeyEvent.KEYCODE_H, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "A", 1)
+            key(KeyEvent.KEYCODE_H, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "", 0)
+            key(KeyEvent.KEYCODE_M, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "\n", 1)
+        }
+
+        for (mode in listOf("no_snapshot", "extracted_only", "unknown_offset")) {
+            withInitialEditor("abc\nxyz", 7, mode) { editor ->
+                key(KeyEvent.KEYCODE_P, KeyEvent.META_CTRL_ON)
+                awaitEditorState(editor, "abc\nxyz", 3)
+                key(KeyEvent.KEYCODE_N, KeyEvent.META_CTRL_ON)
+                awaitEditorState(editor, "abc\nxyz", 7)
+                key(KeyEvent.KEYCODE_H, KeyEvent.META_CTRL_ON)
+                awaitEditorState(editor, "abc\nxy", 6)
+                key(KeyEvent.KEYCODE_B, KeyEvent.META_CTRL_ON)
+                awaitEditorState(editor, "abc\nxy", 5)
+                key(KeyEvent.KEYCODE_D, KeyEvent.META_CTRL_ON)
+                awaitEditorState(editor, "abc\nx", 5)
+                key(KeyEvent.KEYCODE_M, KeyEvent.META_CTRL_ON)
+                awaitEditorState(editor, "abc\nx\n", 6)
+                key(KeyEvent.KEYCODE_B, KeyEvent.META_CTRL_ON)
+                awaitEditorState(editor, "abc\nx\n", 5)
+            }
+        }
+        // 入力先が改行を変換しても、次の独立した編集要求を受け付けます。
+        withInitialEditor("abc", 3, "filtered_newline") { editor ->
+            key(KeyEvent.KEYCODE_M, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc ", 4)
+            key(KeyEvent.KEYCODE_B, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc ", 3)
+            key(KeyEvent.KEYCODE_D, KeyEvent.META_CTRL_ON)
+            awaitEditorState(editor, "abc", 3)
         }
 
         withInitialEditor("abc\ndef", 2) { editor ->
-            key(KeyEvent.KEYCODE_COMMA, KeyEvent.META_ALT_ON or KeyEvent.META_SHIFT_ON)
+            physicalMetaBoundary(KeyEvent.KEYCODE_COMMA, editor, "abc\ndef", 0)
             awaitEditorState(editor, "abc\ndef", 0)
-            key(KeyEvent.KEYCODE_PERIOD, KeyEvent.META_ALT_ON or KeyEvent.META_SHIFT_ON)
+            physicalMetaBoundary(KeyEvent.KEYCODE_PERIOD, editor, "abc\ndef", 7)
             awaitEditorState(editor, "abc\ndef", 7)
         }
     }
 
-    private fun withInitialEditor(initial: String, selection: Int, block: (EditText) -> Unit) {
+    private fun withInitialEditor(initial: String, selection: Int,
+        connectionMode: String? = null, block: (EditText) -> Unit) {
         ActivityScenario.launch<InputTestActivity>(
             android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
                 .putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true)
                 .putExtra(InputTestActivity.EXTRA_INITIAL_TEXT, initial)
-                .putExtra(InputTestActivity.EXTRA_INITIAL_SELECTION, selection),
+                .putExtra(InputTestActivity.EXTRA_INITIAL_SELECTION, selection)
+                .putExtra(InputTestActivity.EXTRA_CONNECTION_MODE, connectionMode),
         ).use { scenario ->
             val editor = scenario.editorStartingWith("複数行 A")
             scenario.onActivity { editor.requestFocus() }
@@ -332,6 +396,26 @@ class CustomizationE2eTest {
         instrumentation.waitForIdleSync()
     }
 
+    /** 実キーボード同様に Shift/Alt の押下も入力先へ届け、ラッチした選択を検出します。 */
+    private fun physicalMetaBoundary(code: Int, editor: EditText, expected: String, cursor: Int) {
+        val now = SystemClock.uptimeMillis()
+        instrumentation.sendKeySync(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SHIFT_LEFT, 0,
+            KeyEvent.META_SHIFT_ON, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD))
+        instrumentation.sendKeySync(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ALT_LEFT, 0,
+            KeyEvent.META_SHIFT_ON or KeyEvent.META_ALT_ON, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD))
+        try {
+            key(code, KeyEvent.META_ALT_ON or KeyEvent.META_SHIFT_ON)
+            // 修飾キーを離す前に、移動完了と選択がないことを確認します。
+            awaitEditorState(editor, expected, cursor)
+        } finally {
+            instrumentation.sendKeySync(KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP,
+                KeyEvent.KEYCODE_ALT_LEFT, 0, KeyEvent.META_SHIFT_ON, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
+                InputDevice.SOURCE_KEYBOARD))
+            instrumentation.sendKeySync(KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP,
+                KeyEvent.KEYCODE_SHIFT_LEFT, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD))
+        }
+    }
+
     private fun repeatKey(code: Int, meta: Int) {
         val downTime = SystemClock.uptimeMillis()
         instrumentation.sendKeySync(KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, code, 0, meta,
@@ -350,25 +434,7 @@ class CustomizationE2eTest {
     }
 
     private fun awaitEditorState(editor: EditText, expected: String, selection: Int) {
-        val deadline = SystemClock.uptimeMillis() + UI_TIMEOUT_MS
-        while (SystemClock.uptimeMillis() < deadline) {
-            var actualText = ""
-            var actualSelection = -1
-            instrumentation.runOnMainSync {
-                actualText = editor.text.toString()
-                actualSelection = editor.selectionStart
-            }
-            if (actualText == expected && actualSelection == selection) return
-            SystemClock.sleep(POLL_MS)
-        }
-        var actualText = ""
-        var actualSelection = -1
-        instrumentation.runOnMainSync {
-            actualText = editor.text.toString()
-            actualSelection = editor.selectionStart
-        }
-        assertEquals("外部編集の本文が一致しません", expected, actualText)
-        assertEquals("外部編集のカーソル位置が一致しません", selection, actualSelection)
+        awaitEditorSelection(editor, expected, selection, selection)
     }
 
     private fun awaitEditorSelection(editor: EditText, expected: String, start: Int, end: Int) {
@@ -385,7 +451,11 @@ class CustomizationE2eTest {
             if (actualText == expected && actualStart == start && actualEnd == end) return
             SystemClock.sleep(POLL_MS)
         }
-        throw AssertionError("Emacs 無効時のネイティブ選択が反映されません")
+        var actual = ""
+        instrumentation.runOnMainSync {
+            actual = "${editor.text} [${editor.selectionStart}, ${editor.selectionEnd}]"
+        }
+        throw AssertionError("編集結果が一致しません: expected=$expected [$start, $end], actual=$actual")
     }
 
     private fun text(view: TextView): String {

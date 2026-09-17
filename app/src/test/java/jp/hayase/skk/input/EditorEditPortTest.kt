@@ -35,6 +35,12 @@ class EditorEditPortTest {
     }
     private class Connection(var text: String, var start: Int, var end: Int = start) :
         BaseInputConnection(View(RuntimeEnvironment.getApplication()), true) {
+        var surroundingUnavailable = false
+        var extractedUnavailable = false
+        var surroundingOffset: Int? = null
+        val nativeCodes = ArrayList<Int>()
+        val clearedMeta = ArrayList<Int>()
+        var onClearMeta: (() -> Unit)? = null
         var offset = 0
         var queries = 0
         var edits = 0
@@ -54,16 +60,26 @@ class EditorEditPortTest {
         private fun query() { queries++; onQuery?.invoke(queries) }
         override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText? {
             query()
-            if (unavailable) return null
-            if (!windowed) return SurroundingText(text, start, end, offset)
+            if (unavailable || surroundingUnavailable) return null
+            if (!windowed) return SurroundingText(text, start, end, surroundingOffset ?: offset)
             val begin = (minOf(start, end) - beforeLength).coerceAtLeast(0)
             val finish = (maxOf(start, end) + afterLength).coerceAtMost(text.length)
             return SurroundingText(text.substring(begin, finish), start - begin, end - begin, begin)
         }
+        override fun clearMetaKeyStates(states: Int): Boolean {
+            clearedMeta.add(states)
+            onClearMeta?.invoke()
+            return true
+        }
         override fun sendKeyEvent(event: KeyEvent): Boolean {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 nativeDown++
+                nativeCodes.add(event.keyCode)
                 val next = when (event.keyCode) {
+                    KeyEvent.KEYCODE_DEL -> {
+                        if (end > 0) text = text.removeRange(end - 1, end)
+                        (end - 1).coerceAtLeast(0)
+                    }
                     KeyEvent.KEYCODE_DPAD_LEFT -> (end - 1).coerceAtLeast(0)
                     KeyEvent.KEYCODE_DPAD_RIGHT -> (end + 1).coerceAtMost(text.length)
                     else -> end
@@ -75,7 +91,7 @@ class EditorEditPortTest {
         }
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
             query()
-            return if (unavailable) null else ExtractedText().also {
+            return if (unavailable || extractedUnavailable) null else ExtractedText().also {
                 it.text = text
                 it.startOffset = offset
                 it.selectionStart = start
@@ -162,6 +178,22 @@ class EditorEditPortTest {
             results.map { it.outcome })
         assertEquals(1, connection.start)
         assertEquals(2, connection.edits)
+    }
+
+    @Test fun `ネイティブ文書端移動はShift解除中の同じ版の遅延選択通知でも一度送る`() {
+        for (changedRevision in listOf(false, true)) {
+            val h = Harness("abc", 3)
+            assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.LEFT).outcome)
+            h.connection.onClearMeta = {
+                h.update { it.copy(selectionStart = 2, selectionEnd = 2,
+                    revision = if (changedRevision) 1 else 0) }
+            }
+            val result = h.run(EditCommand.BUFFER_START)
+            assertEquals(if (changedRevision) EditorEditResult.Outcome.STALE else
+                EditorEditResult.Outcome.NATIVE_ISSUED, result.outcome)
+            assertEquals(if (changedRevision) listOf(KeyEvent.KEYCODE_DPAD_LEFT) else
+                listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MOVE_HOME), h.connection.nativeCodes)
+        }
     }
 
     @Test fun `既知の文書先頭からの行頭移動は末尾証拠を必要としない`() {
@@ -282,7 +314,7 @@ class EditorEditPortTest {
     }
 
     @Test fun `取得窓末尾を行末や文書末尾として削除しない`() {
-        for (command in listOf(EditCommand.END, EditCommand.KILL_LINE, EditCommand.DOWN, EditCommand.WORD_FORWARD)) {
+        for (command in listOf(EditCommand.KILL_LINE, EditCommand.WORD_FORWARD)) {
             val h = Harness("abc", 1)
             assertEquals(command.toString(), EditorEditResult.Outcome.UNSUPPORTED, h.run(command).outcome)
             assertEquals(0, h.connection.edits)
@@ -307,9 +339,9 @@ class EditorEditPortTest {
     @Test fun `nullと不明offsetと差分と過大応答を拒否する`() {
         val unavailable = Harness("abc", 1)
         unavailable.connection.unavailable = true
-        assertEquals(EditorEditResult.Outcome.UNSUPPORTED, unavailable.run(EditCommand.HOME).outcome)
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, unavailable.run(EditCommand.HOME).outcome)
         val unknown = Harness("abc", 1)
-        unknown.connection.offset = -1
+        unknown.connection.offset = -2
         assertEquals(EditorEditResult.Outcome.UNSUPPORTED, unknown.run(EditCommand.HOME).outcome)
         val big = Harness("a".repeat(8193), 1)
         assertEquals(EditorEditResult.Outcome.UNSUPPORTED, big.run(EditCommand.HOME).outcome)
@@ -320,12 +352,44 @@ class EditorEditPortTest {
         }
     }
 
-    @Test fun `選択不一致とクラスタ途中の位置は変更しない`() {
+    @Test fun `選択通知の遅延時は現在の選択で標準キーを一度だけ送る`() {
         val mismatch = Harness("abc", 1)
         mismatch.update { it.copy(selectionStart = 2, selectionEnd = 2) }
-        assertEquals(EditorEditResult.Outcome.UNSUPPORTED, mismatch.run(EditCommand.HOME).outcome)
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, mismatch.run(EditCommand.LEFT).outcome)
+        assertEquals(0, mismatch.connection.start)
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_LEFT), mismatch.connection.nativeCodes)
+        assertEquals(0, mismatch.connection.edits)
+        assertEquals(2, mismatch.connection.queries)
+    }
+
+    @Test fun `選択通知の遅延時も変化する取得結果や保護状態には変更を送らない`() {
+        for (mode in 0..3) {
+            val h = Harness("abc", 1)
+            h.update { it.copy(selectionStart = 2, selectionEnd = 2) }
+            h.connection.onQuery = { count -> if (count == 2) {
+                when (mode) {
+                    0 -> h.connection.start = 0
+                    1 -> h.update { it.copy(revision = 1) }
+                    2 -> h.update { it.copy(generation = 8) }
+                    3 -> h.update { it.copy(protectedInput = true) }
+                }
+            } }
+            assertEquals(EditorEditResult.Outcome.STALE, h.run(EditCommand.LEFT).outcome)
+            assertEquals(0, h.connection.edits)
+            assertEquals(0, h.connection.nativeDown)
+        }
+    }
+
+    @Test fun `選択通知の遅延から削除範囲を推測せずクラスタ途中も変更しない`() {
+        val mismatch = Harness("abc", 1)
+        mismatch.update { it.copy(selectionStart = 2, selectionEnd = 2) }
+        assertEquals(EditorEditResult.Outcome.UNSUPPORTED, mismatch.run(EditCommand.KILL_LINE).outcome)
+        assertEquals(0, mismatch.connection.edits)
         val cluster = Harness("😀rest", 1)
         assertEquals(EditorEditResult.Outcome.UNSUPPORTED, cluster.run(EditCommand.DELETE).outcome)
+        cluster.update { it.copy(selectionStart = 2, selectionEnd = 2) }
+        assertEquals(EditorEditResult.Outcome.UNSUPPORTED, cluster.run(EditCommand.LEFT).outcome)
+        assertEquals(0, cluster.connection.nativeDown)
     }
 
     @Test fun `二回の取得間で本文や選択が変われば古い計画を送らない`() {
@@ -349,8 +413,15 @@ class EditorEditPortTest {
             }
             assertEquals(EditorEditResult.Outcome.FAILED_OR_UNKNOWN, h.run(EditCommand.KILL_LINE).outcome)
             assertEquals(1, h.connection.edits)
-            assertEquals(EditorEditResult.Outcome.STALE, h.run(EditCommand.KILL_LINE).outcome)
-            assertEquals(1, h.connection.edits)
+            if (mode == 1) {
+                assertEquals(EditorEditResult.Outcome.STALE, h.run(EditCommand.KILL_LINE).outcome)
+                assertEquals(1, h.connection.edits)
+            } else {
+                h.connection.accept = true
+                h.connection.ignoreEdit = false
+                assertEquals(EditorEditResult.Outcome.APPLIED, h.run(EditCommand.KILL_LINE).outcome)
+                assertEquals(2, h.connection.edits)
+            }
         }
     }
 
@@ -418,7 +489,7 @@ class EditorEditPortTest {
         assertEquals(0, overflow.connection.edits)
     }
 
-    @Test fun `送信後の予期しない選択と世代内変更は編集ポートを停止する`() {
+    @Test fun `送信後の予期しない選択と世代内変更でも次の照合から再開する`() {
         for (changedRevision in listOf(false, true)) {
             val h = Harness("abc\nrest", 1)
             h.connection.onEdit = {
@@ -429,8 +500,10 @@ class EditorEditPortTest {
             assertEquals(EditorEditResult.Outcome.FAILED_OR_UNKNOWN, h.run(EditCommand.HOME).outcome)
             assertEquals(EditorEditResult.Reason.POSTCHECK_MISMATCH, h.results.last().reason)
             val queries = h.connection.queries
-            assertEquals(EditorEditResult.Outcome.STALE, h.run(EditCommand.HOME).outcome)
-            assertEquals(queries, h.connection.queries)
+            h.connection.onEdit = null
+            h.update { it.copy(selectionStart = h.connection.start, selectionEnd = h.connection.end) }
+            assertEquals(EditorEditResult.Outcome.NO_CHANGE, h.run(EditCommand.HOME).outcome)
+            assertTrue(h.connection.queries > queries)
             assertEquals(1, h.connection.edits)
         }
     }
@@ -444,6 +517,158 @@ class EditorEditPortTest {
         val safe = Harness("ab\r", 1)
         assertEquals(EditorEditResult.Outcome.APPLIED, safe.run(EditCommand.HOME).outcome)
         assertEquals(0, safe.connection.start)
+    }
+
+    @Test fun `周辺取得未対応なら抽出テキストの同じ経路で照合する`() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val h = Harness("abc", 2)
+        h.connection.surroundingUnavailable = true
+        assertEquals(EditorEditResult.Outcome.APPLIED, h.run(EditCommand.HOME).outcome)
+        assertEquals(4, h.connection.queries)
+    }
+
+    @Test fun `最終行と末尾文字の取得窓不足は標準キーに一度だけ委ねる`() {
+        for ((command, key) in listOf(EditCommand.UP to KeyEvent.KEYCODE_DPAD_UP,
+            EditCommand.DOWN to KeyEvent.KEYCODE_DPAD_DOWN,
+            EditCommand.BACKSPACE to KeyEvent.KEYCODE_DEL,
+            EditCommand.DELETE to KeyEvent.KEYCODE_FORWARD_DEL)) {
+            val h = Harness("ab\ncd", if (command == EditCommand.DELETE) 4 else 5)
+            assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(command).outcome)
+            assertEquals(listOf(key), h.connection.nativeCodes)
+            assertEquals(0, h.connection.edits)
+        }
+    }
+
+    @Test fun `本文取得未対応でも標準削除を一度だけ送る`() {
+        for ((command, key) in listOf(EditCommand.BACKSPACE to KeyEvent.KEYCODE_DEL,
+            EditCommand.DELETE to KeyEvent.KEYCODE_FORWARD_DEL)) {
+            val h = Harness("abc", 1)
+            h.connection.unavailable = true
+            assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(command).outcome)
+            assertEquals(listOf(key), h.connection.nativeCodes)
+            assertEquals(0, h.connection.edits)
+        }
+    }
+
+    @Test fun `非同期の改行受付後に古い取得が返っても次の編集を再開する`() {
+        val h = Harness("abc", 3)
+        h.connection.ignoreEdit = true
+        assertEquals(EditorEditResult.Reason.POSTCHECK_MISMATCH, h.run(EditCommand.NEWLINE).reason)
+        assertEquals(1, h.connection.commitCalls)
+        h.connection.ignoreEdit = false
+        h.connection.text = "abc\n"
+        h.connection.start = 4
+        h.connection.end = 4
+        h.update { it.copy(selectionStart = 4, selectionEnd = 4) }
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.LEFT).outcome)
+        assertEquals(1, h.connection.commitCalls)
+    }
+
+    @Test fun `本文取得不能の改行はENTERに変換せず文字を一度だけ挿入する`() {
+        val h = Harness("abc", 1)
+        h.connection.unavailable = true
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.NEWLINE).outcome)
+        assertEquals("a\nbc", h.connection.text)
+        assertEquals(1, h.connection.commitCalls)
+        assertTrue(h.connection.nativeCodes.isEmpty())
+    }
+
+    @Test fun `文書端の標準キーから物理Shiftの範囲選択を除く`() {
+        for (command in listOf(EditCommand.BUFFER_START, EditCommand.BUFFER_END)) {
+            val h = Harness("abc", 1)
+            assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(command).outcome)
+            assertEquals(listOf(KeyEvent.META_SHIFT_MASK), h.connection.clearedMeta)
+            assertEquals(1, h.connection.nativeDown)
+        }
+    }
+
+    @Test fun `取得窓より長い行の行頭移動は標準キーに委ねる`() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val h = Harness("a".repeat(5_000), 2_500)
+        h.connection.windowed = true
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.HOME).outcome)
+        assertEquals(listOf(KeyEvent.KEYCODE_MOVE_HOME), h.connection.nativeCodes)
+    }
+
+    @Test fun `本文取得不能の間に世代が変われば標準キーを送らない`() {
+        val h = Harness("abc", 1)
+        h.connection.unavailable = true
+        h.connection.onQuery = { h.update { it.copy(generation = 8) } }
+        assertEquals(EditorEditResult.Outcome.STALE, h.run(EditCommand.DELETE).outcome)
+        assertTrue(h.connection.nativeCodes.isEmpty())
+    }
+
+    @Test fun `絶対offset不明の標準周辺取得では抽出テキストを優先する`() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val h = Harness("abc", 2)
+        h.connection.surroundingOffset = -1
+        assertEquals(EditorEditResult.Outcome.APPLIED, h.run(EditCommand.HOME).outcome)
+        assertEquals(0, h.connection.start)
+        assertTrue(h.connection.nativeCodes.isEmpty())
+    }
+
+    @Test fun `相対位置だけのブラウザ接続は標準移動と削除と改行を受け付ける`() {
+        if (Build.VERSION.SDK_INT < 31) return
+        for (command in listOf(EditCommand.LEFT, EditCommand.RIGHT, EditCommand.BACKSPACE,
+            EditCommand.DELETE, EditCommand.NEWLINE)) {
+            val h = Harness("abc", 1)
+            h.connection.surroundingOffset = -1
+            h.connection.extractedUnavailable = true
+            assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(command).outcome)
+            assertEquals(3, h.connection.queries)
+            assertEquals(if (command == EditCommand.NEWLINE) 1 else 0, h.connection.commitCalls)
+            assertEquals(if (command == EditCommand.NEWLINE) 0 else 1, h.connection.nativeDown)
+        }
+    }
+
+    @Test fun `相対取得の本文が照合中に変われば削除を送らない`() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val h = Harness("abc", 1)
+        h.connection.surroundingOffset = -1
+        h.connection.extractedUnavailable = true
+        h.connection.onQuery = { if (it == 3) h.connection.text = "xyz" }
+        assertEquals(EditorEditResult.Outcome.STALE, h.run(EditCommand.DELETE).outcome)
+        assertTrue(h.connection.nativeCodes.isEmpty())
+    }
+
+    @Test fun `本文未取得の選択範囲のコピーと切り取りは入力先自身へ一度委ねる`() {
+        for (command in listOf(EditCommand.COPY, EditCommand.CUT)) {
+            val h = Harness("abc", 2, 1)
+            h.connection.unavailable = true
+            assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(command).outcome)
+            assertEquals(1, h.connection.clipboardActions)
+            assertEquals(if (command == EditCommand.CUT) "ac" else "abc", h.connection.text)
+            assertTrue(h.connection.nativeCodes.isEmpty())
+        }
+    }
+
+    @Test fun `末尾の標準削除を選択通知より先に連打しても順番に送る`() {
+        val h = Harness("ab", 2)
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.BACKSPACE).outcome)
+        assertEquals("a", h.connection.text)
+        val queries = h.connection.queries
+        // 入力先の選択通知がまだ来ていない状態で次の明示的なキーを受け取ります。
+        assertEquals(2, h.state.get().selectionEnd)
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.BACKSPACE).outcome)
+        assertEquals("", h.connection.text)
+        assertEquals(queries, h.connection.queries)
+        assertEquals(2, h.connection.nativeDown)
+    }
+
+    @Test fun `本文未取得または相対取得でも未選択のコピーと切り取りを送らない`() {
+        for (relative in listOf(false, true)) {
+            if (relative && Build.VERSION.SDK_INT < 31) continue
+            for (command in listOf(EditCommand.COPY, EditCommand.CUT)) {
+                val h = Harness("abc", 1)
+                if (relative) {
+                    h.connection.surroundingOffset = -1
+                    h.connection.extractedUnavailable = true
+                } else h.connection.unavailable = true
+                assertEquals(EditorEditResult.Outcome.NO_CHANGE, h.run(command).outcome)
+                assertEquals(0, h.connection.clipboardActions)
+                assertEquals("abc", h.connection.text)
+            }
+        }
     }
 
 }

@@ -777,10 +777,15 @@ class BasicSkkEngine(
         return result(Outcome(true))
     }
 
-    private fun abandonRegistrationFrame(frame: RegistrationFrame): BasicSkkResult {
+    private fun abandonRegistrationFrame(
+        frame: RegistrationFrame,
+        restoreAutomaticReturnOnCancel: Boolean = true,
+    ): BasicSkkResult {
         check(registrations.lastOrNull() === frame)
         registrations.removeAt(registrations.lastIndex)
-        if (frame.returnState.phase == InputPhase.SELECTING) {
+        if (restoreAutomaticReturnOnCancel && frame.restoreReturnOnCancel ||
+            frame.returnState.phase == InputPhase.SELECTING
+        ) {
             restoreEngine(frame.returnState)
         } else {
             mode = frame.returnState.readingStartMode
@@ -790,7 +795,7 @@ class BasicSkkEngine(
     }
 
     private fun abandonSavingFrame(frame: RegistrationFrame): BasicSkkResult {
-        abandonRegistrationFrame(frame)
+        abandonRegistrationFrame(frame, restoreAutomaticReturnOnCancel = false)
         return result(Outcome(true, notice = "保存処理は完了する可能性があります"))
     }
 
@@ -799,6 +804,7 @@ class BasicSkkEngine(
         query: DictionaryQuery,
         returnState: EngineSnapshot,
         editor: EditorReadingView,
+        restoreReturnOnCancel: Boolean = false,
     ): Outcome {
         if (registrations.size >= MAX_REGISTRATION_DEPTH) {
             return Outcome(true, notice = "単語登録は16段までです")
@@ -810,6 +816,7 @@ class BasicSkkEngine(
             originalQuery = originalQuery,
             query = query,
             returnState = returnState,
+            restoreReturnOnCancel = restoreReturnOnCancel,
             body = EditableBuffer(),
             editorComposition = registrations.firstOrNull()?.editorComposition ?: editor.text,
             editorCursor = registrations.firstOrNull()?.editorCursor ?: editor.cursor,
@@ -1319,7 +1326,10 @@ class BasicSkkEngine(
         return if (candidates.isEmpty()) {
             restoreSelectionReturnState()
             if (registrationPolicy.enabled) {
-                startRegistration(query, registrationQuery, snapshotEngine(), editorReadingView(returnState))
+                startRegistration(
+                    query, registrationQuery, snapshotEngine(), editorReadingView(returnState),
+                    restoreReturnOnCancel = true,
+                )
             }
             else Outcome(true, notice = "単語登録はまだ利用できません")
         } else {
@@ -1693,6 +1703,7 @@ class BasicSkkEngine(
         val originalQuery: DictionaryQuery,
         val query: DictionaryQuery,
         val returnState: EngineSnapshot,
+        val restoreReturnOnCancel: Boolean,
         var body: EditableBuffer,
         val editorComposition: String,
         val editorCursor: Int,

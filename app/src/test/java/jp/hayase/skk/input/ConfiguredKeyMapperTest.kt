@@ -125,6 +125,29 @@ class ConfiguredKeyMapperTest {
             decoded(KeyEvent.KEYCODE_M, KeyEvent.META_CTRL_ON))
     }
 
+    @Test fun `物理キーのAlt Shift記号とCtrl mを編集操作へ配送する`() {
+        val engine = engine()
+        val mapper = HardwareKeyMapper()
+        val bindings = KeyBindings()
+        fun shifted(code: Int, symbol: Char) = object : KeyEvent(0, 0, KeyEvent.ACTION_DOWN, code, 0,
+            KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON or KeyEvent.META_SHIFT_ON,
+            KeyCharacterMap.VIRTUAL_KEYBOARD, 0) {
+            override fun getUnicodeChar(metaState: Int): Int =
+                if (metaState and KeyEvent.META_ALT_ON != 0) 0 else symbol.code
+        }
+        fun decode(event: KeyEvent) = mapper.decodeConfigured(event, engine.state,
+            engine.currentView, bindings, true)
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.BUFFER_START)),
+            decode(shifted(KeyEvent.KEYCODE_COMMA, '<')))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.BUFFER_END)),
+            decode(shifted(KeyEvent.KEYCODE_PERIOD, '>')))
+        val ctrlM = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_M, 0,
+            KeyEvent.META_CTRL_ON, KeyCharacterMap.VIRTUAL_KEYBOARD, 0)
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.NEWLINE)), decode(ctrlM))
+        engine.dispatch(BasicSkkAction.Text("Ka"))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Enter), decode(ctrlM))
+    }
+
     @Test fun `登録の直接入力でも英字を入力先へ漏らさない`() {
         val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() }, RegistrationPolicy(enabled = true))
         engine.dispatch(BasicSkkAction.Text("Ka l"))

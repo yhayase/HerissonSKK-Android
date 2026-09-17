@@ -108,7 +108,8 @@ class BasicSkkRegistrationTest {
 
     @Test fun `本文が空で内側状態もないCgは登録を一段破棄する`() {
         val top = engine()
-        top.type("Michi ")
+        top.type("Michi")
+        top.dispatch(BasicSkkAction.RegisterCandidate)
         val normal = top.dispatch(BasicSkkAction.Cancel)
         assertEquals(0, top.state.registrationDepth)
         assertEquals(InputPhase.IDLE, top.state.phase)
@@ -124,12 +125,47 @@ class BasicSkkRegistrationTest {
         assertNull(canceledCandidate.commit)
 
         val nested = engine()
-        nested.type("Michi Ko ")
+        nested.type("Michi")
+        nested.dispatch(BasicSkkAction.RegisterCandidate)
+        nested.type("Ko")
+        nested.dispatch(BasicSkkAction.RegisterCandidate)
         assertEquals(2, nested.state.registrationDepth)
         val parent = nested.dispatch(BasicSkkAction.Cancel)
         assertEquals(1, nested.state.registrationDepth)
         assertEquals("", parent.view.registration?.body)
         assertNull(parent.view.registration?.innerComposing)
+    }
+
+    @Test fun `候補がない読みからの登録をCgで取り消すと読みを編集できる`() {
+        val engine = engine()
+        engine.type("Michi ")
+        assertEquals(1, engine.state.registrationDepth)
+
+        val canceled = engine.dispatch(BasicSkkAction.Cancel)
+        assertEquals(0, engine.state.registrationDepth)
+        assertEquals(InputPhase.READING, engine.state.phase)
+        assertEquals("みち", canceled.view.composing)
+        assertEquals(2, canceled.view.cursor)
+        assertNull(canceled.commit)
+
+        val edited = engine.dispatch(BasicSkkAction.Text("a"))
+        assertEquals("みちあ", edited.view.composing)
+    }
+
+    @Test fun `候補がない子登録をCgで取り消すと親本文と子の読みを保持する`() {
+        val engine = engine()
+        engine.type("Michi ")
+        engine.type("oya")
+        engine.type("Ko ")
+        assertEquals(2, engine.state.registrationDepth)
+
+        val canceled = engine.dispatch(BasicSkkAction.Cancel)
+        assertEquals(1, engine.state.registrationDepth)
+        assertEquals(InputPhase.READING, engine.state.phase)
+        assertEquals("おや", canceled.view.registration?.body)
+        assertEquals("こ", canceled.view.registration?.innerComposing)
+        assertEquals(1, canceled.view.registration?.innerCursor)
+        assertNull(canceled.commit)
     }
 
     @Test fun `再帰登録の取消は単独候補とメニューの最終選択へ戻る`() {
@@ -184,8 +220,8 @@ class BasicSkkRegistrationTest {
         val parentCanceled = engine.dispatch(BasicSkkAction.Cancel)
         assertNull(parentCanceled.commit)
         assertEquals(0, engine.state.registrationDepth)
-        assertEquals(InputPhase.IDLE, engine.state.phase)
-        assertNull(parentCanceled.view.composing)
+        assertEquals(InputPhase.READING, engine.state.phase)
+        assertEquals("みち", parentCanceled.view.composing)
     }
 
     @Test fun `空本文のBSと確定済み本文のCjは登録を終了しない`() {
