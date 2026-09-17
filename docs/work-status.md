@@ -2,6 +2,20 @@
 
 更新日: 2026-09-17
 
+## 2026-09-17 の編集互換性の追加報告への対応
+
+修正ソースは `f279fab`、今回の実機確認用 APK は `build/distributions/f279fab/app-debug.apk` です。最終行の C-p/n、末尾の C-h/d、周辺文字取得に制約のある入力欄、C-m 後の継続編集、M-</> の不要な範囲選択、候補ゼロ件の登録取消を修正しました。[原因・判断・独立レビュー](reviews/editor-compatibility-20260917.md) に記録しています。
+
+未コミット変更のない `f279fab` の増分ビルドで、ローカルゲート `20260917T060634320143Z` が成功しました。コア 260 件、Android 単体 485 実行、ホスト 22 件で、失敗・エラー・スキップはありません。lint、debug／release／benchmark の APK・通知・権限検査も成功しました。件数は網羅率を意味しません。
+
+最終 APK の通常入力 E2E は API 26／35 で各 16 件成功しました。記録は `test-editor/build/reports/connection/` 以下の API 26 `20260917T060713477129Z`、API 35 `20260917T060718924248Z` です。
+
+設定・編集 E2E は API 26／35 それぞれ同じ APK で連続2回成功しました。通常 EditText、取得なし・抽出のみ・絶対位置不明・改行変換の接続、ローカル WebView の textarea/contenteditable を含みます。M-</> は Shift/Alt を離す前に選択の両端を確認します。記録は `test-editor/build/reports/customization-e2e/` 以下の API 26 `20260917T060439730050Z`／`20260917T060450892609Z`、API 35 `20260917T060341878825Z`／`20260917T060425152589Z` です。設定と IME の復元も全回成功しています。これらはコミット前の実行ですが、配布 APK と SHA-256 の一致を確認しました。
+
+前回 `81cb7ee` と同じ開発署名を確認しました。今回の変更は辞書・設定の保存形式を変更せず、アンインストールせず更新できます。Firefox、X、Keep の実アプリと Xiaomi Pad 8 での受入は未実施です。UI 全面改善は引き続き [マイルストーン #1](https://github.com/yhayase/skk-android/milestone/1) の対象です。
+
+専用ブランチ `fix/input-dictionary-followup-20260917` と [ドラフト PR #1](https://github.com/yhayase/skk-android/pull/1) へ反映し、main へはマージしていません。
+
 ## 2026-09-17 の追加報告への対応
 
 修正ソースは `81cb7ee`、検証用 APK は `build/distributions/81cb7ee/app-debug.apk` です。再帰登録の C-g、3候補目からの一覧と開始位置設定、かな記号、変更のない設定画面の終了、新しい編集キーとリピート・文末移動、辞書編集の一括適用に対応しました。[仕様・判断・レビュー](reviews/input-dictionary-followup-20260917.md) を参照します。UI 全体の見直しは [マイルストーン #1](https://github.com/yhayase/skk-android/milestone/1) とし、今回には含めません。
