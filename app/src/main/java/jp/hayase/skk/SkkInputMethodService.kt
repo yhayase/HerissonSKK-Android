@@ -36,6 +36,8 @@ import jp.hayase.skk.core.CandidateDeletionOutcome
 import jp.hayase.skk.core.CandidateDeletionFailure
 import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
 import jp.hayase.skk.dictionary.DictionaryInputWriteContext
+import java.util.concurrent.Executors
+import java.util.concurrent.Executor
 
 class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceListener {
     private var generation = 0L
@@ -58,6 +60,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private data class AnnotationTarget(val generation: Long, val composition: String, val annotation: String)
     private var annotationTarget: AnnotationTarget? = null
     private var annotationConnection: InputConnection? = null
+    private val annotationWorker = Executors.newSingleThreadExecutor()
+    private val annotationMonitor = CursorAnchorMonitor(annotationWorker,
+        Executor { Handler(Looper.getMainLooper()).post(it) })
 
     override fun onCreate() {
         super.onCreate()
@@ -344,6 +349,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     override fun onDestroy() {
         clearInlineAnnotation()
+        annotationWorker.shutdown()
         generation++
         dictionarySubscription?.close()
         dictionarySubscription = null
@@ -409,21 +415,24 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private fun updateInlineAnnotation() {
         val target = currentAnnotationTarget()
         if (target == annotationTarget) return
-        clearInlineAnnotation()
-        if (target == null) return
-        val connection = currentInputConnection ?: return
+        inlineAnnotation?.dismiss()
+        if (target == null) return clearInlineAnnotation()
+        val connection = currentInputConnection ?: return clearInlineAnnotation()
         annotationTarget = target
+        // 同じ入力先の候補変更は既存の MONITOR 通知で追跡し、同期問い合わせを増やしません。
+        if (annotationConnection === connection) return
         annotationConnection = connection
         // 座標未対応の入力先では注釈を省略し、本文だけの変換を続けます。
-        if (!connection.requestCursorUpdates(InputConnection.CURSOR_UPDATE_IMMEDIATE or
-                InputConnection.CURSOR_UPDATE_MONITOR)) clearInlineAnnotation()
+        annotationMonitor.start(connection) { accepted ->
+            if (!accepted && annotationConnection === connection) clearInlineAnnotation()
+        }
     }
 
     private fun clearInlineAnnotation() {
         annotationTarget = null
         inlineAnnotation?.dismiss()
-        annotationConnection?.requestCursorUpdates(0)
         annotationConnection = null
+        annotationMonitor.stop()
     }
 
     private fun updateStatus() {

@@ -38,20 +38,32 @@ class CandidateStatusServiceTest {
         val service = controller.get()
         val connection = Connection()
         val session = EditorSession(1, connection, false, true, 0, 0)
+        val requests = ArrayDeque<Runnable>()
+        ReflectionHelpers.setField(service, "annotationMonitor", CursorAnchorMonitor(
+            Executor { requests.add(it) }, Executor { it.run() }))
+        fun dispatchRequests() { while (requests.isNotEmpty()) requests.removeFirst().run() }
         try {
             attach(service, connection)
             ReflectionHelpers.setField(service, "session", session)
             session.handle(BasicSkkAction.Text("Tesuto "))
             ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
+            assertTrue(connection.cursorRequests.isEmpty())
+            dispatchRequests()
             assertEquals(listOf(InputConnection.CURSOR_UPDATE_IMMEDIATE or
                 InputConnection.CURSOR_UPDATE_MONITOR), connection.cursorRequests)
-            session.handle(BasicSkkAction.Text("  "))
+            session.handle(BasicSkkAction.Text(" "))
             ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
+            dispatchRequests()
+            assertEquals(1, connection.cursorRequests.size)
+            session.handle(BasicSkkAction.Text(" "))
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
+            dispatchRequests()
             assertEquals(0, connection.cursorRequests.last())
             session.handle(BasicSkkAction.Cancel)
             session.handle(BasicSkkAction.Text(" "))
             ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
             service.onFinishInput()
+            dispatchRequests()
             assertEquals(0, connection.cursorRequests.last())
 
             val unsupported = Connection().apply { supportsCursor = false }
@@ -60,6 +72,7 @@ class CandidateStatusServiceTest {
             ReflectionHelpers.setField(service, "session", next)
             next.handle(BasicSkkAction.Text("Tesuto "))
             ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
+            dispatchRequests()
             assertEquals(null, ReflectionHelpers.getField<Any?>(service, "annotationTarget"))
             assertEquals("候補1", unsupported.editable.toString())
         } finally {
