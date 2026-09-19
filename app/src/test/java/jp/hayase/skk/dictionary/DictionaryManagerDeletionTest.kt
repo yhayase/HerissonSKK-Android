@@ -33,7 +33,7 @@ class DictionaryManagerDeletionTest {
         val repository = SQLiteDictionaryRepository(context, databaseName())
         repository.importSystem("system", "辞書", document("かな /候補/"))
         val serial = ManualExecutor()
-        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        val manager = DictionaryManager(repository, serial, Executor { it.run() }, deferReads = false)
         val request = systemRequest()
         var denied: PersonalWriteResult? = null
 
@@ -53,7 +53,7 @@ class DictionaryManagerDeletionTest {
         val repository = SQLiteDictionaryRepository(context, databaseName())
         repository.importSystem("system", "辞書", document("かな /候補/"))
         val serial = ManualExecutor()
-        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        val manager = DictionaryManager(repository, serial, Executor { it.run() }, deferReads = false)
         var result: PersonalWriteResult? = null
 
         repository.importSystem("system", "辞書", document("かな /置換後/"), 1)
@@ -69,7 +69,7 @@ class DictionaryManagerDeletionTest {
         val repository = SQLiteDictionaryRepository(context, databaseName())
         repository.replacePersonal(document("かな /個人候補/"), 0)
         val serial = ManualExecutor()
-        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        val manager = DictionaryManager(repository, serial, Executor { it.run() }, deferReads = false)
         var result: PersonalWriteResult? = null
         repository.replacePersonal(document("かな /別候補/"), 1)
         val request = DeleteCandidateRequest(2, listOf(
@@ -96,7 +96,7 @@ class DictionaryManagerDeletionTest {
         repository.importSystem("system", "辞書", document("かな /候補/"))
         full = true
         val serial = ManualExecutor()
-        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        val manager = DictionaryManager(repository, serial, Executor { it.run() }, deferReads = false)
         var result: PersonalWriteResult? = null
 
         manager.deleteCandidate(systemRequest(), true) { result = it }
@@ -119,7 +119,7 @@ class DictionaryManagerDeletionTest {
             loadSnapshot = {
                 loads++
                 if (loads == 1) repository.loadSnapshot() else error("再読込失敗")
-            },
+            }, deferReads = false,
         )
         manager.loadAsync(); serial.runAll()
         var result: PersonalWriteResult? = null
@@ -144,7 +144,7 @@ class DictionaryManagerDeletionTest {
             emptyMap(),
         )
         val serial = ManualExecutor()
-        val manager = DictionaryManager(repository, serial, Executor { it.run() })
+        val manager = DictionaryManager(repository, serial, Executor { it.run() }, deferReads = false)
         manager.loadAsync(); serial.runAll()
         var listed: CandidateSuppressionSnapshot? = null
         manager.listSuppressions { listed = (it as DictionaryManagerWriteResult.Applied).value }
@@ -174,7 +174,7 @@ class DictionaryManagerDeletionTest {
             7,
             listOf(SkkDictionaryEntry("かな", listOf(SkkDictionaryCandidate("組込候補")))),
         )
-        val manager = DictionaryManager(repository, serial, Executor { it.run() }, fallbackSystems = listOf(fallback))
+        val manager = DictionaryManager(repository, serial, Executor { it.run() }, fallbackSystems = listOf(fallback), deferReads = false)
         manager.loadAsync(); serial.runAll()
         val candidate = manager.lookup(DictionaryQuery("かな")).single()
         var result: PersonalWriteResult? = null

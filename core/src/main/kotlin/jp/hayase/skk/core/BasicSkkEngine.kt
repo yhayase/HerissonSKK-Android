@@ -3,6 +3,7 @@ package jp.hayase.skk.core
 import jp.hayase.skk.core.romaji.KanaTransforms
 import jp.hayase.skk.core.romaji.Romanizer
 import jp.hayase.skk.core.romaji.RomanRuleSet
+import jp.hayase.skk.core.dictionary.DeferredDictionaryReadException
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
 import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 import jp.hayase.skk.core.dictionary.CandidateSelection
@@ -213,7 +214,20 @@ class BasicSkkEngine(
     /** キー処理を発生させずに現在の表示全体を取得します。 */
     val currentView: BasicSkkView get() = view()
 
-    fun dispatch(action: BasicSkkAction): BasicSkkResult {
+    /** 未取得の辞書参照では、確定文字と永続化効果を外へ出す前に操作全体を戻します。 */
+    private inline fun dictionaryTransaction(block: () -> BasicSkkResult): BasicSkkResult {
+        val before = snapshotRuntime()
+        return try {
+            block()
+        } catch (pending: DeferredDictionaryReadException) {
+            restoreRuntime(before)
+            throw pending
+        }
+    }
+
+    fun dispatch(action: BasicSkkAction): BasicSkkResult = dictionaryTransaction { dispatchReady(action) }
+
+    private fun dispatchReady(action: BasicSkkAction): BasicSkkResult {
         if (action !is BasicSkkAction.Edit || action.command != EditCommand.UP && action.command != EditCommand.DOWN) {
             clearPreferredEditColumn()
         }
@@ -344,6 +358,8 @@ class BasicSkkEngine(
         val prefix = buffer.text
         val values = try {
             dictionary.complete(CompletionQuery(prefix, abbrev = phase == InputPhase.ABBREV)).toList()
+        } catch (pending: DeferredDictionaryReadException) {
+            throw pending
         } catch (_: RuntimeException) {
             restoreReadingForCompletion(original)
             return Outcome(true, notice = COMPLETION_FAILURE_NOTICE)
@@ -433,6 +449,8 @@ class BasicSkkEngine(
             values.singleOrNull()?.takeIf {
                 validCompletionValues(values, prefix, 1)
             }
+        } catch (pending: DeferredDictionaryReadException) {
+            throw pending
         } catch (_: RuntimeException) {
             null
         }
@@ -521,6 +539,8 @@ class BasicSkkEngine(
     private fun refreshCandidatesAfterDeletion(current: DeletionState): BasicSkkResult {
         val refreshed = try {
             dictionary.lookup(current.query).toList()
+        } catch (pending: DeferredDictionaryReadException) {
+            throw pending
         } catch (_: Exception) {
             return removeFrozenOrigins(
                 current,
@@ -533,7 +553,13 @@ class BasicSkkEngine(
 
     private fun refreshCandidatesAfterFailure(notice: String): BasicSkkResult {
         val query = checkNotNull(selectionQuery)
-        val refreshed = runCatching { dictionary.lookup(query).toList() }.getOrNull()
+        val refreshed = try {
+            dictionary.lookup(query).toList()
+        } catch (pending: DeferredDictionaryReadException) {
+            throw pending
+        } catch (_: Exception) {
+            null
+        }
         if (refreshed != null) replaceCandidatesWithoutRegistration(refreshed)
         return result(Outcome(true, notice = notice))
     }
@@ -558,7 +584,10 @@ class BasicSkkEngine(
     }
 
     /** 非同期保存の結果を、要求元のフレームがまだ生きている場合だけ適用します。 */
-    fun completeRegistration(completion: RegistrationSaveCompletion): BasicSkkResult {
+    fun completeRegistration(completion: RegistrationSaveCompletion): BasicSkkResult =
+        dictionaryTransaction { completeRegistrationReady(completion) }
+
+    private fun completeRegistrationReady(completion: RegistrationSaveCompletion): BasicSkkResult {
         clearPreferredEditColumn()
         val frame = registrations.lastOrNull()
         if (frame == null || frame.savingToken != completion.token) return result(Outcome(false))
@@ -580,7 +609,10 @@ class BasicSkkEngine(
     }
 
     /** 削除完了を、同じ入力セッションで待機中の要求へだけ適用します。 */
-    fun completeCandidateDeletion(completion: CandidateDeletionCompletion): BasicSkkResult {
+    fun completeCandidateDeletion(completion: CandidateDeletionCompletion): BasicSkkResult =
+        dictionaryTransaction { completeCandidateDeletionReady(completion) }
+
+    private fun completeCandidateDeletionReady(completion: CandidateDeletionCompletion): BasicSkkResult {
         clearPreferredEditColumn()
         val current = deletion ?: return result(Outcome(false))
         if (current.token != completion.token) return result(Outcome(false))

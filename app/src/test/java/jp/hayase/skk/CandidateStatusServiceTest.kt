@@ -94,7 +94,7 @@ class CandidateStatusServiceTest {
             SkkDictionaryEntry("にほん", List(5) { SkkDictionaryCandidate(longCandidate + it, longAnnotation) }),
         ), SkkDictionaryEncoding.UTF8), 0)
         val direct = Executor { it.run() }
-        val manager = DictionaryManager(repository, direct, direct).also { it.loadAsync() }
+        val manager = DictionaryManager(repository, direct, direct, deferReads = false).also { it.loadAsync() }
         val customizationPath = File(context.cacheDir, "candidate-status-${System.nanoTime()}.json")
         val customization = CustomizationStore(customizationPath, direct, direct).also { it.loadAsync() }
         val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()

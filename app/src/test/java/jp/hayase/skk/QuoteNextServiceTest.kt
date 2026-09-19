@@ -33,7 +33,7 @@ class QuoteNextServiceTest {
         val databaseName = "quote-${System.nanoTime()}.db"
         val repository = SQLiteDictionaryRepository(context, databaseName)
         val direct = Executor { it.run() }
-        val manager = DictionaryManager(repository, direct, direct).also { it.loadAsync() }
+        val manager = DictionaryManager(repository, direct, direct, deferReads = false).also { it.loadAsync() }
         val path = File(context.cacheDir, "quote-${System.nanoTime()}.json")
         val store = CustomizationStore(path, direct, direct).also {
             it.loadAsync()

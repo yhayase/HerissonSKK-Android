@@ -1,7 +1,9 @@
 package jp.hayase.skk.input
 
+import android.view.KeyEvent
 import android.os.Handler
 import android.os.Looper
+import java.util.concurrent.Executors
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicReference
 import android.view.inputmethod.InputConnection
@@ -25,6 +27,8 @@ import jp.hayase.skk.core.CandidateCommitRequest
 import jp.hayase.skk.core.CandidateDeletionRequest
 import jp.hayase.skk.core.CandidateDeletionOutcome
 import jp.hayase.skk.core.CandidateDeletionCompletion
+import jp.hayase.skk.core.dictionary.DictionaryReadScope
+import jp.hayase.skk.core.dictionary.DeferredDictionaryReadException
 import jp.hayase.skk.dictionary.BuiltinDictionary
 
 /**
@@ -50,6 +54,7 @@ class EditorSession(
     candidatePageSizeProvider: () -> Int = { candidateDisplayConfig.fixedPageSize },
     private val emacsEnabled: Boolean = false,
     private val callbackExecutor: Executor = Executor { Handler(Looper.getMainLooper()).post(it) },
+    private val dictionaryExecutor: Executor = DICTIONARY_EXECUTOR,
     editPortFactory: (InputConnection, Long, () -> EditorEditState, Executor,
         (EditorEditState, Int) -> Boolean) -> EditorEditPort = { input, token, state, callbacks, before ->
         EditorEditPort(input, token, state, callbacks, beforeRequest = before)
@@ -79,6 +84,91 @@ class EditorSession(
     private val compositionMarkersRequested = candidateDisplayConfig.showCompositionMarkers && !protectedInput
     private var lastEditorText = ""
     private var lastEditorMarkerLength = 0
+
+    private var dictionaryRevision = 0L
+    private var pendingReadScope: DictionaryReadScope? = null
+    var dictionaryReadPending = false
+        private set
+    private val queuedDictionaryOperations = ArrayDeque<() -> Boolean>()
+
+    /** 未処理のキーは辞書の到着後に最新の候補状態で解釈します。 */
+    fun deferKey(operation: () -> Boolean): Boolean {
+        if (!dictionaryReadPending) return false
+        enqueueDictionaryOperation(operation)
+        return true
+    }
+
+    /** 既に受け取った待機キーが確定後に素通しとなる場合、同じ入力接続へ配送します。 */
+    fun replayUnhandledKey(event: KeyEvent): Boolean {
+        if (!active || failed) return true
+        preserveTextInternal(invalidateQueuedInput = false)
+        connection.sendKeyEvent(event)
+        connection.sendKeyEvent(KeyEvent.changeAction(event, KeyEvent.ACTION_UP))
+        return true
+    }
+
+    private fun enqueueDictionaryOperation(operation: () -> Boolean) {
+        queuedDictionaryOperations.addLast(operation)
+    }
+
+    private fun invalidateDictionaryRead() {
+        dictionaryRevision++
+        pendingReadScope?.close()
+        pendingReadScope = null
+        dictionaryReadPending = false
+        queuedDictionaryOperations.clear()
+    }
+
+    private fun dictionaryOperation(attempt: Int = 0, scope: DictionaryReadScope? = null,
+        operation: () -> Boolean): Boolean {
+        if (dictionaryReadPending) {
+            enqueueDictionaryOperation(operation)
+            return true
+        }
+        val readScope = scope ?: DictionaryReadScope()
+        var deferred = false
+        return try {
+            readScope.run(operation)
+        } catch (pending: DeferredDictionaryReadException) {
+            if (attempt >= MAX_DICTIONARY_RETRIES) {
+                invalidateDictionaryRead()
+                notice = "辞書の検索を完了できませんでした。入力をやり直してください"
+                onStateChanged()
+                return true
+            }
+            deferred = true
+            pendingReadScope = readScope
+            dictionaryReadPending = true
+            val revision = dictionaryRevision
+            try {
+                dictionaryExecutor.execute {
+                    val failure = runCatching { pending.load() }.exceptionOrNull()
+                    callbackExecutor.execute callback@{
+                        if (!active || failed || revision != dictionaryRevision) return@callback
+                        dictionaryReadPending = false
+                        pendingReadScope = null
+                        if (failure != null) {
+                            readScope.close()
+                            invalidateDictionaryRead()
+                            notice = "辞書の検索に失敗しました。入力をやり直してください"
+                        } else {
+                            dictionaryOperation(attempt + 1, readScope, operation)
+                            while (!dictionaryReadPending && queuedDictionaryOperations.isNotEmpty()) {
+                                dictionaryOperation(operation = queuedDictionaryOperations.removeFirst())
+                            }
+                        }
+                        onStateChanged()
+                    }
+                }
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                invalidateDictionaryRead()
+                notice = "辞書の検索を開始できませんでした"
+            }
+            true
+        } finally {
+            if (!deferred) readScope.close()
+        }
+    }
 
     private fun marker(): String {
         if (!compositionMarkersRequested || selectionStart < 0 || readEditorSnapshot() == null) return ""
@@ -138,6 +228,11 @@ class EditorSession(
     fun handle(action: BasicSkkAction): Boolean {
         if (!active || protectedInput || failed) return false
         if (action is BasicSkkAction.Edit && !emacsEnabled) return false
+        if (action == BasicSkkAction.Cancel) invalidateDictionaryRead()
+        return dictionaryOperation { handleReady(action) }
+    }
+
+    private fun handleReady(action: BasicSkkAction): Boolean {
         if (action is BasicSkkAction.Edit && !hasComposition) {
             if (externalPending) {
                 // 事後確認中の連打は版を変えず、本文を持たないコマンドだけを待機させます。
@@ -243,7 +338,9 @@ class EditorSession(
                 is BasicSkkEffect.SaveRegistration -> {
                     registrationSaver?.invoke(effect.request) { outcome ->
                         if (active && !failed && effect.request.token.sessionGeneration == generation) {
-                            applyResult(engine.completeRegistration(RegistrationSaveCompletion(effect.request.token, outcome)))
+                            dictionaryOperation {
+                                applyResult(engine.completeRegistration(RegistrationSaveCompletion(effect.request.token, outcome)))
+                            }
                             onStateChanged()
                         }
                     }
@@ -271,10 +368,11 @@ class EditorSession(
                 is BasicSkkEffect.DeleteCandidate -> {
                     candidateDeleter?.invoke(effect.request) { outcome ->
                         if (active && !failed && effect.request.token.sessionGeneration == generation) {
-                            val completion = engine.completeCandidateDeletion(
-                                CandidateDeletionCompletion(effect.request.token, outcome),
-                            )
-                            if (applyResult(completion)) onStateChanged()
+                            if (dictionaryOperation {
+                                applyResult(engine.completeCandidateDeletion(
+                                    CandidateDeletionCompletion(effect.request.token, outcome),
+                                ))
+                            }) onStateChanged()
                         }
                     }
                 }
@@ -355,7 +453,10 @@ class EditorSession(
         return true
     }
 
-    fun preserveText() {
+    fun preserveText() = preserveTextInternal(invalidateQueuedInput = true)
+
+    private fun preserveTextInternal(invalidateQueuedInput: Boolean) {
+        if (invalidateQueuedInput) invalidateDictionaryRead()
         if (!active) return
         publishEditState(invalidate = true)
         val finish = hasEditorComposition || composingStart >= 0
@@ -459,5 +560,9 @@ class EditorSession(
 
     companion object {
         private const val MAX_QUEUED_EXTERNAL_COMMANDS = 64
+        private const val MAX_DICTIONARY_RETRIES = 64
+        private val DICTIONARY_EXECUTOR = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "skk-dictionary-read").apply { isDaemon = true }
+        }
     }
 }

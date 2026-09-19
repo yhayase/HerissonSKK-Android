@@ -17,7 +17,7 @@ class SkkDictionarySource(
     val enabled: Boolean = true,
 ) {
     private val index = entries.associate { it.key to it.candidates }
-    private val sortedKeys = index.keys.sorted()
+    private val sortedKeys = index.keys.sortedWith(CODE_POINT_ORDER)
 
     init {
         require(id.isNotBlank()) { "辞書IDは空にできません" }
@@ -25,27 +25,13 @@ class SkkDictionarySource(
         require(index.size == entries.size) { "辞書の見出し語が重複しています" }
     }
 
-    internal fun candidates(key: String): List<SkkDictionaryCandidate> = index[key].orEmpty()
+    fun candidates(key: String): List<SkkDictionaryCandidate> = index[key].orEmpty()
 
     /** 完全バックアップ用に Unicode コードポイント順で列挙します。通常検索では使用しません。 */
-    fun entriesForBackup(): Sequence<SkkDictionaryEntry> = index.keys.sortedWith(Comparator { left, right ->
-        var a = 0
-        var b = 0
-        var result = 0
-        while (a < left.length && b < right.length) {
-            val x = left.codePointAt(a)
-            val y = right.codePointAt(b)
-            result = x.compareTo(y)
-            if (result != 0) break
-            a += Character.charCount(x)
-            b += Character.charCount(y)
-        }
-        if (result != 0) result else (left.length - a).compareTo(right.length - b)
-    }).asSequence().map { SkkDictionaryEntry(it, index.getValue(it)) }
-
+    fun entriesForBackup(): Sequence<SkkDictionaryEntry> = sortedKeys.asSequence().map { SkkDictionaryEntry(it, index.getValue(it)) }
 
     /** ソート済み索引の一致範囲だけを列挙し、辞書全件を通常経路で走査しません。 */
-    internal fun completionKeys(prefix: String): Sequence<String> = sequence {
+    fun completionKeys(prefix: String): Sequence<String> = sequence {
         var index = sortedKeys.lowerBound(prefix)
         while (index < sortedKeys.size) {
             val key = sortedKeys[index]
@@ -60,10 +46,27 @@ class SkkDictionarySource(
         var high = size
         while (low < high) {
             val middle = (low + high).ushr(1)
-            if (this[middle] < value) low = middle + 1 else high = middle
+            if (CODE_POINT_ORDER.compare(this[middle], value) < 0) low = middle + 1 else high = middle
         }
         return low
     }
+    private companion object {
+        val CODE_POINT_ORDER = Comparator<String> { left, right ->
+            var a = 0
+            var b = 0
+            var result = 0
+            while (a < left.length && b < right.length) {
+                val x = left.codePointAt(a)
+                val y = right.codePointAt(b)
+                result = x.compareTo(y)
+                if (result != 0) break
+                a += Character.charCount(x)
+                b += Character.charCount(y)
+            }
+            if (result != 0) result else (left.length - a).compareTo(right.length - b)
+        }
+    }
+
 }
 
 data class CandidateOrigin(

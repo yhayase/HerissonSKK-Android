@@ -161,6 +161,8 @@ object NumericConversion {
     ): MarkerExpansion {
         val found = try {
             lookup(span)
+        } catch (pending: jp.hayase.skk.core.dictionary.DeferredDictionaryReadException) {
+            throw pending
         } catch (_: Exception) {
             return MarkerExpansion(diagnostic = NumericDiagnostic.LOOKUP_FAILED)
         }

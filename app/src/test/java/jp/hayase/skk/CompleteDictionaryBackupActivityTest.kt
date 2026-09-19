@@ -40,7 +40,7 @@ class CompleteDictionaryBackupActivityTest {
         database = "backup-ui-${System.nanoTime()}.db"
         repository = SQLiteDictionaryRepository(context, database)
         val direct = Executor { it.run() }
-        manager = DictionaryManager(repository, direct, direct)
+        manager = DictionaryManager(repository, direct, direct, deferReads = false)
         manager.loadAsync()
         CompleteDictionaryBackupActivity.managerFactoryForTest = { manager }
     }

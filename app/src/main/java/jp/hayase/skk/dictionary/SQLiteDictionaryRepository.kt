@@ -13,6 +13,12 @@ import jp.hayase.skk.core.dictionary.BackupRecord
 import jp.hayase.skk.core.dictionary.BackupSummary
 import jp.hayase.skk.core.dictionary.CompleteDictionaryBackupCodec
 import java.util.Collections
+import jp.hayase.skk.core.CompletionQuery
+import jp.hayase.skk.core.CompletionScope
+import jp.hayase.skk.core.CompletionException
+import jp.hayase.skk.core.CompletionFailure
+import jp.hayase.skk.core.dictionary.DictionaryUnavailableException
+import jp.hayase.skk.core.dictionary.DictionaryUnavailableReason
 import jp.hayase.skk.core.dictionary.CompositeSkkDictionary
 import jp.hayase.skk.core.dictionary.SkkDictionaryCandidate
 import jp.hayase.skk.core.dictionary.SkkDictionaryCodec
@@ -42,6 +48,20 @@ class PersonalDictionaryExport(bytes: ByteArray, val excludedSuppressionCount: I
         require(excludedSuppressionCount >= 0) { "非表示候補件数が不正です" }
     }
 }
+
+internal data class DictionaryReadStats(
+    val metadataReads: Long,
+    val keyReads: Long,
+    val prefixReads: Long,
+    val fullSnapshotReads: Long,
+)
+
+/** 候補行を読まずに固定する公開世代です。 */
+data class DictionaryMetadata(
+    val sources: List<DictionarySourceInfo>,
+    val revision: Long,
+    val allowFallback: Boolean,
+)
 
 /** 一回のキー検索で固定した、複合辞書へ渡す読み取り専用スナップショットです。 */
 class DictionaryLookupSnapshot(
@@ -106,6 +126,14 @@ class SQLiteDictionaryRepository internal constructor(
     ) : this(context, databaseName, failpoint, DictionaryDatabaseConfigurator { })
 
     private val helper = Helper(context.applicationContext, databaseName, databaseConfigurator)
+
+    private var closed = false
+    private var metadataReads = 0L
+    private var keyReads = 0L
+    private var prefixReads = 0L
+    private var fullSnapshotReads = 0L
+    internal val readStats: DictionaryReadStats
+        @Synchronized get() = DictionaryReadStats(metadataReads, keyReads, prefixReads, fullSnapshotReads)
 
     /** 同じ ID のシステム辞書だけを、新しい世代へ原子的に置き換えます。 */
     @Synchronized
@@ -370,16 +398,146 @@ class SQLiteDictionaryRepository internal constructor(
 
     /** 有効な辞書について [key] の行だけを索引検索し、検索開始時の世代と順を固定します。 */
     @Synchronized
-    fun lookup(key: String): DictionaryLookupSnapshot {
+    fun lookup(key: String, expectedRevision: Long? = null): DictionaryLookupSnapshot {
+        check(!closed) { "辞書保管庫は閉じています" }
+        keyReads++
         val database = helper.readableDatabase
-        return database.inReadTransaction { readSnapshot(database, key) }
+        return database.inReadTransaction {
+            checkReadRevision(database, expectedRevision)
+            readSnapshot(database, key)
+        }
     }
 
-    /** 起動時または公開成功後に、全有効辞書を一つの世代スナップショットとして読み込みます。 */
+    /** 明示的な書き出し・検証用です。起動・学習・通常検索には使用しません。 */
     @Synchronized
     fun loadSnapshot(): DictionaryLookupSnapshot {
+        check(!closed) { "辞書保管庫は閉じています" }
+        fullSnapshotReads++
         val database = helper.readableDatabase
         return database.inReadTransaction { readSnapshot(database, null) }
+    }
+
+    /** 起動と変更の公開では、候補や抑止の全件を列挙しません。 */
+    @Synchronized
+    fun loadMetadata(): DictionaryMetadata {
+        check(!closed) { "辞書保管庫は閉じています" }
+        metadataReads++
+        val database = helper.readableDatabase
+        return database.inReadTransaction {
+            DictionaryMetadata(querySources(database), readRevision(database), readAllowFallback(database))
+        }
+    }
+
+    private fun checkReadRevision(database: SQLiteDatabase, expected: Long?) {
+        if (expected != null && readRevision(database) != expected) {
+            throw DictionaryUnavailableException(DictionaryUnavailableReason.FAILED)
+        }
+    }
+
+    /** 前方一致索引の範囲を走査し、候補本文をメモリーへ読み込まずに表示可能な見出しを返します。 */
+    @Synchronized
+    fun complete(
+        query: CompletionQuery,
+        expectedRevision: Long,
+        fallbackSystems: List<SkkDictionarySource> = emptyList(),
+    ): List<String> {
+        check(!closed) { "辞書保管庫は閉じています" }
+        prefixReads++
+        // コアと同じ入力検証を行います。空の辞書なので候補は読みません。
+        CompositeSkkDictionary().complete(query)
+        if (query.prefix.isEmpty()) return emptyList()
+        val database = helper.readableDatabase
+        return database.inReadTransaction {
+            checkReadRevision(database, expectedRevision)
+            val sources = querySources(database)
+            val result = linkedSetOf<String>()
+            var work = 0
+            var totalChars = 0L
+            fun charge() {
+                if (++work > CompletionQuery.MAX_WORK_ITEMS) throw CompletionException(CompletionFailure.WORK_LIMIT)
+            }
+            fun eligible(key: String): Boolean = key != query.prefix &&
+                (query.abbrev && key.all { it.code in 0x20..0x7e } ||
+                    !query.abbrev && key.lastOrNull() !in 'a'..'z')
+            fun append(key: String) {
+                if (key.length > CompletionQuery.MAX_RESULT_CHARS) throw CompletionException(CompletionFailure.RESULT_LIMIT)
+                if (result.add(key)) {
+                    totalChars += key.length
+                    if (totalChars > CompletionQuery.MAX_TOTAL_RESULT_CHARS) throw CompletionException(CompletionFailure.RESULT_LIMIT)
+                }
+            }
+            val upper = prefixUpperBound(query.prefix)
+            for (source in sources) {
+                if (!source.enabled || query.scope == CompletionScope.PERSONAL_ONLY &&
+                    source.kind != DictionarySourceKind.PERSONAL) continue
+                var after: String? = null
+                while (result.size < query.limit) {
+                    val args = mutableListOf(source.id, after ?: query.prefix)
+                    val upperClause = if (upper == null) "" else " AND $COLUMN_ENTRY_KEY < ?".also { args += upper }
+                    // 直前の見出しを越える索引 seek により、採用済み見出しの残り候補は走査しません。
+                    val key = database.rawQuery(
+                        "SELECT $COLUMN_ENTRY_KEY FROM $TABLE_CANDIDATES WHERE $COLUMN_SOURCE_ID=? " +
+                            "AND $COLUMN_ENTRY_KEY ${if (after == null) ">=" else ">"} ?$upperClause " +
+                            "ORDER BY $COLUMN_ENTRY_KEY LIMIT 1", args.toTypedArray(),
+                    ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: break
+                    if (!key.startsWith(query.prefix)) break
+                    after = key
+                    charge()
+                    if (!eligible(key)) continue
+                    val visible = if (source.kind == DictionarySourceKind.PERSONAL) true else {
+                        database.rawQuery(
+                            """SELECT NOT EXISTS (SELECT 1 FROM $TABLE_SUPPRESSIONS x
+                                WHERE x.$COLUMN_SOURCE_ID=c.$COLUMN_SOURCE_ID
+                                AND x.$COLUMN_ENTRY_KEY=c.$COLUMN_ENTRY_KEY
+                                AND x.$COLUMN_TEXT=c.$COLUMN_TEXT
+                                AND x.$COLUMN_OKURI=COALESCE(c.$COLUMN_OKURI, ''))
+                                FROM $TABLE_CANDIDATES c
+                                WHERE c.$COLUMN_SOURCE_ID=? AND c.$COLUMN_ENTRY_KEY=?
+                                ORDER BY c.$COLUMN_ORDINAL LIMIT ${CompletionQuery.MAX_WORK_ITEMS - work + 1}""".trimIndent(),
+                            arrayOf(source.id, key),
+                        ).use { cursor ->
+                            var found = false
+                            while (cursor.moveToNext()) {
+                                charge()
+                                if (cursor.getInt(0) != 0) { found = true; break }
+                            }
+                            found
+                        }
+                    }
+                    if (visible) append(key)
+                }
+                if (result.size >= query.limit) return@inReadTransaction result.toList()
+            }
+            if (query.scope == CompletionScope.ALL && readAllowFallback(database)) {
+                val storedIds = sources.map { it.id }.toSet()
+                for (source in fallbackSystems.filter { it.enabled && it.id !in storedIds }) {
+                    for (key in source.completionKeys(query.prefix)) {
+                        if (result.size >= query.limit) return@inReadTransaction result.toList()
+                        charge()
+                        if (!eligible(key)) continue
+                        val suppressions = readSuppressions(database, key).map { it.key }.toSet()
+                        val visible = source.candidates(key).any { candidate ->
+                            charge()
+                            CandidateSuppressionKey(source.id, key, candidate.text, candidate.okuriCondition) !in suppressions
+                        }
+                        if (visible) append(key)
+                    }
+                }
+            }
+            result.toList()
+        }
+    }
+
+    private fun prefixUpperBound(prefix: String): String? {
+        val points = prefix.codePoints().toArray()
+        for (index in points.indices.reversed()) {
+            if (points[index] < Character.MAX_CODE_POINT) {
+                points[index]++
+                if (points[index] in 0xd800..0xdfff) points[index] = 0xe000
+                return String(points, 0, index + 1)
+            }
+        }
+        return null
     }
 
     @Synchronized fun dictionaryRevision(): Long = readRevision(helper.readableDatabase)
@@ -511,7 +669,10 @@ class SQLiteDictionaryRepository internal constructor(
     }
 
     @Synchronized
-    override fun close() = helper.close()
+    override fun close() {
+        closed = true
+        helper.close()
+    }
 
     private fun replaceDocument(
         id: String,
@@ -747,6 +908,10 @@ class SQLiteDictionaryRepository internal constructor(
 
     private fun readSnapshot(database: SQLiteDatabase, key: String?): DictionaryLookupSnapshot {
         val sources = linkedMapOf<String, SnapshotBuilder>()
+        // 個人辞書に一致行がない検索でも削除用の個人世代を保持します。
+        querySources(database).filter { it.enabled }.forEach { source ->
+            sources[source.id] = SnapshotBuilder(source.id, source.generation, source.kind == DictionarySourceKind.PERSONAL)
+        }
         val join = if (key == null) "LEFT JOIN" else "JOIN"
         val keyClause = if (key == null) "" else " AND c.$COLUMN_ENTRY_KEY = ?"
         database.rawQuery(

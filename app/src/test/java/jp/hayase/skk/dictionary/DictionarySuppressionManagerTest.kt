@@ -42,7 +42,7 @@ class DictionarySuppressionManagerTest {
             repository,
             serial,
             Executor { it.run() },
-            fallbackSystems = listOf(fallback),
+            fallbackSystems = listOf(fallback), deferReads = false,
         )
         manager.loadAsync(); serial.runNext()
         assertEquals(

@@ -98,7 +98,7 @@ class CandidateLearningPersistenceServiceTest {
     private fun manager(name: String): DictionaryManager {
         val direct = Executor { it.run() }
         return DictionaryManager(SQLiteDictionaryRepository(RuntimeEnvironment.getApplication(), name),
-            direct, direct, fallbackSystems = listOf(BuiltinDictionary.source)).also { it.loadAsync() }
+            direct, direct, fallbackSystems = listOf(BuiltinDictionary.source), deferReads = false).also { it.loadAsync() }
     }
 
     private fun withService(test: (SkkInputMethodService, DictionaryManager, String) -> Unit) {

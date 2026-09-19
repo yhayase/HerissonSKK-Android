@@ -23,6 +23,22 @@ import org.junit.runner.RunWith
 class PhysicalInputTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
+    /** 辞書検索の完了を待たずに送った確定・送り変換・候補ラベルを順序どおり適用します。 */
+    @Test fun consecutiveConversionAndCommitKeysStayOrdered() {
+        withSendEditor { editor, counter ->
+            type("Nihon ")
+            key(KeyEvent.KEYCODE_ENTER)
+            type("KakU")
+            key(KeyEvent.KEYCODE_ENTER)
+            type("Tesuto   a")
+            awaitText(editor, "日本書く候補3")
+            instrumentation.runOnMainSync {
+                assertEquals(-1, BaseInputConnection.getComposingSpanStart(editor.text))
+            }
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
     /** K14: TABは読みだけを補完し、取消で元へ戻り、受諾後のSpaceで変換します。 */
     @Test fun manualCompletionStaysInCompositionAndCancelRestoresPrefix() {
         withSendEditor { editor, counter ->

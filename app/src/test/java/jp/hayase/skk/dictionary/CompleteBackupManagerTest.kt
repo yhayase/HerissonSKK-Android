@@ -204,7 +204,7 @@ class CompleteBackupManagerTest {
         val h = Harness(SQLiteDictionaryRepository(context, name()), ManualExecutor())
         h.repository.replacePersonal(document("かな /元候補/"))
         h.manager = DictionaryManager(h.repository, h.serial, callbacks, fallbackSystems = fallbacks,
-            loadSnapshot = { if (h.failLoad) error("試験用の公開失敗") else h.repository.loadSnapshot() })
+            loadSnapshot = { if (h.failLoad) error("試験用の公開失敗") else h.repository.loadSnapshot() }, deferReads = false)
         h.manager.loadAsync(); h.serial.runAll()
         cleanup += { h.manager.close(); h.serial.runAll() }
         return h

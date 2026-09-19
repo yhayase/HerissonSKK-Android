@@ -23,6 +23,15 @@ class HardwareKeyMapper {
     private var accent = 0
     fun reset() { accent = 0 }
 
+    /** 待機中の取消・素通しだけを判定し、デッドキーの状態を変更しません。 */
+    fun previewConfigured(event: KeyEvent, state: BasicSkkState, view: BasicSkkView,
+        bindings: KeyBindings, emacsEnabled: Boolean,
+        rules: jp.hayase.skk.core.romaji.RomanRuleSet): Decoded {
+        val savedAccent = accent
+        return try { decodeConfigured(event, state, view, bindings, emacsEnabled, rules) }
+        finally { accent = savedAccent }
+    }
+
     /** 文字生成後に意味操作を解決し、未割当文字に旧来のコマンド解釈を重ねません。 */
     fun decodeConfigured(event: KeyEvent, state: BasicSkkState, view: BasicSkkView,
         bindings: KeyBindings, emacsEnabled: Boolean,

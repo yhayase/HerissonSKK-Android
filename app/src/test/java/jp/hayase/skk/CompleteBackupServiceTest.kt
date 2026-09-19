@@ -81,7 +81,7 @@ class CompleteBackupServiceTest {
         val bytes = ByteArrayOutputStream().also { repository.writeCompleteBackup(it, emptyList(), "test") }.toByteArray()
         repository.replacePersonal(SkkDictionaryCodec.parseText("かな /元候補/"))
         val direct = Executor { it.run() }
-        val manager = DictionaryManager(repository, direct, direct).also { it.loadAsync() }
+        val manager = DictionaryManager(repository, direct, direct, deferReads = false).also { it.loadAsync() }
         val customizationPath = File(context.cacheDir, "complete-service-${System.nanoTime()}.json")
         val customization = CustomizationStore(customizationPath, direct, direct).also { it.loadAsync() }
         val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
