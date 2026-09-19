@@ -1,5 +1,7 @@
 # フェーズ 1 の実装・検証記録
 
+本書は旧フェーズ1当時の履歴です。「未実装」等は当時の状態であり、現在の残件には使いません。現在の計画は [ロードマップ](roadmap.md)、実装証拠は [試験対応表](test-coverage.md) を参照します。
+
 ## 実装したもの
 
 - Kotlin の Android アプリと Gradle Wrapper を作成しました。最低対応版は API 26 とし、compileSdk／targetSdk は 35、JVM ターゲットは 17 に固定しました。
