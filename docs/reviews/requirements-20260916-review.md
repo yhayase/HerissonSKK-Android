@@ -1,5 +1,7 @@
 # Android IME 要件の独立レビュー（2026-09-16）
 
+履歴資料です。対象時点の判定を保持しています。現在の仕様・残件との区別は [レビュー履歴の案内](README.md) を参照します。
+
 ## 対象と結論
 
 対象は `docs/requirements.md`、`docs/compatibility.md`、`docs/roadmap.md`、`docs/validation-plan.md` です。実装済み機能の合否ではなく、実現範囲、仕様の明確さ、DDSKK 参照との一致を確認しました。レビュー時の DDSKK は 17.2、タグ `ddskk-17.2_Mena`、コミット `e8bf68b27021c29781dbfa6a8ef7b770565bdb5b` です。

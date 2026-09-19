@@ -1,5 +1,7 @@
 # AndroidSKK の品質・拡張性評価
 
+履歴資料です。対象時点の判定を保持しています。現在の仕様・残件との区別は [レビュー履歴の案内](README.md) を参照します。
+
 評価日: 2026-09-12
 
 対象: [kachaya-ime/AndroidSKK](https://github.com/kachaya-ime/AndroidSKK)、コミット [`f5bf85c6d4482647531c608bc1037fc4206cea16`](https://github.com/kachaya-ime/AndroidSKK/tree/f5bf85c6d4482647531c608bc1037fc4206cea16)（2026-09-10）。ビルド設定の版は 2.1.0 です。ユーザーが導入した APK とこのソースコミットの完全な一致は検証していません。

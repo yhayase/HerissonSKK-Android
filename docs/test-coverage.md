@@ -1,18 +1,18 @@
 # 要件と試験の対応
 
-2026-09-19 改訂: 辞書の全件メモリー公開に関する以前の説明は [有限キャッシュの契約](dictionary-storage-cache-design.md) で置き換えます。コア278件・Android単体587実行・ホスト26件、API 26／35の最終APKの検証結果は [継続記録](work-status.md) を参照します。起動時の候補読み込み0、キャッシュ各上限、学習の対象外行の非更新、非同期入力の順序・取消、復元と障害の回帰を追加しています。
+更新日: 2026-09-19
 
-基礎表の記録日: 2026-09-16。計画との対応更新: 2026-09-19
+本書は [製品要件](requirements.md) と実装証拠・残る判定条件を対応させます。計画は [ロードマップ](roadmap.md) に従い、実装済み機能と初回追加要件を区別します。「代表検証」は試験用辞書・検証用アプリ・専用エミュレーター等に範囲を限定した証拠です。
 
-本書は実装済み機能の証拠と残る条件を扱います。旧F01〜F15の実装完了を、新しい初回要件全体の完了と読み替えません。[製品要件](requirements.md) の項目について、実装と検証の証拠、まだ満たしたと判定できない範囲を示します。「代表検証」は合成辞書・検証用入力アプリ・専用エミュレーターなど、条件を限定した試験です。現行作業ツリーのローカルゲート `20260916T072203657752Z` はコア 250 件、Android 単体 393 実行、ホスト 22 件、lintDebug／lintRelease、debug／release／benchmark APK の通知・権限検査に成功しました。コード `f025b9d` のクリーンチェックアウトでも `20260916T072547824347Z` に同件数・失敗 0・スキップ 0 で成功しました。過去の試験数と端末履歴は [開発の継続記録](work-status.md) に段階別に残します。
+日付・件数・ソースコミット・APKハッシュは [継続記録](work-status.md) に集約します。異なるAPKでの結果を一つの全件合格として合算しません。最新の通常辞書経路は [有限キャッシュ](dictionary-storage-cache-design.md) です。
 
 | 証拠の層 | 主な試験・記録 | 示せる範囲 |
 | --- | --- | --- |
 | コア JVM | `BasicSkkEngineTest`、登録・補完・数値・書記素・辞書形式・複合辞書の試験 | Android と独立した入力状態、候補・注釈・順序、境界・不変条件 |
 | Android 単体 | `EditorSessionTest`、`EditorEditPortTest`、`DictionaryManagerTest`、`CustomizationStoreTest`、各 Activity 試験 | 入力接続の状態と失敗、保存・世代・競合・公開、設定の適用 |
-| Android SQLite | `SQLiteDictionaryAndroidTest`、`DictionaryCrashRecoveryTest`、`CompleteDictionaryBackupAndroidTest`、`CandidateStatusAndroidTest` | 実 SQLite の容量不足、未コミット終了、v1/v2 移行、復元・台帳、長文表示用状態。API 26／35 の表示試験は各 2 件成功 |
-| 専用エミュレーター | `PhysicalInputTest`、`SafDictionaryE2eTest`、`CustomizationE2eTest`、`CompleteBackupSafE2eTest`、`CandidateDisplayE2eTest` | 別アプリの代表入力欄、物理キー、SAF、狭幅・倍率表示。表示と物理キーの新規試験は API 26／30／35 で各 2 件成功 |
-| 更新・障害境界 | `UpgradePersistenceSeedTest`／`UpgradePersistenceTest`、`CompleteBackupProviderFailureTest`、各専用ランナー | 同署名 APK 更新の独立 fixture は API 26／30／35 で各 1 件、別プロセスの実 provider 読取障害は API 26／35 で各 1 件成功。実利用データや任意 provider の保証ではない |
+| Android SQLite | `SQLiteDictionaryAndroidTest`、`DictionaryCrashRecoveryTest`、`CompleteDictionaryBackupAndroidTest`、`CandidateStatusAndroidTest` | 実 SQLite の容量不足、未コミット終了、v1/v2 移行、復元・台帳、長文表示用状態 |
+| 専用エミュレーター | `PhysicalInputTest`、`SafDictionaryE2eTest`、`CustomizationE2eTest`、`CompleteBackupSafE2eTest`、`CandidateDisplayE2eTest` | 別アプリの代表入力欄、物理キー、SAF、狭幅・倍率表示 |
+| 更新・障害境界 | `UpgradePersistenceSeedTest`／`UpgradePersistenceTest`、`CompleteBackupProviderFailureTest`、各専用ランナー | 同署名APK更新の独立fixtureと別プロセスの実provider読取障害を検証。実利用データや任意 provider の保証ではない |
 | ホスト・成果物 | Python ランナー試験、`verify-local.py`、`distribution.md` | 失敗・スキップ判定、APK・通知・権限などの検査。現行作業ツリーとクリーンチェックアウトの両方で成功し、成果物をハッシュ付きで記録 |
 
 ## 機能要件 F01〜F15
@@ -83,3 +83,11 @@ F11の補完は初回対象ですが、実装済み数値変換の追加整備�
 表示・更新・配布物ゲートと実 provider の読取障害は専用エミュレーターで成功しました。クリーンチェックアウトの最終ゲートと、その APK による API 26 の入力および API 35 の入力・設定・表示・SAF の確認も成功しました。設定画面のキーボード操作、標準値・適用範囲の説明、基本設定の保存失敗は追加検証を完了しました。実 provider の出力先 close 障害は単体注入で検査し、任意プロバイダーや OEM の挙動まで保証しません。入力ログの独立したソース監査も完了しました。実機と対象アプリの受入は別に残します。
 
 過去の全件メモリー公開方式の測定値・判断は [継続記録](work-status.md) の履歴に保存します。現在は [有限キャッシュの契約](dictionary-storage-cache-design.md) に移行済みで、起動・学習後の全件再読込を行いません。最新の条件付き測定は [辞書性能](dictionary-performance.md) を参照します。実機の性能受入は未完了です。
+
+## 文書と実装の照合で明示した制約
+
+- 辞書の適用前プレビューは文字コード・件数等を表示しますが、本文の標本表示は未実装です。自動文字コード判別の意味上の正しさまで保証しません。
+- 辞書待機操作のキューには件数上限がありません。辞書読込の再試行上限と外部編集キューの上限は別の制約です。有限辞書キャッシュの試験を待機キーのメモリー上限の証拠にはしません。
+- 単独候補の注釈は入力先のカーソル座標通知に依存し、下部の全文ボタンは一覧の選択中候補だけです。全アプリで長い注釈を確認できるという保証はなく、初回の表示受入で扱います。
+
+これらは今回コードを修正した結果ではなく、既存実装の範囲を明確にしたものです。

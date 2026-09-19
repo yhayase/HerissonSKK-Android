@@ -1,5 +1,7 @@
 # SQLite 辞書永続化レビュー
 
+履歴資料です。対象時点の判定を保持しています。現在の仕様・残件との区別は [レビュー履歴の案内](README.md) を参照します。
+
 実施日: 2026-09-16
 
 対象は `SQLiteDictionaryRepository` とその Robolectric 試験です。辞書 UI、IME への非同期接続、学習、登録、削除は対象外です。入力は `SkkDictionaryCodec` が全件解析・検証済みの `SkkDictionaryDocument` とします。
