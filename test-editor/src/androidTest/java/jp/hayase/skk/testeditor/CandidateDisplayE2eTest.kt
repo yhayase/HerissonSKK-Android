@@ -48,6 +48,7 @@ class CandidateDisplayE2eTest {
             awaitImeReady(editor)
             key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
             type("Tesuto   ")
+            awaitCondition("候補一覧の先頭候補が表示されません") { editorText(editor) == "候補3" }
 
             assertCandidateBounds()
 
