@@ -32,6 +32,10 @@ internal data class CandidateStatusPresentation(
     val detailSections: List<CandidateDetailSection> = emptyList(),
     val menuItems: List<CandidateMenuItem> = emptyList(),
     val expandedStatus: Boolean = false,
+    /** 一覧で選択中の候補。null はインライン候補など一覧外の状態です。 */
+    val selectedMenuIndex: Int? = null,
+    /** 書記素数で切り詰めた選択中候補または注釈があることを示します。 */
+    val selectedPreviewTruncated: Boolean = false,
 )
 
 /** 巨大な文字列を比較せず、選択中の候補が変わったことを検出するための参照識別子です。 */
@@ -251,8 +255,13 @@ internal class CandidateStatusView @JvmOverloads constructor(
     private var expandedStatus = false
     private var renderedMenuItems: List<CandidateMenuItem> = emptyList()
     private var renderedMenuColumns = 1
+    private var renderedCandidateTexts: List<TextView> = emptyList()
+    private var renderedAnnotationTexts: List<TextView?> = emptyList()
     private var identity: CandidateDetailIdentity? = null
     private var sections: List<CandidateDetailSection> = emptyList()
+    private var selectedCandidateText: TextView? = null
+    private var selectedAnnotationText: TextView? = null
+    private var selectedPreviewTruncated = false
     private val history = mutableListOf<Pair<Int, Int>>()
     private var historyIndex = 0
 
@@ -280,6 +289,8 @@ internal class CandidateStatusView @JvmOverloads constructor(
             renderedMenuItems = presentation.menuItems.toList()
             renderedMenuColumns = columns
             menuContainer.removeAllViews()
+            val candidateTexts = mutableListOf<TextView>()
+            val annotationTexts = mutableListOf<TextView?>()
             presentation.menuItems.chunked(columns).forEach { items ->
                 val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
                 items.forEach { item ->
@@ -293,32 +304,38 @@ internal class CandidateStatusView @JvmOverloads constructor(
                             item.annotation?.let { append("、注釈: ").append(it) }
                         }
                     }
-                    tile.addView(TextView(context).apply {
+                    val candidateText = TextView(context).apply {
                         text = "${item.label}: ${item.text}"
                         textSize = 18f
                         setTextColor(0xff202124.toInt())
                         maxLines = 1
                         ellipsize = TextUtils.TruncateAt.END
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                    }, LinearLayout.LayoutParams(
+                    }
+                    tile.addView(candidateText, LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-                    item.annotation?.let { annotation ->
-                        tile.addView(TextView(context).apply {
+                    val annotationText = item.annotation?.let { annotation ->
+                        TextView(context).apply {
                             text = annotation
                             textSize = 13f
                             setTextColor(0xff5f6368.toInt())
                             maxLines = 1
                             ellipsize = TextUtils.TruncateAt.END
                             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                        }, LinearLayout.LayoutParams(
+                        }.also { text -> tile.addView(text, LinearLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                        }
                     }
+                    candidateTexts += candidateText
+                    annotationTexts += annotationText
                     row.addView(tile, LinearLayout.LayoutParams(0,
                         ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 }
                 menuContainer.addView(row, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }
+            renderedCandidateTexts = candidateTexts
+            renderedAnnotationTexts = annotationTexts
             menuContainer.visibility = if (presentation.menuItems.isEmpty()) View.GONE else View.VISIBLE
             // API 26 では子 View の入替えだけでは読み上げ用の古い候補が残るため、一覧全体の変更を通知します。
             post {
@@ -338,9 +355,18 @@ internal class CandidateStatusView @JvmOverloads constructor(
         if (changed) closeDetail()
         identity = presentation.detailIdentity
         sections = newSections
-        detailButton.visibility = if (sections.isEmpty()) View.GONE else View.VISIBLE
+        selectedPreviewTruncated = presentation.selectedPreviewTruncated
+        selectedCandidateText = presentation.selectedMenuIndex?.let { renderedCandidateTexts.getOrNull(it) }
+        selectedAnnotationText = presentation.selectedMenuIndex?.let { renderedAnnotationTexts.getOrNull(it) }
+        refreshDetailButton()
         if (sections.isEmpty()) closeDetail()
         if (changed) scrollTo(0, 0)
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        // TextView の省略数は実際に幅を割り当てた後だけ正確に判定できます。
+        refreshDetailButton()
     }
 
     fun handleDetailPaging(event: KeyEvent): Boolean {
@@ -397,7 +423,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     private fun openDetail() {
-        if (sections.isEmpty()) return
+        if (sections.isEmpty() || detailButton.visibility != View.VISIBLE) return
         history.clear()
         history += 0 to 0
         historyIndex = 0
@@ -449,6 +475,20 @@ internal class CandidateStatusView @JvmOverloads constructor(
         new: List<CandidateDetailSection>,
     ): Boolean = old.size == new.size && old.indices.all { index ->
         old[index].heading == new[index].heading && old[index].value === new[index].value
+    }
+
+    private fun refreshDetailButton() {
+        val layoutTruncated = listOfNotNull(selectedCandidateText, selectedAnnotationText)
+            .any { text ->
+                val layout = text.layout ?: return@any false
+                (0 until layout.lineCount).any { line -> layout.getEllipsisCount(line) > 0 }
+            }
+        val visible = sections.isNotEmpty() && selectedCandidateText != null &&
+            (selectedPreviewTruncated || layoutTruncated)
+        val targetVisibility = if (visible) View.VISIBLE else View.GONE
+        if (detailButton.visibility == targetVisibility) return
+        detailButton.visibility = targetVisibility
+        if (!visible) closeDetail()
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()

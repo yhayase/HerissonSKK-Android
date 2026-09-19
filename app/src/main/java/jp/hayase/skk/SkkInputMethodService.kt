@@ -486,7 +486,6 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         it.innerComposing?.takeIf(String::isNotEmpty)?.let { value -> add("▽${preview(value)}") }
                         add(getString(if (it.saving) R.string.registration_saving else R.string.registration_help))
                     }
-                    add(getString(R.string.local_dictionary_status))
                     when (val status = dictionaries.status) {
                         DictionaryManagerStatus.Loading -> add(getString(R.string.dictionary_loading_status))
                         is DictionaryManagerStatus.Unavailable -> add(getString(R.string.dictionary_failed_status))
@@ -514,7 +513,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     current.notice?.let { add(preview(it, 64)) }
                     dictionaryRestoreNotice?.let { add(preview(it, 64)) }
                 }
-                val text = "$mode  ${details.joinToString("\n")}"
+                val text = details.joinToString("\n").takeIf { it.isNotEmpty() }
+                    ?.let { "$mode  $it" } ?: mode
                 val styled = if (completionSuffixStart >= 0) {
                     // mode と区切りの長さを加え、通常表示に残った範囲だけを強調します。
                     styledCompletionText(text, mode.length + 2 + completionSuffixStart, completionSuffixLength)
@@ -522,6 +522,15 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 val identity = candidate?.takeIf { it.menu.isNotEmpty() }?.let {
                     CandidateDetailIdentity(it.index, it.selected.text, it.selected.annotation)
                 }
+                val selectedMenuIndex = candidate?.takeIf { it.menu.isNotEmpty() }?.menu
+                    ?.indexOfFirst { item -> item.candidate === candidate.selected }
+                    ?.takeIf { it >= 0 }
+                val selectedPreviewTruncated = candidate?.takeIf { selectedMenuIndex != null }?.let {
+                    CandidateTextBounds.preview(it.committedText, 32).truncated ||
+                        (it.selected.annotation?.let { annotation ->
+                            CandidateTextBounds.preview(annotation, 24).truncated
+                        } ?: false)
+                } ?: false
                 CandidateStatusPresentation(styled, identity, buildList {
                     candidate?.takeIf { it.menu.isNotEmpty() }?.let {
                         add(CandidateDetailSection("候補本文", it.committedText))
@@ -532,7 +541,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 }, menuItems = candidate?.menu.orEmpty().map { item ->
                     CandidateMenuItem(item.label, preview(item.committedText, 32),
                         item.candidate.annotation?.let { preview(it, 24) })
-                }, expandedStatus = registration != null)
+                }, expandedStatus = registration != null, selectedMenuIndex = selectedMenuIndex,
+                    selectedPreviewTruncated = selectedPreviewTruncated)
             }
         }
         candidateStatusView?.show(presentation) ?: run { statusView?.text = presentation.text }

@@ -126,6 +126,32 @@ class CandidateStatusAndroidTest {
         }
     }
 
+    @Test fun `実測幅で省略された選択候補だけが全文ボタンを表示する`() {
+        val candidate = "あ".repeat(12)
+        val annotation = "注".repeat(16)
+        val view = onMain {
+            CandidateStatusView(narrowLargeFontContext()).also {
+                it.show(CandidateStatusPresentation(
+                    text = "変換中",
+                    detailIdentity = CandidateDetailIdentity(0, candidate, annotation),
+                    detailSections = listOf(
+                        CandidateDetailSection("候補本文", candidate),
+                        CandidateDetailSection("注釈", annotation),
+                    ),
+                    menuItems = listOf(CandidateMenuItem('a', candidate, annotation)),
+                    selectedMenuIndex = 0,
+                ))
+            }
+        }
+        onMain { layout(view, 240) }
+        assertTrue(view.findViewById<View>(R.id.candidate_full_detail).visibility == View.VISIBLE)
+        onMain { view.findViewById<View>(R.id.candidate_full_detail).performClick() }
+        assertTrue(view.isDetailOpen)
+        onMain { layout(view, 800) }
+        assertTrue(view.findViewById<View>(R.id.candidate_full_detail).visibility == View.GONE)
+        assertFalse(view.isDetailOpen)
+    }
+
     private fun createView(candidate: String, annotation: String): CandidateStatusView = onMain {
         CandidateStatusView(narrowLargeFontContext()).also { view ->
             val candidatePreview = CandidateTextBounds.preview(candidate).text
@@ -137,6 +163,9 @@ class CandidateStatusAndroidTest {
                     CandidateDetailSection("候補本文", candidate),
                     CandidateDetailSection("注釈", annotation),
                 ),
+                menuItems = listOf(CandidateMenuItem('a', candidatePreview, annotationPreview)),
+                selectedMenuIndex = 0,
+                selectedPreviewTruncated = true,
             ))
         }
     }
@@ -151,9 +180,9 @@ class CandidateStatusAndroidTest {
         assertHeightBounded(view)
     }
 
-    private fun layout(view: CandidateStatusView) {
+    private fun layout(view: CandidateStatusView, widthDp: Int = 240) {
         val density = view.resources.displayMetrics.density
-        val width = (240 * density).toInt()
+        val width = (widthDp * density).toInt()
         val height = (640 * density).toInt()
         view.measure(
             View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),

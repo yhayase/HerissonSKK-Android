@@ -120,6 +120,7 @@ class CandidateStatusServiceTest {
             session.handle(BasicSkkAction.Text("  "))
             ReflectionHelpers.callInstanceMethod<Unit>(service, "updateStatus")
             assertTrue(surface.statusTextView.text.length < 2_000)
+            assertEquals(View.VISIBLE, surface.findViewById<View>(R.id.candidate_full_detail).visibility)
             surface.findViewById<View>(R.id.candidate_full_detail).performClick()
             val detail = surface.findViewById<TextView>(R.id.candidate_detail_text)
             val firstPage = detail.text.toString()

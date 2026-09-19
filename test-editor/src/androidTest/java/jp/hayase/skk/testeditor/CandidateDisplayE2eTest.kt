@@ -37,7 +37,7 @@ class CandidateDisplayE2eTest {
         }
     }
 
-    @Test fun narrowLargeFontCandidateDetailKeepsImeFocusAndCommitsOnce() {
+    @Test fun shortCandidateHidesDetailAndCommitsOnce() {
         enableStatusDisplay()
         ActivityScenario.launch<InputTestActivity>(
             android.content.Intent(instrumentation.targetContext, InputTestActivity::class.java)
@@ -52,14 +52,10 @@ class CandidateDisplayE2eTest {
             assertCandidateBounds()
 
             val before = editorText(editor)
-            val detailButton = awaitViewId("candidate_full_detail")
-            assertTrue("全文表示を開けません", clickNodeOrParent(detailButton))
-            val detail = awaitViewId("candidate_detail_text")
-            assertTrue("候補本文のページが空です", !detail.text.isNullOrEmpty())
-
-            key(KeyEvent.KEYCODE_DPAD_RIGHT)
-            assertEquals("全文ページ操作で候補を確定または変更しました", before, editorText(editor))
-            assertTrue("全文ページ操作で入力先のフォーカスを失いました", editorHasFocus(editor))
+            assertFalse("省略のない候補に全文ボタンが出ています", hasViewId("candidate_full_detail"))
+            val status = awaitViewId("input_status").text?.toString().orEmpty()
+            assertFalse("固定の辞書案内が残っています", status.contains("ローカル辞書") || status.contains("限定試験辞書"))
+            assertTrue("候補表示で入力先のフォーカスを失いました", editorHasFocus(editor))
 
             key(KeyEvent.KEYCODE_ENTER)
             awaitCondition("候補が確定しません") {
