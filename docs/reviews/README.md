@@ -1,0 +1,35 @@
+# レビュー履歴
+
+各文書は記載日・対象差分についての指摘と反映記録です。文中の「現在」「未実装」「残件」は当時の状態を指します。後日の機能・計画は [文書案内](../README.md) の正本を参照します。過去の結論を現行コードの再レビュー結果として扱いません。
+
+## 記録一覧
+
+- [コア接続と遅延通知のレビュー](android-core-adapter-20260916.md)
+- [AndroidSKK の品質・拡張性評価](androidskk-20260912.md)
+- [基本変換エンジン境界レビュー](basic-engine-20260916.md)
+- [基本設定の保存結果と学習抑止](basic-settings-20260916.md)
+- [ストレージ主体の辞書検索への変更と独立レビュー](bounded-dictionary-cache-20260919.md)
+- [ブラウザ版の実装・テストを Android 版へ活用する評価](browser-extension-20260916.md)
+- [候補削除・復元の実装レビュー](candidate-deletion-20260916.md)
+- [候補削除の保存層・抑止検索の独立レビュー](candidate-suppression-20260916.md)
+- [完全辞書バックアップの独立レビュー](complete-backup-20260916.md)
+- [見出し語補完・動的補完の実装レビュー](completion-20260916.md)
+- [コア内部編集・Unicode 境界の独立レビュー](core-foundation-20260916.md)
+- [カスタマイズ・編集計画の基盤検証](customization-foundation-20260916.md)
+- [入力設定・キー・Emacs 編集の統合レビュー](customization-integration-20260916.md)
+- [実機報告に基づく表示・辞書取り込みの修正](device-feedback-20260917.md)
+- [SKK 辞書 codec レビュー記録](dictionary-codec-20260916.md)
+- [辞書の公開・入力接続レビュー](dictionary-runtime-20260916.md)
+- [表示・更新保持・配布物のレビュー](display-upgrade-distribution-20260916.md)
+- [入力欄との編集互換性と登録取消の追加修正](editor-compatibility-20260917.md)
+- [横並び候補・インライン注釈・送り認識の変更](horizontal-inline-okuri-20260917.md)
+- [再帰登録・キー操作・辞書設定の実機報告への対応](input-dictionary-followup-20260917.md)
+- [候補学習・SAF・中断復旧のレビュー](learning-recovery-20260916.md)
+- [数値変換部品の独立レビュー](numeric-20260916.md)
+- [引用・学習・候補表示のレビュー記録](quote-learning-menu-20260917.md)
+- [登録・保存禁止・Android接続レビュー](registration-20260916.md)
+- [Android IME 要件レビューのメタレビュー（2026-09-16）](requirements-20260916-meta-review.md)
+- [要件レビューの判定と反映（2026-09-16）](requirements-20260916-resolution.md)
+- [Android IME 要件の独立レビュー（2026-09-16）](requirements-20260916-review.md)
+- [ローマ字変換・文字種変換レビュー](romanizer-20260916.md)
+- [SQLite 辞書永続化レビュー](sqlite-dictionary-20260916.md)

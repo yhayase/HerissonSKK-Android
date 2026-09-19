@@ -117,7 +117,7 @@ class BasicSkkEngineTest {
         val halfwidth = engine()
         halfwidth.dispatch(BasicSkkAction.Halfwidth)
         halfwidth.dispatch(BasicSkkAction.Text("n"))
-        assertEquals("ﾝ.", halfwidth.dispatch(BasicSkkAction.Text(".")).commit)
+        assertEquals("ﾝ｡", halfwidth.dispatch(BasicSkkAction.Text(".")).commit)
     }
 
     @Test fun `K03 Qと大文字開始で見出し語を検索してEnterで一度確定する`() {
@@ -169,14 +169,15 @@ class BasicSkkEngineTest {
         assertEquals("n", engine.state.pendingRomaji)
     }
 
-    @Test fun `K06 四件目から七ラベルを表示し注釈なしで選択確定する`() {
+    @Test fun `K06 三件目から七ラベルを表示し注釈なしで選択確定する`() {
         val engine = engine()
         engine.type("Nihon ")
-        repeat(3) { engine.dispatch(BasicSkkAction.Text(" ")) }
+        repeat(2) { engine.dispatch(BasicSkkAction.Text(" ")) }
         val candidate = engine.dispatch(BasicSkkAction.Text("" )).view.candidate!!
         assertEquals("asdfjkl", candidate.menu.joinToString("") { it.label.toString() })
-        assertEquals("地名", candidate.menu.first().candidate.annotation)
-        assertEquals("日本語", engine.dispatch(BasicSkkAction.Text("s")).commit)
+        assertEquals("ニホン", candidate.menu.first().candidate.text)
+        assertEquals("地名", candidate.menu[1].candidate.annotation)
+        assertEquals("日本橋", engine.dispatch(BasicSkkAction.Text("s")).commit)
     }
 
     @Test fun `K07 abbrevは大文字小文字を保って検索する`() {
@@ -230,7 +231,7 @@ class BasicSkkEngineTest {
     @Test fun `末尾候補の次は読みを保持し登録未対応を通知する`() {
         val engine = engine()
         engine.type("Nihon ")
-        repeat(11) { engine.dispatch(BasicSkkAction.Text(" ")) }
+        repeat(3) { engine.dispatch(BasicSkkAction.Text(" ")) }
         val result = engine.dispatch(BasicSkkAction.Text(" "))
         assertEquals(InputPhase.READING, engine.state.phase)
         assertEquals("にほn", result.view.composing)

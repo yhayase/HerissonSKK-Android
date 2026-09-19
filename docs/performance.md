@@ -32,7 +32,7 @@ USB インストールが拒否される場合は、次の 3 ファイルを端�
 
 接続完了の判定には `dumpsys input_method` の `mCurMethodId`、`mCurId`、`mHaveConnection`、`mBoundToMethod`、`mCurMethod` を使います。これは公開 API ではなく OS 版やメーカー実装で出力形式が変わる可能性があります。対応しない形式では10秒以内に診断値を付けて測定前に失敗し、待機時間を起動時間へ混ぜたり、失敗した標本を再試行したりしません。
 
-入力欄は単一行で、合成文字が順に蓄積する条件です。デバッグ版の入力確認アプリと instrumentation の負荷も測定に含まれます。辞書導入前後の比較や大辞書検索は後続フェーズで追加します。
+入力欄は単一行で、合成文字が順に蓄積する条件です。デバッグ版の入力確認アプリと instrumentation の負荷も測定に含まれます。辞書導入前後・大辞書検索の測定は [辞書性能測定](dictionary-performance.md) と分担します。初回の両端末での代表測定と操作感の評価は [検証計画](validation-plan.md) に従います。
 
 結果は `test-editor/build/reports/performance/<UTC日時>/` に保存します。`metadata.json` に端末情報、ソースコミットと未コミット変更の有無、APK の SHA-256、測定境界を記録します。`instrumentation.txt` に全サンプル、p50／p95／最大値、メモリ情報を記録します。入力先に既存の本文を用いず、合成文字だけで測定します。
 

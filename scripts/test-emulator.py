@@ -37,18 +37,27 @@ def main():
 
     ime = "jp.hayase.skk/.SkkInputMethodService"
     previous = adb("shell", "settings", "get", "secure", "default_input_method").strip()
-    enabled = ime in adb("shell", "ime", "list", "-s").splitlines()
+    if not previous or previous == "null":
+        raise SystemExit("元の IME 選択を復元できないため、設定を変更せず終了します")
+    enabled_imes = adb("shell", "ime", "list", "-s").splitlines()
+    enabled = ime in enabled_imes
+    fallback = next((value for value in enabled_imes if value != ime), None)
+    if previous == ime and fallback is None:
+        raise SystemExit("再インストール前に切り替えられる別の有効な IME が必要です")
     apks = ("app/build/outputs/apk/debug/app-debug.apk",
                 "test-editor/build/outputs/apk/debug/test-editor-debug.apk",
                 "test-editor/build/outputs/apk/androidTest/debug/test-editor-debug-androidTest.apk")
-    for apk in apks:
-        print(adb("install", "-r", str(root / apk)), end="")
-    deadline = time.monotonic() + 15
-    while ime not in adb("shell", "ime", "list", "-a", "-s").splitlines():
-        if time.monotonic() > deadline:
-            raise SystemExit("IME の登録が反映されませんでした")
-        time.sleep(0.2)
     try:
+        # 選択中の IME を更新すると Android 側に旧接続が残るため、先に切り替えます。
+        if previous == ime:
+            print(adb("shell", "ime", "set", fallback), end="")
+        for apk in apks:
+            print(adb("install", "-r", str(root / apk)), end="")
+        deadline = time.monotonic() + 15
+        while ime not in adb("shell", "ime", "list", "-a", "-s").splitlines():
+            if time.monotonic() > deadline:
+                raise SystemExit("IME の登録が反映されませんでした")
+            time.sleep(0.2)
         print(adb("shell", "ime", "enable", ime), end="")
         print(adb("shell", "ime", "set", ime), end="")
         result = adb("shell", "am", "instrument", "-w", "-r", "-e", "class",

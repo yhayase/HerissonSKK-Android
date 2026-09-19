@@ -49,7 +49,7 @@ class CompleteBackupProviderFailureTest {
             repository.replacePersonal(SkkDictionaryCodec.parseText("かな /既存候補;注釈/\n"))
             load(manager)
             val revision = repository.dictionaryRevision()
-            val candidates = manager.lookup(DictionaryQuery("かな")).map { it.text to it.annotation }
+            val candidates = manager.readBlocking { manager.lookup(DictionaryQuery("かな")) }.map { it.text to it.annotation }
             val backup = ByteArrayOutputStream().also {
                 repository.writeCompleteBackup(it, emptyList(), "provider-failure-test")
             }.toByteArray()
@@ -86,7 +86,7 @@ class CompleteBackupProviderFailureTest {
                 assertNull("失敗入力で確認画面を開きました", privateField(activity, "preview"))
             }
             assertEquals(revision, repository.dictionaryRevision())
-            assertEquals(candidates, manager.lookup(DictionaryQuery("かな")).map { it.text to it.annotation })
+            assertEquals(candidates, manager.readBlocking { manager.lookup(DictionaryQuery("かな")) }.map { it.text to it.annotation })
             assertEquals("検証用の一時 DB が残っています", stagedBefore, stagedFiles())
         } finally {
             var failure: Throwable? = null

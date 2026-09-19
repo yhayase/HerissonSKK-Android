@@ -20,6 +20,40 @@ class ConfiguredKeyMapperTest {
     }
     private fun engine() = BasicSkkEngine(BasicSkkDictionary { List(8) { DictionaryCandidate("候補$it") } })
 
+    @Test fun `C-qは次キー引用となり半角カナは再割当できる`() {
+        val engine = engine()
+        val mapper = HardwareKeyMapper()
+        val cQ = key('q', KeyEvent.META_CTRL_ON)
+        assertEquals(HardwareKeyMapper.Decoded.QuoteNext,
+            mapper.decodeConfigured(cQ, engine.state, engine.currentView, KeyBindings(), true))
+        val custom = KeyBindings(KeyBindings.defaults - SkkCommand.QUOTE_NEXT +
+            (SkkCommand.HALFWIDTH to KeyGesture("z", ctrl = true)))
+        assertEquals(HardwareKeyMapper.Decoded.Pass,
+            mapper.decodeConfigured(cQ, engine.state, engine.currentView, custom, true))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Halfwidth),
+            mapper.decodeConfigured(key('z', KeyEvent.META_CTRL_ON), engine.state,
+                engine.currentView, custom, true))
+
+        val shifted = KeyBindings(KeyBindings.defaults +
+            (SkkCommand.HALFWIDTH to KeyGesture("Q", ctrl = true, shift = true)))
+        val cShiftQ = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Q, 0,
+            KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON, KeyCharacterMap.VIRTUAL_KEYBOARD, 0)
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Halfwidth),
+            mapper.decodeConfigured(cShiftQ, engine.state, engine.currentView, shifted, true))
+    }
+
+    @Test fun `zの記号規則は既定コマンドより先に文字として渡す`() {
+        for (reading in listOf(false, true)) for (second in listOf('l', 'L', '/', ' ')) {
+            val engine = engine()
+            if (reading) engine.dispatch(BasicSkkAction.StartReading)
+            engine.dispatch(BasicSkkAction.Text("z", interpretCommands = false))
+            val decoded = HardwareKeyMapper().decodeConfigured(key(second), engine.state,
+                engine.currentView, KeyBindings(), false)
+            assertEquals("reading=$reading second=$second",
+                HardwareKeyMapper.Decoded.Action(BasicSkkAction.Text(second.toString(), false)), decoded)
+        }
+    }
+
     @Test fun `標準割当の実キー列は旧コマンド文法と同じ結果になる`() {
         for (sequence in listOf("nihon", "nqkaq", "Qka ", "Ka   a", "Ka lABC", "Ka LABC", "Ka /API ", "Dai>", "Ka >kai")) {
             val original = engine()
@@ -95,6 +129,59 @@ class ConfiguredKeyMapperTest {
         assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.LEFT)), decode(true))
     }
 
+    @Test fun `画面移動と文書端と選択操作のキーを解決する`() {
+        val engine = engine()
+        val mapper = HardwareKeyMapper()
+        val bindings = KeyBindings()
+        fun decoded(code: Int, meta: Int = 0) = mapper.decodeConfigured(
+            KeyEvent(0, 0, KeyEvent.ACTION_DOWN, code, 0, meta,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0), engine.state, engine.currentView, bindings, true)
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.PAGE_DOWN)),
+            decoded(KeyEvent.KEYCODE_V, KeyEvent.META_CTRL_ON))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.PAGE_UP)),
+            decoded(KeyEvent.KEYCODE_PAGE_UP))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.BUFFER_END)),
+            decoded(KeyEvent.KEYCODE_MOVE_END, KeyEvent.META_CTRL_ON))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.BUFFER_START)),
+            mapper.decodeConfigured(key('<', KeyEvent.META_ALT_ON or KeyEvent.META_SHIFT_ON),
+                engine.state, engine.currentView, bindings, true))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.BUFFER_END)),
+            mapper.decodeConfigured(key('>', KeyEvent.META_ALT_ON or KeyEvent.META_SHIFT_ON),
+                engine.state, engine.currentView, bindings, true))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.CUT)),
+            decoded(KeyEvent.KEYCODE_W, KeyEvent.META_CTRL_ON))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.COPY)),
+            decoded(KeyEvent.KEYCODE_W, KeyEvent.META_ALT_ON))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.NEWLINE)),
+            decoded(KeyEvent.KEYCODE_M, KeyEvent.META_CTRL_ON))
+        engine.dispatch(BasicSkkAction.StartReading)
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Enter),
+            decoded(KeyEvent.KEYCODE_M, KeyEvent.META_CTRL_ON))
+    }
+
+    @Test fun `物理キーのAlt Shift記号とCtrl mを編集操作へ配送する`() {
+        val engine = engine()
+        val mapper = HardwareKeyMapper()
+        val bindings = KeyBindings()
+        fun shifted(code: Int, symbol: Char) = object : KeyEvent(0, 0, KeyEvent.ACTION_DOWN, code, 0,
+            KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON or KeyEvent.META_SHIFT_ON,
+            KeyCharacterMap.VIRTUAL_KEYBOARD, 0) {
+            override fun getUnicodeChar(metaState: Int): Int =
+                if (metaState and KeyEvent.META_ALT_ON != 0) 0 else symbol.code
+        }
+        fun decode(event: KeyEvent) = mapper.decodeConfigured(event, engine.state,
+            engine.currentView, bindings, true)
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.BUFFER_START)),
+            decode(shifted(KeyEvent.KEYCODE_COMMA, '<')))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.BUFFER_END)),
+            decode(shifted(KeyEvent.KEYCODE_PERIOD, '>')))
+        val ctrlM = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_M, 0,
+            KeyEvent.META_CTRL_ON, KeyCharacterMap.VIRTUAL_KEYBOARD, 0)
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Edit(EditCommand.NEWLINE)), decode(ctrlM))
+        engine.dispatch(BasicSkkAction.Text("Ka"))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Enter), decode(ctrlM))
+    }
+
     @Test fun `登録の直接入力でも英字を入力先へ漏らさない`() {
         val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() }, RegistrationPolicy(enabled = true))
         engine.dispatch(BasicSkkAction.Text("Ka l"))
@@ -113,13 +200,13 @@ class ConfiguredKeyMapperTest {
             RegistrationPolicy(enabled = true))
         engine.dispatch(BasicSkkAction.Text("Ka"))
         engine.dispatch(BasicSkkAction.RegisterCandidate)
-        engine.dispatch(BasicSkkAction.Text("Ka    "))
+        engine.dispatch(BasicSkkAction.Text("Ka   "))
         assertNull(engine.currentView.candidate)
         assertTrue(engine.currentView.registration!!.innerCandidate!!.menu.isNotEmpty())
         val decoded = HardwareKeyMapper().decodeConfigured(key('l'), engine.state, engine.currentView, KeyBindings(), false)
         assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Text("l", false)), decoded)
         val result = engine.dispatch((decoded as HardwareKeyMapper.Decoded.Action).action)
-        assertEquals("候補9", result.view.registration!!.body)
+        assertEquals("候補8", result.view.registration!!.body)
         assertNull(result.commit)
         assertEquals(InputMode.HIRAGANA, engine.state.mode)
     }

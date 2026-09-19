@@ -3,6 +3,7 @@ package jp.hayase.skk.core
 import jp.hayase.skk.core.romaji.RomajiRule
 import jp.hayase.skk.core.romaji.Romanizer
 import jp.hayase.skk.core.romaji.RomanRuleSet
+import jp.hayase.skk.core.editing.EditCommand
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -33,7 +34,7 @@ class InputConfigurationTest {
     @Test fun `句読点と括弧はかなだけに適用しabbrevと直接入力を保持する`() {
         val punctuation = PunctuationConfig("．", "，", false, true)
         val engine = engine(punctuation)
-        assertEquals("．，()［］｛｝", engine.dispatch(BasicSkkAction.Text(".,()[]{}")).commit)
+        assertEquals("．，()「」｛｝", engine.dispatch(BasicSkkAction.Text(".,()[]{}")).commit)
         engine.dispatch(BasicSkkAction.Text("q"))
         assertEquals("．，()", engine.dispatch(BasicSkkAction.Text(".,()")).commit)
         engine.dispatch(BasicSkkAction.Text("/"))
@@ -43,7 +44,22 @@ class InputConfigurationTest {
         assertEquals(".,()", engine.dispatch(BasicSkkAction.Text(".,()")).commit)
         engine.dispatch(BasicSkkAction.Kana)
         engine.dispatch(BasicSkkAction.Halfwidth)
-        assertEquals(".,()", engine.dispatch(BasicSkkAction.Text(".,()")).commit)
+        assertEquals("．，()", engine.dispatch(BasicSkkAction.Text(".,()")).commit)
+    }
+
+    @Test fun `かなの長音と鉤括弧を固定しその他の記号は全半角を選べる`() {
+        val full = engine(PunctuationConfig(fullwidthSymbols = true))
+        assertEquals("ー「」！？＠", full.dispatch(BasicSkkAction.Text("-[]!?@")).commit)
+        val half = engine(PunctuationConfig(fullwidthSymbols = false))
+        assertEquals("ー「」!?@", half.dispatch(BasicSkkAction.Text("-[]!?@")).commit)
+        val registering = BasicSkkEngine(empty, RegistrationPolicy(enabled = true),
+            punctuationConfig = PunctuationConfig(fullwidthSymbols = false))
+        registering.dispatch(BasicSkkAction.Text("Michi "))
+        assertEquals("ー「」!?@", registering.dispatch(BasicSkkAction.Text("-[]!?@")).view.registration?.body)
+        val halfKana = engine()
+        halfKana.dispatch(BasicSkkAction.Halfwidth)
+        assertEquals("ｰ｢｣", halfKana.dispatch(BasicSkkAction.Text("-[]")).commit)
+        assertEquals("#:", engine().dispatch(BasicSkkAction.Text("#:")).commit)
     }
 
     @Test fun `カスタム規則は復元と取消を経ても標準へ戻らない`() {
@@ -74,7 +90,7 @@ class InputConfigurationTest {
         var width = 2
         val dictionary = BasicSkkDictionary { (1..9).map { DictionaryCandidate("候補$it") } }
         val engine = BasicSkkEngine(dictionary, RegistrationPolicy(),
-            candidateDisplayConfig = CandidateDisplayConfig("1234567", fixedPageSize = 2),
+            candidateDisplayConfig = CandidateDisplayConfig("1234567", fixedPageSize = 2, inlineCandidateCount = 3),
             candidatePageSizeProvider = { width })
         engine.dispatch(BasicSkkAction.Text("Ka "))
         repeat(3) { engine.dispatch(BasicSkkAction.Text(" ")) }
@@ -82,7 +98,7 @@ class InputConfigurationTest {
         assertEquals(listOf("候補4", "候補5"), engine.currentView.candidate!!.menu.map { it.candidate.text })
         width = 7
         assertEquals(2, engine.currentView.candidate!!.menu.size)
-        repeat(2) { engine.dispatch(BasicSkkAction.Text(" ")) }
+        engine.dispatch(BasicSkkAction.Text(" "))
         assertEquals(listOf("候補6", "候補7"), engine.currentView.candidate!!.menu.map { it.candidate.text })
         assertEquals("候補7", engine.dispatch(BasicSkkAction.Text("2")).commit)
         engine.dispatch(BasicSkkAction.Text("Ka "))
@@ -90,15 +106,69 @@ class InputConfigurationTest {
         assertEquals(6, engine.currentView.candidate!!.menu.size)
     }
 
+    @Test fun `一覧のSpaceは次ページへ進み末尾で登録し取消すと同じページへ戻る`() {
+        val dictionary = BasicSkkDictionary { (1..18).map { DictionaryCandidate("候補$it") } }
+        val engine = BasicSkkEngine(dictionary, RegistrationPolicy(enabled = true))
+        engine.dispatch(BasicSkkAction.Text("Ka   "))
+        assertEquals((3..9).map { "候補$it" }, engine.currentView.candidate!!.menu.map { it.candidate.text })
+        engine.dispatch(BasicSkkAction.Text(" "))
+        assertEquals((10..16).map { "候補$it" }, engine.currentView.candidate!!.menu.map { it.candidate.text })
+        engine.dispatch(BasicSkkAction.Text("x"))
+        assertEquals(2, engine.state.candidateIndex)
+        engine.dispatch(BasicSkkAction.Text("  "))
+        assertEquals(listOf("候補17", "候補18"), engine.currentView.candidate!!.menu.map { it.candidate.text })
+        engine.dispatch(BasicSkkAction.Text(" "))
+        assertTrue(engine.currentView.registration != null)
+        engine.dispatch(BasicSkkAction.Cancel)
+        assertEquals(16, engine.state.candidateIndex)
+        assertEquals(listOf("候補17", "候補18"), engine.currentView.candidate!!.menu.map { it.candidate.text })
+        assertEquals("候補18", engine.dispatch(BasicSkkAction.Text("s")).commit)
+    }
+
+    @Test fun `既定は三番目からメニューでラベルを選べる`() {
+        val dictionary = BasicSkkDictionary { (1..4).map { DictionaryCandidate("候補$it") } }
+        val engine = BasicSkkEngine(dictionary, RegistrationPolicy())
+        engine.dispatch(BasicSkkAction.Text("Ka "))
+        assertTrue(engine.currentView.candidate!!.menu.isEmpty())
+        engine.dispatch(BasicSkkAction.Text(" "))
+        assertTrue(engine.currentView.candidate!!.menu.isEmpty())
+        engine.dispatch(BasicSkkAction.Text(" "))
+        assertEquals(listOf("候補3", "候補4"), engine.currentView.candidate!!.menu.map { it.candidate.text })
+        assertEquals("候補4", engine.dispatch(BasicSkkAction.Text("s")).commit)
+    }
+
+    @Test fun `候補ページ移動は単独候補と一覧の境界を飛ばさない`() {
+        val dictionary = BasicSkkDictionary { (1..9).map { DictionaryCandidate("候補$it") } }
+        val engine = BasicSkkEngine(dictionary, RegistrationPolicy(),
+            candidateDisplayConfig = CandidateDisplayConfig(fixedPageSize = 3, inlineCandidateCount = 2))
+        engine.dispatch(BasicSkkAction.Text("Ka "))
+        fun page(command: EditCommand): Int {
+            engine.dispatch(BasicSkkAction.Edit(command))
+            return checkNotNull(engine.state.candidateIndex)
+        }
+        assertEquals(2, page(EditCommand.PAGE_DOWN))
+        assertEquals(listOf("候補3", "候補4", "候補5"),
+            engine.currentView.candidate!!.menu.map { it.candidate.text })
+        assertEquals(5, page(EditCommand.PAGE_DOWN))
+        assertEquals(8, page(EditCommand.PAGE_DOWN))
+        assertEquals(8, page(EditCommand.PAGE_DOWN))
+        assertEquals(5, page(EditCommand.PAGE_UP))
+        assertEquals(2, page(EditCommand.PAGE_UP))
+        assertEquals(1, page(EditCommand.PAGE_UP))
+        assertEquals(0, page(EditCommand.PAGE_UP))
+    }
+
     @Test fun `自動表示数は幅と文字倍率に従い不正設定は拒否する`() {
         val config = CandidateDisplayConfig(pageMode = CandidatePageMode.AUTO)
         assertEquals(1, config.pageSize(30f, 1f))
-        assertEquals(4, config.pageSize(400f, 1f))
-        assertEquals(2, config.pageSize(400f, 2f))
+        assertEquals(2, config.pageSize(400f, 1f))
+        assertEquals(1, config.pageSize(400f, 2f))
+        assertEquals(4, config.pageSize(640f, 1f))
         assertEquals(7, config.pageSize(2000f, 1f))
         assertEquals(1, config.pageSize(Float.NaN, 1f))
         assertThrows(IllegalArgumentException::class.java) { CandidateDisplayConfig("xx", fixedPageSize = 1) }
         assertThrows(IllegalArgumentException::class.java) { CandidateDisplayConfig("12", fixedPageSize = 3) }
+        assertThrows(IllegalArgumentException::class.java) { CandidateDisplayConfig(inlineCandidateCount = 10) }
         assertThrows(IllegalArgumentException::class.java) { PunctuationConfig(period = "不正") }
     }
 }

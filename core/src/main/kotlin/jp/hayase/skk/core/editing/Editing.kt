@@ -6,7 +6,10 @@ import com.ibm.icu.text.BreakIterator
 import com.ibm.icu.util.ULocale
 
 /** SKK の状態別優先順位を適用した後に渡す編集操作です。 */
-enum class EditCommand { HOME, END, LEFT, RIGHT, UP, DOWN, BACKSPACE, DELETE, KILL_LINE, WORD_BACKWARD, WORD_FORWARD }
+enum class EditCommand {
+    HOME, END, LEFT, RIGHT, UP, DOWN, BACKSPACE, DELETE, KILL_LINE, WORD_BACKWARD, WORD_FORWARD,
+    PAGE_DOWN, PAGE_UP, BUFFER_START, BUFFER_END, CUT, COPY, NEWLINE,
+}
 
 /** 完全な編集対象です。外部取得窓の完全性・世代確認は呼び出し元の責務です。 */
 data class EditSnapshot(
@@ -107,6 +110,11 @@ object Editing {
                     destination = boundaries[next]
                 }
             }
+            EditCommand.BUFFER_START -> destination = 0
+            EditCommand.BUFFER_END -> destination = text.length
+            // 表示領域の高さと選択範囲は内部バッファに存在しません。
+            EditCommand.PAGE_DOWN, EditCommand.PAGE_UP, EditCommand.CUT, EditCommand.COPY,
+            EditCommand.NEWLINE -> Unit
         }
         removed = removed?.takeIf { it.start != it.end }
         val resultText = removed?.let { text.removeRange(it.start, it.end) } ?: text

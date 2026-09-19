@@ -85,14 +85,14 @@ class CompleteBackupSafE2eTest {
 
             mutateAfterExport(repository)
             loadManager(manager)
-            assertEquals(listOf("変更後"), manager.lookup(DictionaryQuery("かな")).map { it.text })
+            assertEquals(listOf("変更後"), manager.readBlocking { manager.lookup(DictionaryQuery("かな")) }.map { it.text })
 
             restoreFrom(fileName(backupPath), confirm = true)
             awaitAppText("辞書全体を復元し、入力へ反映しました。")
             assertRestoredState(manager)
 
             val restoredRevision = repository.dictionaryRevision()
-            val restoredCandidates = manager.lookup(DictionaryQuery("かな")).map { it.text }
+            val restoredCandidates = manager.readBlocking { manager.lookup(DictionaryQuery("かな")) }.map { it.text }
 
             clickText("完全辞書バックアップから復元")
             awaitDocumentsNode("DocumentsUI が開きません") { it }
@@ -104,7 +104,7 @@ class CompleteBackupSafE2eTest {
             restoreFrom(fileName(backupPath), confirm = false)
             awaitAppText("復元を取り消しました。辞書は変更していません。")
             assertEquals(restoredRevision, repository.dictionaryRevision())
-            assertEquals(restoredCandidates, manager.lookup(DictionaryQuery("かな")).map { it.text })
+            assertEquals(restoredCandidates, manager.readBlocking { manager.lookup(DictionaryQuery("かな")) }.map { it.text })
 
             writeFile(malformedPath, "{\"type\":\"header\"}\n".toByteArray(StandardCharsets.UTF_8))
             clickText("完全辞書バックアップから復元")
@@ -113,7 +113,7 @@ class CompleteBackupSafE2eTest {
             awaitDocumentsUiClosed()
             awaitAppText("バックアップの形式または内容が不正です。 辞書は変更していません。")
             assertEquals(restoredRevision, repository.dictionaryRevision())
-            assertEquals(restoredCandidates, manager.lookup(DictionaryQuery("かな")).map { it.text })
+            assertEquals(restoredCandidates, manager.readBlocking { manager.lookup(DictionaryQuery("かな")) }.map { it.text })
         } finally {
             var cleanupFailure: Throwable? = null
             fun cleanup(action: () -> Unit) {
@@ -183,10 +183,10 @@ class CompleteBackupSafE2eTest {
     }
 
     private fun assertRestoredState(manager: DictionaryManager) {
-        assertEquals(listOf("個人元"), manager.lookup(DictionaryQuery("かな")).map { it.text })
-        assertEquals(listOf("優先", "第一"), manager.lookup(DictionaryQuery("じゅん")).map { it.text })
-        assertTrue("抑止した候補が復活しています", manager.lookup(DictionaryQuery("かくす")).isEmpty())
-        assertTrue("無効辞書の候補が検索結果へ現れています", manager.lookup(DictionaryQuery("むこう")).isEmpty())
+        assertEquals(listOf("個人元"), manager.readBlocking { manager.lookup(DictionaryQuery("かな")) }.map { it.text })
+        assertEquals(listOf("優先", "第一"), manager.readBlocking { manager.lookup(DictionaryQuery("じゅん")) }.map { it.text })
+        assertTrue("抑止した候補が復活しています", manager.readBlocking { manager.lookup(DictionaryQuery("かくす")) }.isEmpty())
+        assertTrue("無効辞書の候補が検索結果へ現れています", manager.readBlocking { manager.lookup(DictionaryQuery("むこう")) }.isEmpty())
 
         val sources = managerSources(manager)
         assertEquals(

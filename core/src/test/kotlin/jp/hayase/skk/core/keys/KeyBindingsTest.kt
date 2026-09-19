@@ -41,7 +41,7 @@ class KeyBindingsTest {
         engine.dispatch(BasicSkkAction.Text("Ka "))
         val map = KeyBindings()
         assertEquals(BasicSkkAction.ToDirect, map.resolve(KeyGesture("l"), engine.state, engine.currentView))
-        repeat(3) { engine.dispatch(BasicSkkAction.ConvertNext) }
+        repeat(2) { engine.dispatch(BasicSkkAction.ConvertNext) }
         assertTrue(engine.currentView.candidate!!.menu.isNotEmpty())
         assertNull(map.resolve(KeyGesture("l"), engine.state, engine.currentView))
     }
@@ -135,5 +135,42 @@ class KeyBindingsTest {
             map.resolve(edit, completion, engine.currentView, emacsEnabled = true))
         assertEquals(BasicSkkAction.CompleteForward, map.resolve(
             KeyGesture(special = SpecialKey.TAB), completion, engine.currentView, emacsEnabled = true))
+    }
+
+    @Test fun `旧設定の衝突した新操作を未割当として保持する`() {
+        val legacy = KeyBindings.defaults.filterKeys { it !in KeyBindings.optionalCommands } +
+            (SkkCommand.EDIT_LEFT to KeyGesture("v", ctrl = true))
+        val migrated = KeyBindings.addDefaultsPreservingExisting(legacy)
+        assertEquals(KeyGesture("v", ctrl = true), migrated.bindings[SkkCommand.EDIT_LEFT])
+        assertFalse(SkkCommand.EDIT_PAGE_DOWN in migrated.bindings)
+        assertTrue(SkkCommand.EDIT_CUT in migrated.bindings)
+        migrated.validate(emacsEnabled = true)
+    }
+
+    @Test fun `C-mは編集中の確定を優先し通常欄では改行する`() {
+        val engine = engine()
+        val bindings = KeyBindings()
+        val cM = KeyGesture("m", ctrl = true)
+        assertEquals(BasicSkkAction.Edit(EditCommand.NEWLINE),
+            bindings.resolve(cM, engine.state, engine.currentView, true))
+        engine.dispatch(BasicSkkAction.StartReading)
+        assertEquals(BasicSkkAction.Enter,
+            bindings.resolve(cM, engine.state, engine.currentView, true))
+    }
+
+    @Test fun `旧版の半角カナ標準キーは引用に移りカスタムC-qは保持する`() {
+        val legacy = KeyBindings(KeyBindings.defaults - SkkCommand.QUOTE_NEXT +
+            (SkkCommand.HALFWIDTH to KeyGesture("q", ctrl = true)))
+        val migrated = KeyBindings.migrateQuoteNext(legacy)
+        assertFalse(SkkCommand.HALFWIDTH in migrated.bindings)
+        assertEquals(KeyGesture("q", ctrl = true), migrated.bindings[SkkCommand.QUOTE_NEXT])
+
+        val custom = KeyBindings(KeyBindings.defaults - SkkCommand.QUOTE_NEXT +
+            (SkkCommand.HALFWIDTH to KeyGesture("z", ctrl = true)) +
+            (SkkCommand.EDIT_LEFT to KeyGesture("q", ctrl = true)))
+        val preserved = KeyBindings.migrateQuoteNext(custom)
+        assertEquals(KeyGesture("z", ctrl = true), preserved.bindings[SkkCommand.HALFWIDTH])
+        assertEquals(KeyGesture("q", ctrl = true), preserved.bindings[SkkCommand.EDIT_LEFT])
+        assertFalse(SkkCommand.QUOTE_NEXT in preserved.bindings)
     }
 }

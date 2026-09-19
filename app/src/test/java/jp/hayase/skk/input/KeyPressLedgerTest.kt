@@ -1,5 +1,10 @@
 package jp.hayase.skk.input
 
+import jp.hayase.skk.core.BasicSkkAction
+import jp.hayase.skk.core.BasicSkkDictionary
+import jp.hayase.skk.core.BasicSkkEngine
+import jp.hayase.skk.core.DictionaryCandidate
+import jp.hayase.skk.core.RegistrationPolicy
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -45,5 +50,24 @@ class KeyPressLedgerTest {
         ledger.down(1, 67, 10, 1, 0, true) { calls++; true }
         ledger.down(1, 67, 10, 1, 1, true) { calls++; true }
         assertEquals(2, calls)
+    }
+
+    @Test fun `繰り返し変換は同じセッションの候補を続けて進める`() {
+        val engine = BasicSkkEngine(
+            BasicSkkDictionary { listOf(DictionaryCandidate("候補1"), DictionaryCandidate("候補2"), DictionaryCandidate("候補3")) },
+            RegistrationPolicy(),
+        )
+        val ledger = KeyPressLedger()
+        engine.dispatch(BasicSkkAction.Text("Ka "))
+
+        assertTrue(ledger.down(1, 62, 10, 1, 0, true) {
+            engine.dispatch(BasicSkkAction.ConvertNext).handled
+        })
+        assertTrue(ledger.down(1, 62, 10, 1, 1, true) {
+            engine.dispatch(BasicSkkAction.ConvertNext).handled
+        })
+
+        assertEquals("候補3", engine.currentView.candidate?.selected?.text)
+        assertTrue(ledger.up(1, 62, 10))
     }
 }

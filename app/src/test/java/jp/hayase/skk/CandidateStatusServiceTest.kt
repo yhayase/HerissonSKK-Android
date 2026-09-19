@@ -6,6 +6,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import android.widget.TextView
 import java.io.File
 import java.util.concurrent.Executor
@@ -32,6 +33,53 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35])
 class CandidateStatusServiceTest {
+    @Test fun `注釈の座標監視は候補メニューと入力終了で停止し未対応では省略する`() {
+        val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
+        val service = controller.get()
+        val connection = Connection()
+        val session = EditorSession(1, connection, false, true, 0, 0)
+        val requests = ArrayDeque<Runnable>()
+        ReflectionHelpers.setField(service, "annotationMonitor", CursorAnchorMonitor(
+            Executor { requests.add(it) }, Executor { it.run() }))
+        fun dispatchRequests() { while (requests.isNotEmpty()) requests.removeFirst().run() }
+        try {
+            attach(service, connection)
+            ReflectionHelpers.setField(service, "session", session)
+            session.handle(BasicSkkAction.Text("Tesuto "))
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
+            assertTrue(connection.cursorRequests.isEmpty())
+            dispatchRequests()
+            assertEquals(listOf(InputConnection.CURSOR_UPDATE_IMMEDIATE or
+                InputConnection.CURSOR_UPDATE_MONITOR), connection.cursorRequests)
+            session.handle(BasicSkkAction.Text(" "))
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
+            dispatchRequests()
+            assertEquals(1, connection.cursorRequests.size)
+            session.handle(BasicSkkAction.Text(" "))
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
+            dispatchRequests()
+            assertEquals(0, connection.cursorRequests.last())
+            session.handle(BasicSkkAction.Cancel)
+            session.handle(BasicSkkAction.Text(" "))
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
+            service.onFinishInput()
+            dispatchRequests()
+            assertEquals(0, connection.cursorRequests.last())
+
+            val unsupported = Connection().apply { supportsCursor = false }
+            val next = EditorSession(2, unsupported, false, true, 0, 0)
+            attach(service, unsupported)
+            ReflectionHelpers.setField(service, "session", next)
+            next.handle(BasicSkkAction.Text("Tesuto "))
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "updateInlineAnnotation")
+            dispatchRequests()
+            assertEquals(null, ReflectionHelpers.getField<Any?>(service, "annotationTarget"))
+            assertEquals("候補1", unsupported.editable.toString())
+        } finally {
+            controller.destroy()
+        }
+    }
+
     @Test fun `全文表示の左右は候補を変えずEnterは一度だけ候補を確定する`() {
         val context = RuntimeEnvironment.getApplication()
         val preferences = context.getSharedPreferences("settings", 0)
@@ -43,10 +91,10 @@ class CandidateStatusServiceTest {
         val databaseName = "candidate-status-${System.nanoTime()}.db"
         val repository = SQLiteDictionaryRepository(context, databaseName)
         repository.replacePersonal(SkkDictionaryDocument(listOf(
-            SkkDictionaryEntry("にほん", listOf(SkkDictionaryCandidate(longCandidate, longAnnotation))),
+            SkkDictionaryEntry("にほん", List(5) { SkkDictionaryCandidate(longCandidate + it, longAnnotation) }),
         ), SkkDictionaryEncoding.UTF8), 0)
         val direct = Executor { it.run() }
-        val manager = DictionaryManager(repository, direct, direct).also { it.loadAsync() }
+        val manager = DictionaryManager(repository, direct, direct, deferReads = false).also { it.loadAsync() }
         val customizationPath = File(context.cacheDir, "candidate-status-${System.nanoTime()}.json")
         val customization = CustomizationStore(customizationPath, direct, direct).also { it.loadAsync() }
         val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
@@ -65,8 +113,14 @@ class CandidateStatusServiceTest {
             val session = ReflectionHelpers.getField<EditorSession>(service, "session")
             session.handle(BasicSkkAction.Text("Nihon "))
             ReflectionHelpers.callInstanceMethod<Unit>(service, "updateStatus")
-            assertEquals(longCandidate, session.view.candidate?.selected?.text)
+            assertEquals(longCandidate + "0", session.view.candidate?.selected?.text)
+            assertEquals(View.GONE, surface.findViewById<View>(R.id.candidate_full_detail).visibility)
+            assertTrue(!surface.statusTextView.text.contains("長い候補"))
+            assertTrue(!surface.statusTextView.text.contains("長い注釈"))
+            session.handle(BasicSkkAction.Text("  "))
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "updateStatus")
             assertTrue(surface.statusTextView.text.length < 2_000)
+            assertEquals(View.VISIBLE, surface.findViewById<View>(R.id.candidate_full_detail).visibility)
             surface.findViewById<View>(R.id.candidate_full_detail).performClick()
             val detail = surface.findViewById<TextView>(R.id.candidate_detail_text)
             val firstPage = detail.text.toString()
@@ -81,12 +135,12 @@ class CandidateStatusServiceTest {
             assertTrue(service.onKeyDown(right.keyCode, right))
             assertTrue(service.onKeyUp(right.keyCode, KeyEvent.changeAction(right, KeyEvent.ACTION_UP)))
             assertNotEquals(firstPage, detail.text.toString())
-            assertEquals(0, session.view.candidate?.index)
+            assertEquals(2, session.view.candidate?.index)
 
             val enter = key(KeyEvent.KEYCODE_ENTER, 200)
             assertTrue(service.onKeyDown(enter.keyCode, enter))
             assertTrue(service.onKeyUp(enter.keyCode, KeyEvent.changeAction(enter, KeyEvent.ACTION_UP)))
-            assertEquals(longCandidate, connection.editable.toString())
+            assertEquals(longCandidate + "2", connection.editable.toString())
             assertTrue(surface.statusTextView.text.isNotEmpty())
             service.onFinishInput()
             assertEquals("", surface.statusTextView.text.toString())
@@ -113,6 +167,12 @@ class CandidateStatusServiceTest {
     private class Connection : BaseInputConnection(
         View(RuntimeEnvironment.getApplication()), true,
     ) {
+        var supportsCursor = true
+        val cursorRequests = mutableListOf<Int>()
         init { Selection.setSelection(editable, 0) }
+        override fun requestCursorUpdates(cursorUpdateMode: Int): Boolean {
+            cursorRequests += cursorUpdateMode
+            return supportsCursor
+        }
     }
 }

@@ -47,17 +47,17 @@ fun interface DictionaryManagerSubscription : Closeable {
 }
 
 /**
- * SQLite の読み書きを直列バックグラウンド実行し、検索用の不変スナップショットだけを公開します。
- *
- * [lookup] は DB、ファイル、解析器へ触れません。呼出側は起動時に [loadAsync] を開始し、状態通知で
- * 準備完了を待ちます。
+ * SQLite を正本とし、公開世代のメタデータと直近の検索結果だけを保持します。
+ * [lookup] のキャッシュミスは非同期読込要求です。呼出側はバックグラウンドで読み込み後に再実行します。
  */
 class DictionaryManager(
     private val repository: SQLiteDictionaryRepository,
     private val serialExecutor: Executor,
     private val callbackExecutor: Executor,
     fallbackSystems: List<SkkDictionarySource> = emptyList(),
-    private val loadSnapshot: () -> DictionaryLookupSnapshot = repository::loadSnapshot,
+    private val loadSnapshot: (() -> DictionaryLookupSnapshot)? = null,
+    private val loadMetadata: () -> DictionaryMetadata = repository::loadMetadata,
+    internal val deferReads: Boolean = true,
     private val ownedExecutor: ExecutorService? = null,
     val personalDataPolicy: PersonalDataPolicy = PersonalDataPolicy(),
 ) : Closeable, BasicSkkDictionary {
@@ -67,12 +67,25 @@ class DictionaryManager(
         val immutableApprovals: Map<String, Long> = emptyMap(),
         val inputEpoch: Any = Any(),
         val inputWritesBlocked: Boolean = false,
+        val sqlite: SQLiteSkkDictionary? = null,
     )
+
+    private data class PendingPromotion(
+        val key: String,
+        val candidate: SkkDictionaryCandidate,
+        val context: DictionaryInputWriteContext,
+        val permit: PersonalDataPolicy.Permit,
+    )
+    private val pendingPromotions = linkedMapOf<Any, PendingPromotion>()
 
     private val observers = linkedMapOf<Long, (DictionaryManagerStatus) -> Unit>()
     private val fallbackSystems = fallbackSystems.toList()
     private val contextOwner = Any()
     private val backupHandles = mutableSetOf<Closeable>()
+    private val settingsDrafts = linkedMapOf<String, DictionarySettingsDraft>()
+    private val applyingSettingsDrafts = mutableSetOf<String>()
+    private val settingsDraftCallbacks = mutableMapOf<String, MutableList<(DictionaryManagerWriteResult<Unit>) -> Unit>>()
+    private val completedSettingsDrafts = linkedMapOf<String, DictionaryManagerWriteResult<Unit>>()
     private var nextObserverId = 0L
     @Volatile
     private var closed = false
@@ -83,18 +96,42 @@ class DictionaryManager(
     /** 現在の状態です。検索可能な古い世代がある再読込失敗は [DictionaryFreshness.STALE] で表します。 */
     val status: DictionaryManagerStatus get() = published.status
 
-    /** メモリー上の公開済み辞書だけを検索します。 */
-    override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> =
-        currentDictionary().lookup(query)
+    /** 公開世代の検索結果へ保存待ちの順位を重ねます。 */
+    override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> = readForCaller {
+        val candidates = currentDictionary().lookup(query).toMutableList()
+        synchronized(this) {
+            pendingPromotions.entries.removeAll { (_, pending) ->
+                !acceptsInputWrite(pending.context) || !personalDataPolicy.accepts(pending.permit)
+            }
+            // 保存待ちの学習は既存候補の順位だけに反映し、保存由来や削除用の世代を作りません。
+            // 数値変換では表示文字列でなく学習先のテンプレートを照合します。
+            for (pending in pendingPromotions.values) {
+                val (promoted, remaining) = candidates.partition { candidate ->
+                    val target = candidate.learningTarget
+                    val key = target?.query?.readingKey ?: query.readingKey
+                    val text = target?.templateText ?: candidate.text
+                    val condition = target?.query?.okuri ?: query.okuri ?: candidate.okuriCondition
+                    key == pending.key && text == pending.candidate.text &&
+                        condition == pending.candidate.okuriCondition
+                }
+                if (promoted.isNotEmpty()) {
+                    candidates.clear()
+                    candidates.addAll(promoted)
+                    candidates.addAll(remaining)
+                }
+            }
+        }
+        candidates
+    }
 
     override fun complete(query: jp.hayase.skk.core.CompletionQuery): List<String> =
-        currentDictionary().complete(query)
+        readForCaller { currentDictionary().complete(query) }
 
     override fun registrationQuery(original: DictionaryQuery): DictionaryQuery =
         currentDictionary().registrationQuery(original)
 
     override fun prepareRegistration(original: DictionaryQuery, templateText: String) =
-        currentDictionary().prepareRegistration(original, templateText)
+        readForCaller { currentDictionary().prepareRegistration(original, templateText) }
 
     private fun currentDictionary(): BasicSkkDictionary {
         val current = published
@@ -104,7 +141,7 @@ class DictionaryManager(
         )
     }
 
-    /** 起動時または明示的な再読込時に全辞書を読み込みます。 */
+    /** 起動時または明示的な再読込時にメタデータだけを読み込みます。 */
     @Synchronized
     fun loadAsync(callback: ((DictionaryManagerStatus) -> Unit)? = null) {
         check(!closed) { "辞書管理器は閉じています" }
@@ -114,7 +151,7 @@ class DictionaryManager(
             else current.copy(status = DictionaryManagerStatus.Ready(DictionaryFreshness.REFRESHING)),
         )
         serialExecutor.execute {
-            val loaded = runCatching { buildPublished(loadSnapshot()) }
+            val loaded = runCatching { buildPublished() }
             if (loaded.isSuccess) {
                 publish(loaded.getOrThrow())
             } else {
@@ -186,6 +223,9 @@ class DictionaryManager(
             deliver(callback, PersonalWriteResult.Failed(PersonalWriteFailure.CONFLICT))
             return
         }
+        val promotionId = Any()
+        pendingPromotions[promotionId] = PendingPromotion(key, candidate, inputContext, permit)
+        if (pendingPromotions.size > 128) pendingPromotions.remove(pendingPromotions.keys.first())
         serialExecutor.execute {
             val saved = runCatching {
                 requireInputWrite(inputContext)
@@ -203,17 +243,16 @@ class DictionaryManager(
                     is PersonalDataPolicyRejectedException -> PersonalWriteFailure.POLICY_REJECTED
                     else -> PersonalWriteFailure.GENERAL
                 }
+                synchronized(this) { pendingPromotions.remove(promotionId) }
                 deliver(callback, PersonalWriteResult.Failed(reason))
                 return@execute
             }
-            val loaded = runCatching { buildPublished(loadSnapshot()) }
-            if (loaded.isSuccess) {
-                publish(loaded.getOrThrow())
-                deliver(callback, PersonalWriteResult.Applied)
-            } else {
-                publishRefreshFailure()
-                deliver(callback, PersonalWriteResult.SavedButNotApplied)
+            val loaded = runCatching { buildPublished() }
+            synchronized(this) {
+                pendingPromotions.remove(promotionId)
+                if (loaded.isSuccess) publish(loaded.getOrThrow()) else publishRefreshFailure()
             }
+            deliver(callback, if (loaded.isSuccess) PersonalWriteResult.Applied else PersonalWriteResult.SavedButNotApplied)
         }
     }
 
@@ -255,7 +294,7 @@ class DictionaryManager(
                 deliver(callback, PersonalWriteResult.Failed(personalWriteFailure(error)))
                 return@execute
             }
-            val loaded = runCatching { buildPublished(loadSnapshot()) }
+            val loaded = runCatching { buildPublished() }
             if (loaded.isSuccess) {
                 publish(loaded.getOrThrow())
                 deliver(callback, PersonalWriteResult.Applied)
@@ -328,6 +367,76 @@ class DictionaryManager(
     fun setSystemOrder(ids: List<String>, callback: (DictionaryManagerWriteResult<Unit>) -> Unit) {
         val requested = ids.toList()
         writeThenReload(callback) { repository.setSystemOrder(requested) }
+    }
+
+    /** 編集中の文書を画面再生成中だけ保持します。DB と公開済み辞書は変更しません。 */
+    @Synchronized
+    fun createSettingsDraft(sources: List<DictionarySourceInfo>): DictionarySettingsDraft {
+        check(!closed)
+        return DictionarySettingsDraft(sources).also { settingsDrafts[it.id] = it }
+    }
+
+    @Synchronized
+    fun settingsDraft(id: String): DictionarySettingsDraft? = settingsDrafts[id]
+
+    @Synchronized
+    fun isSettingsDraftApplying(id: String): Boolean = id in applyingSettingsDrafts
+
+    @Synchronized
+    fun consumeSettingsDraftCompletion(id: String): DictionaryManagerWriteResult<Unit>? = completedSettingsDrafts.remove(id)
+
+    @Synchronized
+    fun discardSettingsDraft(id: String) {
+        settingsDrafts.remove(id)
+    }
+
+    /** 一回の保存と一回のメタデータ公開を直列化します。公開失敗でも保存済み編集は再実行しません。 */
+    @Synchronized
+    fun applySettingsDraft(id: String, callback: (DictionaryManagerWriteResult<Unit>) -> Unit) {
+        check(!closed)
+        completedSettingsDrafts[id]?.let { result ->
+            deliver(callback, result)
+            return
+        }
+        val draft = settingsDrafts[id] ?: run {
+            deliver(callback, DictionaryManagerWriteResult.Failed)
+            return
+        }
+        settingsDraftCallbacks.getOrPut(id) { mutableListOf() } += callback
+        if (!applyingSettingsDrafts.add(id)) return
+        val edits = draft.snapshot()
+        if (edits.isEmpty()) {
+            finishSettingsDraftCallbacks(id, DictionaryManagerWriteResult.Applied(Unit))
+            return
+        }
+        serialExecutor.execute {
+            if (runCatching { repository.applySettingsEdits(edits, draft.baselineSystems) }.isFailure) {
+                finishSettingsDraftCallbacks(id, DictionaryManagerWriteResult.Failed)
+                return@execute
+            }
+            val loaded = runCatching { buildPublished() }
+            if (loaded.isSuccess) {
+                publish(loaded.getOrThrow())
+                finishSettingsDraftCallbacks(id, DictionaryManagerWriteResult.Applied(Unit))
+            } else {
+                publishRefreshFailure()
+                finishSettingsDraftCallbacks(id, DictionaryManagerWriteResult.SavedButNotApplied(Unit))
+            }
+        }
+    }
+
+    private fun finishSettingsDraftCallbacks(id: String, result: DictionaryManagerWriteResult<Unit>) {
+        val callbacks = synchronized(this) {
+            applyingSettingsDrafts.remove(id)
+            if (result != DictionaryManagerWriteResult.Failed) {
+                // 再構築中の画面再生成には下書きを返し、完了記録と同時に破棄します。
+                settingsDrafts.remove(id)
+                completedSettingsDrafts[id] = result
+                while (completedSettingsDrafts.size > 8) completedSettingsDrafts.remove(completedSettingsDrafts.keys.first())
+            }
+            settingsDraftCallbacks.remove(id).orEmpty()
+        }
+        callbacks.forEach { deliver(it, result) }
     }
 
     /** 設定画面向けにソースのメタデータを直列 I/O で取得します。 */
@@ -450,7 +559,7 @@ class DictionaryManager(
                     // コミット直後に旧入力を失効させます。再公開できなくても元へ戻しません。
                     invalidateInputContextsAfterRestore()
                     val summary = saved.getOrThrow()
-                    val loaded = runCatching { buildPublished(loadSnapshot()) }
+                    val loaded = runCatching { buildPublished() }
                     if (loaded.isSuccess) {
                         publish(loaded.getOrThrow())
                         deliver(callback, CompleteBackupResult.Applied(summary))
@@ -470,7 +579,10 @@ class DictionaryManager(
 
     @Synchronized
     private fun invalidateInputContextsAfterRestore() {
-        if (!closed) published = published.copy(inputEpoch = Any(), inputWritesBlocked = true)
+        if (!closed) {
+            pendingPromotions.clear()
+            published = published.copy(inputEpoch = Any(), inputWritesBlocked = true)
+        }
     }
 
     @Synchronized private fun trackBackupHandle(handle: Closeable) {
@@ -507,7 +619,12 @@ class DictionaryManager(
     override fun close() {
         if (closed) return
         closed = true
+        pendingPromotions.clear()
         observers.clear()
+        settingsDrafts.clear()
+        applyingSettingsDrafts.clear()
+        settingsDraftCallbacks.clear()
+        completedSettingsDrafts.clear()
         published = Published(null, DictionaryManagerStatus.Unavailable(DictionaryUnavailableReason.FAILED))
         serialExecutor.execute {
             val handles = synchronized(this) { backupHandles.toList() }
@@ -530,7 +647,7 @@ class DictionaryManager(
                 return@execute
             }
             val value = saved.getOrThrow()
-            val loaded = runCatching { buildPublished(loadSnapshot()) }
+            val loaded = runCatching { buildPublished() }
             if (loaded.isSuccess) {
                 publish(loaded.getOrThrow())
                 deliver(callback, DictionaryManagerWriteResult.Applied(value))
@@ -541,7 +658,37 @@ class DictionaryManager(
         }
     }
 
-    private fun buildPublished(snapshot: DictionaryLookupSnapshot): Published {
+    internal val cacheStats: DictionaryCacheStats get() = published.sqlite?.stats ?: DictionaryCacheStats(0, 0, 0)
+
+    /** テストとバックグラウンド計測で同期境界を駆動します。主スレッドからは呼びません。 */
+    internal fun <T> readBlocking(block: () -> T): T {
+        val scope = jp.hayase.skk.core.dictionary.DictionaryReadScope()
+        try {
+            repeat(256) {
+                try { return scope.run(block) } catch (pending: jp.hayase.skk.core.dictionary.DeferredDictionaryReadException) {
+                    pending.load()
+                }
+            }
+            throw DictionaryUnavailableException(DictionaryUnavailableReason.FAILED)
+        } finally {
+            scope.close()
+        }
+    }
+
+    private fun <T> readForCaller(block: () -> T): T = if (deferReads) block() else readBlocking(block)
+
+    private fun buildPublished(): Published {
+        // 全件スナップショットは旧世代の故障注入試験だけに残します。
+        loadSnapshot?.let { return buildFixturePublished(it()) }
+        val metadata = loadMetadata()
+        val ids = metadata.sources.map { it.id }.toSet()
+        val fallbacks = if (metadata.allowFallback) fallbackSystems.filterNot { it.id in ids } else emptyList()
+        val sqlite = SQLiteSkkDictionary(repository, metadata, fallbacks)
+        return Published(NumericSkkDictionary(sqlite), DictionaryManagerStatus.Ready(),
+            fallbacks.associate { it.id to it.generation }, published.inputEpoch, sqlite = sqlite)
+    }
+
+    private fun buildFixturePublished(snapshot: DictionaryLookupSnapshot): Published {
         val fallbacks = if (snapshot.allowFallback) {
             fallbackSystems.filterNot { it.id in snapshot.storedSourceIds }
         } else emptyList()
@@ -596,6 +743,7 @@ class DictionaryManager(
     @Synchronized
     private fun publish(next: Published) {
         if (closed) return
+        if (next.inputEpoch !== published.inputEpoch || next.inputWritesBlocked) pendingPromotions.clear()
         published = next
         observers.keys.toList().forEach { deliverObserver(it, next.status) }
     }

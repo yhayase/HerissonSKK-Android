@@ -32,6 +32,9 @@ class CustomizationSettingsActivity : Activity() {
     private lateinit var comma: Spinner
     private lateinit var parentheses: Spinner
     private lateinit var brackets: Spinner
+    private lateinit var symbols: Spinner
+    private lateinit var menuStart: Spinner
+    private lateinit var showCompositionMarkers: Switch
     private lateinit var labels: Spinner
     private lateinit var pageMode: Spinner
     private lateinit var count: Spinner
@@ -84,19 +87,25 @@ class CustomizationSettingsActivity : Activity() {
         period = choice("句点（標準: 。）", listOf("。", "．", "."))
         comma = choice("読点（標準: 、）", listOf("、", "，", ","))
         parentheses = choice("丸括弧（標準: 全角）", listOf("全角（ ）", "半角( )"))
-        brackets = choice("角括弧・波括弧（標準: 半角）", listOf("半角[]{}", "全角［］｛｝"))
+        brackets = choice("波括弧（標準: 半角）", listOf("半角{}", "全角｛｝"))
+        symbols = choice("その他の記号（標準: 半角）", listOf("全角", "半角"))
+        label("かな入力では - は長音の「ー」、[ ] は「 」になります。句読点・丸括弧・波括弧は個別の設定を使います。")
         labels = choice("候補の選択キー（標準: asdfjkl）", listOf("asdfjkl", "1234567"))
-        pageMode = choice("一覧の候補数（標準: 固定）", listOf("固定", "画面幅と文字サイズに合わせる"))
-        count = choice("固定時の候補数（標準: 7）", (1..7).map(Int::toString))
-        label("最初の3候補は単独表示です。表示中のラベルは画面幅が変わっても動かしません。")
+        pageMode = choice("一覧の候補数（標準: 上限を指定）", listOf("上限を指定", "画面幅と文字サイズに合わせる"))
+        count = choice("一覧の候補数の上限（標準: 7）", (1..7).map(Int::toString))
+        menuStart = choice("候補一覧を開始する候補（標準: 3番目）", (1..10).map { "${it}番目" })
+        showCompositionMarkers = Switch(this).apply { text = "未確定文字に ▽／▼ を表示する" }
+        layout.addView(showCompositionMarkers); controls += showCompositionMarkers
+        label("指定した候補から選択キー付きの一覧を表示します。表示中のラベルは画面幅が変わっても動かしません。")
         emacsEnabled = Switch(this).apply { text = "Emacs 編集キーを有効にする" }
         layout.addView(emacsEnabled); controls += emacsEnabled
         label("標準ではオフです。C-b / C-f などで読みや入力先のカーソルを動かすにはオンにします。オフではアプリへキーを渡します。保存後、次の入力欄から反映します。")
         label("キー表記は C-（Ctrl）、M-（Alt）、S-（Shift）、U-（Shift を区別しない）、<ENTER>、<TAB>、<SPACE> を使います。例: C-g、M-b、U-q、U-Q")
+        label("半角カナ・次のキーをそのまま渡す・ページ移動・文書端移動・切り取り・コピー・改行は、キー欄を空にすると未割当になります。以前の設定と競合する追加操作は未割当で引き継ぎます。")
         SkkCommand.entries.forEach { command ->
             label(command.title)
             bindingFields[command] = keyField(command.title)
-            label("標準規則の初期キー: ${KeyGestureText.format(KeyBindings.defaults.getValue(command))}")
+            label("標準規則の初期キー: ${KeyBindings.defaults[command]?.let(KeyGestureText::format) ?: "未割当"}")
         }
         button("保存") { saveDraft() }
         button("変更を破棄して閉じる") { confirmDiscard() }
@@ -150,12 +159,15 @@ class CustomizationSettingsActivity : Activity() {
         comma.setSelection(listOf("、", "，", ",").indexOf(value.punctuation.comma))
         parentheses.setSelection(if (value.punctuation.fullwidthParentheses) 0 else 1)
         brackets.setSelection(if (value.punctuation.fullwidthBrackets) 1 else 0)
+        symbols.setSelection(if (value.punctuation.fullwidthSymbols) 0 else 1)
+        menuStart.setSelection(value.candidateDisplay.inlineCandidateCount)
+        showCompositionMarkers.isChecked = value.candidateDisplay.showCompositionMarkers
         labels.setSelection(if (value.candidateDisplay.labels == "asdfjkl") 0 else 1)
         pageMode.setSelection(if (value.candidateDisplay.pageMode == CandidatePageMode.FIXED) 0 else 1)
         count.setSelection(value.candidateDisplay.fixedPageSize - 1)
         emacsEnabled.isChecked = value.emacsEnabled
-        value.keyBindings.bindings.forEach { (command, key) ->
-            bindingFields.getValue(command).setText(KeyGestureText.format(key))
+        bindingFields.forEach { (command, field) ->
+            field.setText(value.keyBindings.bindings[command]?.let(KeyGestureText::format).orEmpty())
         }
         refreshRules()
     }
@@ -180,13 +192,16 @@ class CustomizationSettingsActivity : Activity() {
                     profileForIndex(draft.profile),
                     if (draft.profile == profileIndex(CustomizationProfile.CUSTOM)) draft.rules else emptyList(),
                     PunctuationConfig(listOf("。", "．", ".")[draft.period], listOf("、", "，", ",")[draft.comma],
-                        draft.parentheses == 0, draft.brackets == 1),
+                        draft.parentheses == 0, draft.brackets == 1, draft.symbols == 0),
                     CandidateDisplayConfig(listOf("asdfjkl", "1234567")[draft.labels],
-                        if (draft.pageMode == 0) CandidatePageMode.FIXED else CandidatePageMode.AUTO, draft.count + 1),
+                        if (draft.pageMode == 0) CandidatePageMode.FIXED else CandidatePageMode.AUTO, draft.count + 1,
+                        draft.menuStart, draft.showCompositionMarkers),
                     draft.emacsEnabled,
-                    KeyBindings(SkkCommand.entries.associateWith { command ->
-                        KeyGestureText.parse(draft.keyBindings.getValue(command))
-                    }))
+                    KeyBindings(SkkCommand.entries.mapNotNull { command ->
+                        val text = draft.keyBindings.getValue(command)
+                        if (text.isBlank() && command in KeyBindings.optionalCommands) null
+                        else command to KeyGestureText.parse(text)
+                    }.toMap()))
             }
             runOnUiThread {
                 if (!active()) return@runOnUiThread
@@ -357,6 +372,7 @@ class CustomizationSettingsActivity : Activity() {
     private fun active() = !isFinishing && !isDestroyed
     private fun confirmDiscard() {
         if (busy) return
+        if (!hasUnsavedChanges()) { finish(); return }
         AlertDialog.Builder(this).setMessage("保存していない変更を破棄して閉じますか。")
             .setPositiveButton("破棄して閉じる") { _, _ -> finish() }.setNegativeButton("編集を続ける", null).show()
     }
@@ -364,9 +380,32 @@ class CustomizationSettingsActivity : Activity() {
     override fun onBackPressed() = confirmDiscard()
     override fun onDestroy() { validation.shutdown(); super.onDestroy() }
 
+    private fun hasUnsavedChanges(): Boolean {
+        val draft = captureDraft() ?: return false
+        val base = draft.base
+        if (draft.profile != profileIndex(base.profile) || draft.rules != base.customRules ||
+            listOf("。", "．", ".")[draft.period] != base.punctuation.period ||
+            listOf("、", "，", ",")[draft.comma] != base.punctuation.comma ||
+            (draft.parentheses == 0) != base.punctuation.fullwidthParentheses ||
+            (draft.brackets == 1) != base.punctuation.fullwidthBrackets ||
+            (draft.symbols == 0) != base.punctuation.fullwidthSymbols ||
+            draft.menuStart != base.candidateDisplay.inlineCandidateCount ||
+            draft.showCompositionMarkers != base.candidateDisplay.showCompositionMarkers ||
+            listOf("asdfjkl", "1234567")[draft.labels] != base.candidateDisplay.labels ||
+            (draft.pageMode == 0) != (base.candidateDisplay.pageMode == CandidatePageMode.FIXED) ||
+            draft.count + 1 != base.candidateDisplay.fixedPageSize || draft.emacsEnabled != base.emacsEnabled ||
+            draft.keyBindings.any { (command, text) -> text != base.keyBindings.bindings[command]?.let(KeyGestureText::format).orEmpty() }
+        ) return true
+        if (draft.profile != profileIndex(CustomizationProfile.CUSTOM)) return false
+        val rule = draft.rules.getOrNull(draft.ruleSelection) ?: RomajiRule("", "")
+        return draft.ruleEditor != RuleEditor(rule.input, rule.output, rule.remaining,
+            rule.terminalOutput.orEmpty(), rule.terminalOutput != null)
+    }
+
     private data class Draft(val base: CustomizationSettings, val rules: List<RomajiRule>, val profile: Int,
         val period: Int, val comma: Int, val parentheses: Int, val brackets: Int, val labels: Int,
-        val pageMode: Int, val count: Int, val ruleSelection: Int, val ruleEditor: RuleEditor,
+        val pageMode: Int, val count: Int, val symbols: Int, val menuStart: Int,
+        val showCompositionMarkers: Boolean, val ruleSelection: Int, val ruleEditor: RuleEditor,
         val emacsEnabled: Boolean, val keyBindings: Map<SkkCommand, String>)
     private data class RuleEditor(val input: String, val output: String, val remaining: String,
         val terminal: String, val terminalEnabled: Boolean)
@@ -379,7 +418,8 @@ class CustomizationSettingsActivity : Activity() {
     private fun captureDraft(): Draft? = loaded?.let {
         Draft(it, rules.toList(), profile.selectedItemPosition, period.selectedItemPosition, comma.selectedItemPosition,
             parentheses.selectedItemPosition, brackets.selectedItemPosition, labels.selectedItemPosition,
-            pageMode.selectedItemPosition, count.selectedItemPosition, ruleList.selectedItemPosition,
+            pageMode.selectedItemPosition, count.selectedItemPosition, symbols.selectedItemPosition, menuStart.selectedItemPosition,
+            showCompositionMarkers.isChecked, ruleList.selectedItemPosition,
             RuleEditor(input.text.toString(), output.text.toString(), remaining.text.toString(),
                 terminal.text.toString(), terminalEnabled.isChecked), emacsEnabled.isChecked,
             bindingFields.mapValues { (_, field) -> field.text.toString() }.toMap())
@@ -392,6 +432,8 @@ class CustomizationSettingsActivity : Activity() {
         period.setSelection(draft.period); comma.setSelection(draft.comma)
         parentheses.setSelection(draft.parentheses); brackets.setSelection(draft.brackets)
         labels.setSelection(draft.labels); pageMode.setSelection(draft.pageMode); count.setSelection(draft.count)
+        symbols.setSelection(draft.symbols); menuStart.setSelection(draft.menuStart)
+        showCompositionMarkers.isChecked = draft.showCompositionMarkers
         refreshRules(draft.ruleSelection)
         input.setText(draft.ruleEditor.input); output.setText(draft.ruleEditor.output)
         remaining.setText(draft.ruleEditor.remaining); terminal.setText(draft.ruleEditor.terminal)

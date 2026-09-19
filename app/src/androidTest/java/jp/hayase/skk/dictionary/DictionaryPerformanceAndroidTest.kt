@@ -26,7 +26,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * 実 SQLite と [DictionaryManager] の公開済み不変スナップショットを測定します。
+ * 実 SQLite と [DictionaryManager] の管理情報の初期化・未キャッシュ検索・キャッシュ検索を測定します。
  *
  * 実 SKK 辞書の代表性を主張するものではありません。入力はこの試験内で固定 seed から生成した
  * 日本語読みの合成データで、debug Android instrumentation の観測値です。
@@ -35,7 +35,7 @@ import org.junit.runner.RunWith
 class DictionaryPerformanceAndroidTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
 
-    @Test fun sqliteSnapshotAndPublishedLookup() {
+    @Test fun sqliteStartupAndBoundedCachedLookup() {
         val arguments = InstrumentationRegistry.getArguments()
         val entryCounts = parseCounts(arguments.getString("dictionaryPerformanceEntries") ?: "1000,100000")
         val samples = arguments.getString("dictionaryPerformanceSamples")?.let {
@@ -61,33 +61,51 @@ class DictionaryPerformanceAndroidTest {
         var pssBeforeLoadKb = 0L
         var pssAfterLoadKb = 0L
         var pssAfterCloseKb = 0L
+        var retainedAfterChurn = DictionaryCacheStats(0, 0, 0)
         lateinit var queryMeasurements: Pair<Pair<PathMeasurement, PathMeasurement>, Pair<PathMeasurement, PathMeasurement>>
         try {
+            importNs = elapsed {
+                SQLiteDictionaryRepository(context, databaseName).use { importer ->
+                    importer.importSystem("synthetic", "合成性能辞書", fixture.system)
+                }
+            }
             pssBeforeLoadKb = Debug.getPss()
-            importNs = elapsed { repository.importSystem("synthetic", "合成性能辞書", fixture.system) }
             loadNs = elapsed { awaitLoad(manager) }
             pssAfterLoadKb = Debug.getPss()
+            assertEquals(0L, repository.readStats.fullSnapshotReads)
+            assertEquals(0L, repository.readStats.keyReads)
+            assertEquals(0L, repository.readStats.prefixReads)
+            assertEquals(DictionaryCacheStats(0, 0, 0), manager.cacheStats)
 
-            val previousPolicy = StrictMode.getThreadPolicy()
-            queryMeasurements = try {
-                // 公開済み経路が SQLite を再訪しないことを、利用可能な StrictMode の disk 検知でも確認します。
-                StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder()
-                    .detectDiskReads().detectDiskWrites().penaltyDeath().build())
-                (measurePath(samples, {
+            queryMeasurements =
+                (measurePath(samples, manager, {
                     manager.lookup(DictionaryQuery(fixture.probeKey)).map { it.text }
                 }) { actual -> assertEquals(listOf("候補${fixture.probeIndex}", "別候補${fixture.probeIndex}"), actual) } to
-                    measurePath(samples, {
+                    measurePath(samples, manager, {
                         manager.lookup(DictionaryQuery("おくr", "り")).map { it.text }
                     }) { actual -> assertEquals(listOf("送り候補"), actual) }) to
-                    (measurePath(samples, {
+                    (measurePath(samples, manager, {
                         manager.lookup(DictionaryQuery("だい123")).map { it.text }
                     }) { actual -> assertEquals(listOf("第123"), actual) } to
-                    measurePath(samples, {
+                    measurePath(samples, manager, {
                         manager.complete(CompletionQuery("か", limit = 16))
                     }) { actual -> assertEquals(minOf(16, entryCount - 2), actual.size); assertTrue(actual.all { it.startsWith("か") }) })
-            } finally {
-                StrictMode.setThreadPolicy(previousPolicy)
+
+            repeat(DictionaryCacheStats.MAX_ENTRIES + 17) { index ->
+                assertTrue(manager.readBlocking {
+                    manager.lookup(DictionaryQuery("未登録キャッシュ検証${hiraganaKey(index + FIXTURE_SEED)}"))
+                }.isEmpty())
+                assertCacheBounded(manager.cacheStats)
             }
+            retainedAfterChurn = manager.cacheStats
+            // 追い出された候補は保存先から再取得でき、キャッシュが正本にはなりません。
+            val readsBeforeReload = repository.readStats.keyReads
+            assertEquals(listOf("候補${fixture.probeIndex}", "別候補${fixture.probeIndex}"),
+                manager.readBlocking { manager.lookup(DictionaryQuery(fixture.probeKey)).map { it.text } })
+            assertTrue(repository.readStats.keyReads > readsBeforeReload)
+            val fullReadsBeforeLearning = repository.readStats.fullSnapshotReads
+            val keyReadsBeforeLearning = repository.readStats.keyReads
+            val prefixReadsBeforeLearning = repository.readStats.prefixReads
 
             publishNs = elapsed {
                 val completed = CountDownLatch(1)
@@ -99,7 +117,10 @@ class DictionaryPerformanceAndroidTest {
                 assertTrue("個人学習の公開が期限内に完了しません", completed.await(90, TimeUnit.SECONDS))
                 assertEquals(PersonalWriteResult.Applied, result)
             }
-            assertEquals(listOf("学習済"), manager.lookup(DictionaryQuery("がくしゅう")).map { it.text })
+            assertEquals(fullReadsBeforeLearning, repository.readStats.fullSnapshotReads)
+            assertEquals(keyReadsBeforeLearning, repository.readStats.keyReads)
+            assertEquals(prefixReadsBeforeLearning, repository.readStats.prefixReads)
+            assertEquals(listOf("学習済"), manager.readBlocking { manager.lookup(DictionaryQuery("がくしゅう")).map { it.text } })
 
         } finally {
             manager.close()
@@ -111,7 +132,13 @@ class DictionaryPerformanceAndroidTest {
             context.deleteDatabase(databaseName)
         }
         return report(entryCount, bytes.size, sha256(bytes), importNs, loadNs, queryMeasurements,
-            publishNs, pssBeforeLoadKb, pssAfterLoadKb, pssAfterCloseKb)
+            publishNs, pssBeforeLoadKb, pssAfterLoadKb, pssAfterCloseKb, retainedAfterChurn)
+    }
+
+    private fun assertCacheBounded(stats: DictionaryCacheStats) {
+        assertTrue(stats.entries <= DictionaryCacheStats.MAX_ENTRIES)
+        assertTrue(stats.candidateRecords <= DictionaryCacheStats.MAX_CANDIDATE_RECORDS)
+        assertTrue(stats.retainedChars <= DictionaryCacheStats.MAX_RETAINED_CHARS)
     }
 
     private fun awaitLoad(manager: DictionaryManager) {
@@ -155,9 +182,20 @@ class DictionaryPerformanceAndroidTest {
         return String(characters)
     }
 
-    private fun <T> measurePath(samples: Int, query: () -> T, verify: (T) -> Unit): PathMeasurement {
-        val first = elapsed { verify(query()) }
-        val cached = List(samples) { elapsed { verify(query()) } }
+    private fun <T> measurePath(
+        samples: Int, manager: DictionaryManager, query: () -> T, verify: (T) -> Unit,
+    ): PathMeasurement {
+        // この試験用スレッドだけが非同期読み込みの完了を待ちます。IMEのキー配送では待ちません。
+        val first = elapsed { verify(manager.readBlocking(query)) }
+        val previousPolicy = StrictMode.getThreadPolicy()
+        val cached = try {
+            // ヒット時にディスクへ戻らないことは、従来どおり厳しく確認します。
+            StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder()
+                .detectDiskReads().detectDiskWrites().penaltyDeath().build())
+            List(samples) { elapsed { verify(query()) } }
+        } finally {
+            StrictMode.setThreadPolicy(previousPolicy)
+        }
         return PathMeasurement(first, cached)
     }
 
@@ -165,17 +203,24 @@ class DictionaryPerformanceAndroidTest {
         entries: Int, bytes: Int, sha256: String, importNs: Long?, loadNs: Long?,
         paths: Pair<Pair<PathMeasurement, PathMeasurement>, Pair<PathMeasurement, PathMeasurement>>,
         publishNs: Long?, pssBefore: Long?, pssAfterLoad: Long?, pssAfterClose: Long?,
+        retainedAfterChurn: DictionaryCacheStats,
     ): String {
         val line = buildString {
             append("DICTIONARY_PERFORMANCE ")
+            append("cache_max_entries=${DictionaryCacheStats.MAX_ENTRIES} ")
+            append("cache_max_records=${DictionaryCacheStats.MAX_CANDIDATE_RECORDS} ")
+            append("cache_max_chars=${DictionaryCacheStats.MAX_RETAINED_CHARS} ")
+            append("cache_entries_after_churn=${retainedAfterChurn.entries} ")
+            append("cache_records_after_churn=${retainedAfterChurn.candidateRecords} ")
+            append("cache_chars_after_churn=${retainedAfterChurn.retainedChars} ")
             append("seed=$FIXTURE_SEED entries=$entries fixture_bytes=$bytes fixture_sha256=$sha256 ")
             importNs?.let { append("import_ms=${millis(it)} ") }
-            loadNs?.let { append("load_publish_ms=${millis(it)} ") }
+            loadNs?.let { append("metadata_ready_ms=${millis(it)} ") }
             append(pathStats("normal", paths.first.first) + " ")
             append(pathStats("okuri", paths.first.second) + " ")
             append(pathStats("numeric", paths.second.first) + " ")
             append(pathStats("completion", paths.second.second) + " ")
-            publishNs?.let { append("personal_learning_reload_publish_ms=${millis(it)} ") }
+            publishNs?.let { append("personal_learning_publish_ms=${millis(it)} ") }
             pssBefore?.let { append("pss_before_load_kb=$it ") }
             pssAfterLoad?.let { append("pss_after_load_kb=$it ") }
             pssAfterClose?.let { append("pss_after_close_kb=$it ") }

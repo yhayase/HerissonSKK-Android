@@ -35,6 +35,37 @@ class SQLiteDictionaryAndroidTest {
         }
     }
 
+    @Test fun settingsBatchCommitsTogetherAndRollsBackEarlierOperationsOnConflict() {
+        val name = fixtureName()
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            repository.importSystem("a", "既存", document("かな /旧/"))
+            val baseline = repository.listSources().filter { it.kind == DictionarySourceKind.SYSTEM }
+            repository.applySettingsEdits(listOf(
+                DictionarySettingsEdit.ImportSystem("b", "追加", document("かな /新/"), null),
+                DictionarySettingsEdit.SetEnabled("a", false),
+                DictionarySettingsEdit.SetOrder(listOf("b", "a")),
+            ), baseline)
+            assertEquals(listOf("新"), repository.lookup("かな").asComposite()
+                .lookup(DictionaryQuery("かな")).map { it.text })
+            val saved = repository.listSources()
+            repository.mergePersonal(document("ほぞん /学習/"), 0)
+            assertThrows(IllegalStateException::class.java) {
+                repository.applySettingsEdits(listOf(
+                    DictionarySettingsEdit.ImportSystem("c", "失敗時に残さない", document("かな /不可/"), null),
+                    DictionarySettingsEdit.ReplacePersonal(document("かな /置換/"), 0),
+                ), saved.filter { it.kind == DictionarySourceKind.SYSTEM })
+            }
+            assertFalse(repository.listSources().any { it.id == "c" })
+            assertEquals(listOf("学習"), repository.lookup("ほぞん").asComposite()
+                .lookup(DictionaryQuery("ほぞん")).map { it.text })
+        }
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            assertEquals(listOf("b", "a"), repository.listSources()
+                .filter { it.kind == DictionarySourceKind.SYSTEM }.map { it.id })
+            assertFalse(repository.listSources().first { it.id == "a" }.enabled)
+        }
+    }
+
     @Test fun codecStrictEucJpAndUtf8RoundTrip() {
         val source = """
             おおk /大/[く/多;数量/]/

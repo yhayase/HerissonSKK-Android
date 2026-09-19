@@ -1,6 +1,7 @@
 package jp.hayase.skk.input
 
 import android.view.View
+import android.view.KeyEvent
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
@@ -31,11 +32,17 @@ class EditorSessionEditingTest {
         var queries = 0
         var edits = 0
         var accept = true
+        var snapshotUnavailable = false
+        val nativeDown = ArrayList<Int>()
+        val pendingNative = ArrayDeque<Int>()
+        var deferNative = false
+        var onNative: (() -> Unit)? = null
         var onEdit: (() -> Unit)? = null
         var onQuery: (() -> Unit)? = null
-        override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText {
+        override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
             queries++
             onQuery?.invoke()
+            if (snapshotUnavailable) return null
             return ExtractedText().also {
                 it.text = text
                 it.startOffset = 0
@@ -44,9 +51,10 @@ class EditorSessionEditingTest {
                 it.partialStartOffset = -1
             }
         }
-        override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText {
+        override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText? {
             queries++
             onQuery?.invoke()
+            if (snapshotUnavailable) return null
             return SurroundingText(text, cursor, cursor, 0)
         }
         override fun setSelection(start: Int, end: Int): Boolean {
@@ -65,6 +73,41 @@ class EditorSessionEditingTest {
             }
             onEdit?.invoke()
             return accept
+        }
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            edits++
+            if (accept) {
+                val inserted = text.toString().replace('\n', ' ')
+                this.text = this.text.substring(0, cursor) + inserted + this.text.substring(cursor)
+                cursor += inserted.length
+            }
+            onEdit?.invoke()
+            return accept
+        }
+        override fun sendKeyEvent(event: KeyEvent): Boolean {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                nativeDown.add(event.keyCode)
+                if (deferNative) pendingNative.addLast(event.keyCode) else applyNative(event.keyCode)
+            }
+            return true
+        }
+        fun applyNative(code: Int = pendingNative.removeFirst()) {
+            cursor = when (code) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> (cursor - 1).coerceAtLeast(0)
+                KeyEvent.KEYCODE_DPAD_RIGHT -> (cursor + 1).coerceAtMost(text.length)
+                KeyEvent.KEYCODE_DEL -> {
+                    if (cursor > 0) {
+                        text = text.removeRange(cursor - 1, cursor)
+                        cursor - 1
+                    } else cursor
+                }
+                KeyEvent.KEYCODE_FORWARD_DEL -> {
+                    if (cursor < text.length) text = text.removeRange(cursor, cursor + 1)
+                    cursor
+                }
+                else -> cursor
+            }
+            onNative?.invoke()
         }
     }
     private class Fixture(protected: Boolean = false, enabled: Boolean = true,
@@ -117,6 +160,70 @@ class EditorSessionEditingTest {
         assertNull(f.session.notice)
     }
 
+    @Test fun filteredNewlineKeepsNextExplicitCommandEvenBeforePostcheckCompletes() {
+        for (earlyAcknowledgement in listOf(false, true)) {
+            val f = Fixture(text = "abc", cursor = 3)
+            f.connection.onEdit = {
+                if (earlyAcknowledgement) {
+                    f.session.onSelection(f.connection.cursor, f.connection.cursor, -1, -1)
+                }
+                if (f.connection.edits == 1) assertTrue(f.left())
+            }
+            assertTrue(f.session.handle(BasicSkkAction.Edit(EditCommand.NEWLINE)))
+            f.run()
+            assertEquals("abc ", f.connection.text)
+            assertEquals(3, f.connection.cursor)
+            assertEquals(1, f.connection.edits)
+            assertEquals(listOf(KeyEvent.KEYCODE_DPAD_LEFT), f.connection.nativeDown)
+        }
+    }
+
+    @Test fun rejectedRequestKeepsNextQueuedExplicitCommandWithoutRetryingFirst() {
+        val f = Fixture()
+        f.connection.accept = false
+        f.left()
+        f.session.handle(BasicSkkAction.Edit(EditCommand.RIGHT))
+        f.workers.run()
+        f.connection.accept = true
+        f.run()
+        assertEquals(listOf(1, 3), f.connection.targets)
+        assertEquals(3, f.connection.cursor)
+    }
+
+    @Test fun unverifiedNewlineAcknowledgementKeepsQueuedMovement() {
+        val f = Fixture(text = "abc", cursor = 3)
+        f.connection.snapshotUnavailable = true
+        f.connection.onEdit = {
+            f.left()
+            f.session.onSelection(f.connection.cursor, f.connection.cursor, -1, -1)
+        }
+        f.session.handle(BasicSkkAction.Edit(EditCommand.NEWLINE))
+        f.run()
+        assertEquals("abc ", f.connection.text)
+        assertEquals(3, f.connection.cursor)
+        assertEquals(1, f.connection.edits)
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_LEFT), f.connection.nativeDown)
+        assertNull(f.session.notice)
+    }
+
+    @Test fun newlineContinuesNativeSequenceAcrossDelayedSelectionCallback() {
+        val f = Fixture(text = "abc", cursor = 3)
+        f.left()
+        f.run()
+        val queries = f.connection.queries
+        f.session.handle(BasicSkkAction.Edit(EditCommand.NEWLINE))
+        f.session.onSelection(2, 2, -1, -1)
+        f.left()
+        f.run()
+        assertEquals("ab c", f.connection.text)
+        assertEquals(2, f.connection.cursor)
+        assertEquals(queries, f.connection.queries)
+        assertEquals(1, f.connection.edits)
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_LEFT),
+            f.connection.nativeDown)
+        assertNull(f.session.notice)
+    }
+
     @Test fun queuedVerticalCommandsPreservePreferredColumn() {
         val f = Fixture(text = "a👩‍💻b\r\nxy\r\nZabc\r\ntail", cursor = 6)
         repeat(2) { assertTrue(f.session.handle(BasicSkkAction.Edit(EditCommand.DOWN))) }
@@ -159,6 +266,85 @@ class EditorSessionEditingTest {
         f.session.handle(BasicSkkAction.Edit(EditCommand.RIGHT))
         f.run()
         assertEquals(listOf(1), f.connection.targets)
+        assertNull(f.session.notice)
+    }
+
+    @Test fun windowEndMovementUsesOneNativeKeyPairWithoutChangingText() {
+        val forward = Fixture(text = "abc", cursor = 2)
+        assertTrue(forward.session.handle(BasicSkkAction.Edit(EditCommand.RIGHT)))
+        forward.run()
+        assertEquals(3, forward.connection.cursor)
+        assertEquals("abc", forward.connection.text)
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_RIGHT), forward.connection.nativeDown)
+        assertNull(forward.session.notice)
+
+        val backward = Fixture(text = "abc", cursor = 3)
+        assertTrue(backward.left())
+        backward.run()
+        assertEquals(2, backward.connection.cursor)
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_LEFT), backward.connection.nativeDown)
+        assertNull(backward.session.notice)
+    }
+
+    @Test fun unchangedNativeMovementDrainsQueuedReverseMovementWithoutAcknowledgement() {
+        val f = Fixture(text = "abcd", cursor = 4)
+        f.connection.deferNative = true
+        f.session.handle(BasicSkkAction.Edit(EditCommand.RIGHT))
+        f.left()
+        f.left()
+        f.session.handle(BasicSkkAction.Edit(EditCommand.RIGHT))
+        f.run()
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT), f.connection.nativeDown)
+        assertEquals(4, f.connection.cursor)
+        assertEquals(2, f.connection.queries)
+        while (f.connection.pendingNative.isNotEmpty()) f.connection.applyNative()
+        assertEquals(3, f.connection.cursor)
+        assertEquals("abcd", f.connection.text)
+        assertEquals(0, f.connection.edits)
+        assertNull(f.session.notice)
+    }
+
+    @Test fun nativeSelectionNotificationBeforeCompletionDoesNotDiscardRepeats() {
+        val f = Fixture(text = "abcd", cursor = 4)
+        f.connection.onNative = {
+            f.session.onSelection(f.connection.cursor, f.connection.cursor, -1, -1)
+        }
+        repeat(3) { f.left() }
+        f.run()
+        assertEquals(1, f.connection.cursor)
+        assertEquals(3, f.connection.nativeDown.size)
+        assertNull(f.session.notice)
+    }
+
+    @Test fun queuedNativePageAndBufferCommandsKeepTheirOrder() {
+        val f = Fixture(text = "abcd", cursor = 4)
+        val commands = listOf(EditCommand.PAGE_DOWN, EditCommand.PAGE_DOWN,
+            EditCommand.PAGE_UP, EditCommand.BUFFER_START, EditCommand.BUFFER_END)
+        commands.forEach { f.session.handle(BasicSkkAction.Edit(it)) }
+        f.run()
+        assertEquals(listOf(KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_PAGE_DOWN,
+            KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END),
+            f.connection.nativeDown)
+        assertEquals(2, f.connection.queries)
+        assertNull(f.session.notice)
+    }
+
+    @Test fun nativeMovementOrdersDeletionWithoutSpeculativeSelection() {
+        val f = Fixture(text = "abcd", cursor = 4)
+        f.connection.deferNative = true
+        f.left()
+        f.run()
+        f.connection.applyNative()
+        // 移動後の通知が未着でも、同じ接続へ標準キーを順に送ります。
+        f.session.handle(BasicSkkAction.Edit(EditCommand.BACKSPACE))
+        f.run()
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DEL), f.connection.nativeDown)
+        assertEquals(0, f.connection.deletions)
+        assertEquals("abcd", f.connection.text)
+        f.connection.applyNative()
+        assertEquals("abd", f.connection.text)
+        assertEquals(2, f.connection.cursor)
         assertNull(f.session.notice)
     }
 
@@ -307,15 +493,18 @@ class EditorSessionEditingTest {
         assertEquals(0, f.connection.queries)
     }
 
-    @Test fun rejectedRequestIsConsumedAndDisablesFurtherExternalEdits() {
+    @Test fun rejectedRequestIsConsumedAndNextExplicitEditCanRecover() {
         val f = Fixture()
         f.connection.accept = false
         assertTrue(f.left())
         f.run()
         assertNotNull(f.session.notice)
+        assertEquals(1, f.connection.edits)
+        f.connection.accept = true
         assertTrue(f.left())
         f.run()
-        assertEquals(1, f.connection.edits)
+        assertEquals(2, f.connection.edits)
+        assertEquals(1, f.connection.cursor)
     }
 
     @Test fun unexpectedCallbackDuringRequestPermanentlyStopsPort() {

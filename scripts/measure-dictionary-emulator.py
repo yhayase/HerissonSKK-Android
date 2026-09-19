@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""専用エミュレーターで SQLite 辞書の公開済み検索経路を測定します。"""
+"""専用エミュレーターで SQLite 辞書の初期化・未キャッシュ検索・キャッシュ検索を測定します。"""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -32,7 +32,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="専用エミュレーターの adb シリアル")
     parser.add_argument("--entries", default="1000,100000", help="カンマ区切りの辞書見出し件数（既定: 1000,100000）")
-    parser.add_argument("--samples", default="256", help="公開後キャッシュ検索の反復数（既定: 256）")
+    parser.add_argument("--samples", default="256", help="キャッシュヒット検索の反復数（既定: 256）")
     parser.add_argument("--smoke", action="store_true", help="1,000 件・16 回の短い接続確認にします")
     args = parser.parse_args()
     if not re.fullmatch(r"emulator-[0-9]+", args.serial):

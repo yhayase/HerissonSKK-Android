@@ -35,7 +35,7 @@ data class KeyGesture(val text: String? = null, val special: SpecialKey? = null,
         (ignoreShift || other.ignoreShift || shift == other.shift)
 }
 
-enum class SpecialKey { ENTER, TAB, ESCAPE, LEFT, RIGHT, HOME, END, BACKSPACE, DELETE }
+enum class SpecialKey { ENTER, TAB, ESCAPE, LEFT, RIGHT, HOME, END, PAGE_UP, PAGE_DOWN, BACKSPACE, DELETE }
 
 /** 保存時の競合検査と実行時の配送で共通して使う、相互に排他的な入力状態です。 */
 enum class KeyBindingState {
@@ -71,13 +71,14 @@ private val editableStates = KeyBindingState.entries.toSet()
 /** 適用状態は操作の契約で固定し、キーだけを置き換えます。 */
 enum class SkkCommand(
     val title: String,
-    val action: BasicSkkAction,
+    val action: BasicSkkAction?,
     val states: Set<KeyBindingState>,
     val emacsOnly: Boolean = false,
 ) {
     KANA("かな入力・確定", BasicSkkAction.Kana, ordinaryStates),
     CANCEL("取消", BasicSkkAction.Cancel, KeyBindingState.entries.toSet()),
     HALFWIDTH("半角カナ", BasicSkkAction.Halfwidth, ordinaryStates),
+    QUOTE_NEXT("次のキーをそのまま渡す", null, ordinaryStates),
     ENTER("確定", BasicSkkAction.Enter, ordinaryStates - KeyBindingState.DIRECT),
     TOGGLE_KANA("かな種別切替", BasicSkkAction.ToggleKana,
         idleStates + pendingStates + readingStates + selectionStates),
@@ -107,13 +108,22 @@ enum class SkkCommand(
     EDIT_KILL_LINE("行末まで削除", BasicSkkAction.Edit(EditCommand.KILL_LINE), editableStates, true),
     EDIT_WORD_BACKWARD("前の単語", BasicSkkAction.Edit(EditCommand.WORD_BACKWARD), editableStates, true),
     EDIT_WORD_FORWARD("次の単語", BasicSkkAction.Edit(EditCommand.WORD_FORWARD), editableStates, true),
+    EDIT_PAGE_DOWN("次の画面", BasicSkkAction.Edit(EditCommand.PAGE_DOWN), editableStates, true),
+    EDIT_PAGE_UP("前の画面", BasicSkkAction.Edit(EditCommand.PAGE_UP), editableStates, true),
+    EDIT_BUFFER_START("文書の先頭", BasicSkkAction.Edit(EditCommand.BUFFER_START), editableStates, true),
+    EDIT_BUFFER_END("文書の末尾", BasicSkkAction.Edit(EditCommand.BUFFER_END), editableStates, true),
+    EDIT_CUT("選択範囲を切り取り", BasicSkkAction.Edit(EditCommand.CUT), editableStates, true),
+    EDIT_COPY("選択範囲をコピー", BasicSkkAction.Edit(EditCommand.COPY), editableStates, true),
+    EDIT_NEWLINE("改行", BasicSkkAction.Edit(EditCommand.NEWLINE), editableStates, true),
 }
 
 /** 必須操作を消せない完全な割り当てです。同じ状態で競合する設定は公開しません。 */
 class KeyBindings(bindings: Map<SkkCommand, KeyGesture> = defaults) {
     val bindings: Map<SkkCommand, KeyGesture> = Collections.unmodifiableMap(LinkedHashMap(bindings))
     init {
-        require(this.bindings.keys == SkkCommand.entries.toSet()) { "すべての操作にキーを割り当てます" }
+        require(this.bindings.keys.containsAll(SkkCommand.entries.toSet() - optionalCommands)) {
+            "必須操作にキーを割り当てます"
+        }
         validate(emacsEnabled = false)
     }
 
@@ -151,17 +161,25 @@ class KeyBindings(bindings: Map<SkkCommand, KeyGesture> = defaults) {
         emacsEnabled: Boolean = false,
     ): BasicSkkAction? {
         val context = context(state, view)
-        val command = bindings.entries.firstOrNull { (command, key) ->
-            key.matches(gesture) && context in command.states && (emacsEnabled || !command.emacsOnly) &&
-                (command != SkkCommand.ACCEPT_COMPLETION || view.completion != null)
-        }?.key ?: return null
+        val command = resolveCommand(gesture, state, view, emacsEnabled) ?: return null
         return when {
             context in selectionStates && command == SkkCommand.EDIT_DOWN -> BasicSkkAction.ConvertNext
             context in selectionStates &&
                 (command == SkkCommand.EDIT_UP || command == SkkCommand.EDIT_BACKSPACE) ->
                 BasicSkkAction.PreviousCandidate
+            command == SkkCommand.EDIT_NEWLINE && context !in setOf(KeyBindingState.IDLE,
+                KeyBindingState.DIRECT, KeyBindingState.FULLWIDTH) -> BasicSkkAction.Enter
             else -> command.action
         }
+    }
+
+    fun resolveCommand(gesture: KeyGesture, state: BasicSkkState, view: BasicSkkView,
+        emacsEnabled: Boolean = false): SkkCommand? {
+        val context = context(state, view)
+        return bindings.entries.firstOrNull { (command, key) ->
+            key.matches(gesture) && context in command.states && (emacsEnabled || !command.emacsOnly) &&
+                (command != SkkCommand.ACCEPT_COMPLETION || view.completion != null)
+        }?.key
     }
 
     private fun context(state: BasicSkkState, view: BasicSkkView): KeyBindingState {
@@ -194,10 +212,42 @@ class KeyBindings(bindings: Map<SkkCommand, KeyGesture> = defaults) {
     override fun hashCode(): Int = bindings.hashCode()
 
     companion object {
+        val optionalCommands: Set<SkkCommand> = setOf(SkkCommand.HALFWIDTH, SkkCommand.QUOTE_NEXT,
+            SkkCommand.EDIT_PAGE_DOWN, SkkCommand.EDIT_PAGE_UP,
+            SkkCommand.EDIT_BUFFER_START, SkkCommand.EDIT_BUFFER_END, SkkCommand.EDIT_CUT,
+            SkkCommand.EDIT_COPY, SkkCommand.EDIT_NEWLINE)
+
+        /** 旧設定のキーを優先し、新操作の標準キーと重なるときは新操作を未割当とします。 */
+        fun addDefaultsPreservingExisting(previous: Map<SkkCommand, KeyGesture>): KeyBindings {
+            val result = LinkedHashMap(previous)
+            for (command in optionalCommands) {
+                if (command in result) continue
+                val key = defaults[command] ?: continue
+                if (result.any { (other, gesture) ->
+                        key.overlaps(gesture) && command.states.intersect(other.states).isNotEmpty()
+                    }) continue
+                result[command] = key
+            }
+            return KeyBindings(result)
+        }
+
+        /** 版3以前の半角カナ標準キーを置き換え、その他の明示的な割当は保持します。 */
+        fun migrateQuoteNext(previous: KeyBindings): KeyBindings {
+            val result = LinkedHashMap(previous.bindings)
+            if (result[SkkCommand.HALFWIDTH] == KeyGesture("q", ctrl = true)) {
+                result.remove(SkkCommand.HALFWIDTH)
+            }
+            val quote = defaults.getValue(SkkCommand.QUOTE_NEXT)
+            if (result.none { (command, key) ->
+                    quote.overlaps(key) && command.states.intersect(SkkCommand.QUOTE_NEXT.states).isNotEmpty()
+                }) result[SkkCommand.QUOTE_NEXT] = quote
+            return KeyBindings(result)
+        }
+
         val defaults: Map<SkkCommand, KeyGesture> = Collections.unmodifiableMap(linkedMapOf(
             SkkCommand.KANA to KeyGesture("j", ctrl = true),
             SkkCommand.CANCEL to KeyGesture("g", ctrl = true),
-            SkkCommand.HALFWIDTH to KeyGesture("q", ctrl = true),
+            SkkCommand.QUOTE_NEXT to KeyGesture("q", ctrl = true),
             SkkCommand.ENTER to KeyGesture(special = SpecialKey.ENTER),
             SkkCommand.TOGGLE_KANA to KeyGesture("q", ignoreShift = true),
             SkkCommand.START_READING to KeyGesture("Q", ignoreShift = true),
@@ -223,6 +273,13 @@ class KeyBindings(bindings: Map<SkkCommand, KeyGesture> = defaults) {
             SkkCommand.EDIT_KILL_LINE to KeyGesture("k", ctrl = true),
             SkkCommand.EDIT_WORD_BACKWARD to KeyGesture("b", alt = true),
             SkkCommand.EDIT_WORD_FORWARD to KeyGesture("f", alt = true),
+            SkkCommand.EDIT_PAGE_DOWN to KeyGesture("v", ctrl = true),
+            SkkCommand.EDIT_PAGE_UP to KeyGesture("v", alt = true),
+            SkkCommand.EDIT_BUFFER_START to KeyGesture("<", alt = true, shift = true),
+            SkkCommand.EDIT_BUFFER_END to KeyGesture(">", alt = true, shift = true),
+            SkkCommand.EDIT_CUT to KeyGesture("w", ctrl = true),
+            SkkCommand.EDIT_COPY to KeyGesture("w", alt = true),
+            SkkCommand.EDIT_NEWLINE to KeyGesture("m", ctrl = true),
         ))
     }
 }

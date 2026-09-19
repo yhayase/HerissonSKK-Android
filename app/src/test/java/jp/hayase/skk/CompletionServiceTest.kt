@@ -48,7 +48,7 @@ class CompletionServiceTest {
             repository,
             direct,
             direct,
-            fallbackSystems = listOf(BuiltinDictionary.source),
+            fallbackSystems = listOf(BuiltinDictionary.source), deferReads = false,
         ).also { it.loadAsync() }
         val customizationPath = File(context.cacheDir, "completion-customization-${System.nanoTime()}.json")
         val customization = CustomizationStore(customizationPath, direct, direct).also { it.loadAsync() }

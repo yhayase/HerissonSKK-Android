@@ -42,7 +42,7 @@ class CompleteBackupIoActivityTest {
         database = "backup-io-${System.nanoTime()}.db"
         repository = SQLiteDictionaryRepository(context, database)
         val direct = Executor { it.run() }
-        manager = DictionaryManager(repository, direct, direct).also { it.loadAsync() }
+        manager = DictionaryManager(repository, direct, direct, deferReads = false).also { it.loadAsync() }
         CompleteDictionaryBackupActivity.managerFactoryForTest = { manager }
         controller = Robolectric.buildActivity(CompleteDictionaryBackupActivity::class.java).setup()
     }

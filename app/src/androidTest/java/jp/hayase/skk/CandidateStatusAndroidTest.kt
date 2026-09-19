@@ -85,6 +85,73 @@ class CandidateStatusAndroidTest {
         assertNoHorizontalOverflow(view)
     }
 
+    @Test fun `横長画面の大きい文字でも候補と注釈は一段に収まる`() {
+        val base = instrumentation.targetContext
+        val configuration = Configuration(base.resources.configuration).apply {
+            fontScale = 2f
+            screenWidthDp = 640
+            screenHeightDp = 360
+        }
+        val view = onMain {
+            CandidateStatusView(base.createConfigurationContext(configuration)).also {
+                assertTrue(it.visibleMenuCapacity() >= 2)
+                it.show(CandidateStatusPresentation("変換中", menuItems = listOf(
+                    CandidateMenuItem('a', CandidateTextBounds.preview("候補".repeat(60), 32).text,
+                        CandidateTextBounds.preview("注釈".repeat(60), 24).text),
+                    CandidateMenuItem('s', "別候補", "補足"))))
+                val density = it.resources.displayMetrics.density
+                it.measure(View.MeasureSpec.makeMeasureSpec((640 * density).toInt(), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.AT_MOST))
+                it.layout(0, 0, it.measuredWidth, it.measuredHeight)
+            }
+        }
+        val content = view.getChildAt(0) as ViewGroup
+        val menu = content.getChildAt(0) as ViewGroup
+        assertTrue(menu.childCount == 1)
+        val row = menu.getChildAt(0) as ViewGroup
+        assertTrue(row.childCount == 2)
+        val first = row.getChildAt(0) as ViewGroup
+        val main = first.getChildAt(0) as TextView
+        val annotation = first.getChildAt(1) as TextView
+        assertTrue(main.text.length < 80)
+        assertTrue(annotation.text.length < 80)
+        assertTrue(annotation.textSize < main.textSize)
+        assertTrue(annotation.currentTextColor != main.currentTextColor)
+        assertTrue(first.contentDescription.contains("注釈"))
+        assertTrue(menu.bottom <= view.height)
+        draw(view)
+        descendants(view).filter { it.visibility == View.VISIBLE }.forEach { child ->
+            assertTrue("候補が画面幅を超えています: ${child.javaClass.name}",
+                child.left >= 0 && child.right <= view.width)
+        }
+    }
+
+    @Test fun `実測幅で省略された選択候補だけが全文ボタンを表示する`() {
+        val candidate = "あ".repeat(12)
+        val annotation = "注".repeat(16)
+        val view = onMain {
+            CandidateStatusView(narrowLargeFontContext()).also {
+                it.show(CandidateStatusPresentation(
+                    text = "変換中",
+                    detailIdentity = CandidateDetailIdentity(0, candidate, annotation),
+                    detailSections = listOf(
+                        CandidateDetailSection("候補本文", candidate),
+                        CandidateDetailSection("注釈", annotation),
+                    ),
+                    menuItems = listOf(CandidateMenuItem('a', candidate, annotation)),
+                    selectedMenuIndex = 0,
+                ))
+            }
+        }
+        onMain { layout(view, 240) }
+        assertTrue(view.findViewById<View>(R.id.candidate_full_detail).visibility == View.VISIBLE)
+        onMain { view.findViewById<View>(R.id.candidate_full_detail).performClick() }
+        assertTrue(view.isDetailOpen)
+        onMain { layout(view, 800) }
+        assertTrue(view.findViewById<View>(R.id.candidate_full_detail).visibility == View.GONE)
+        assertFalse(view.isDetailOpen)
+    }
+
     private fun createView(candidate: String, annotation: String): CandidateStatusView = onMain {
         CandidateStatusView(narrowLargeFontContext()).also { view ->
             val candidatePreview = CandidateTextBounds.preview(candidate).text
@@ -96,6 +163,9 @@ class CandidateStatusAndroidTest {
                     CandidateDetailSection("候補本文", candidate),
                     CandidateDetailSection("注釈", annotation),
                 ),
+                menuItems = listOf(CandidateMenuItem('a', candidatePreview, annotationPreview)),
+                selectedMenuIndex = 0,
+                selectedPreviewTruncated = true,
             ))
         }
     }
@@ -110,9 +180,9 @@ class CandidateStatusAndroidTest {
         assertHeightBounded(view)
     }
 
-    private fun layout(view: CandidateStatusView) {
+    private fun layout(view: CandidateStatusView, widthDp: Int = 240) {
         val density = view.resources.displayMetrics.density
-        val width = (240 * density).toInt()
+        val width = (widthDp * density).toInt()
         val height = (640 * density).toInt()
         view.measure(
             View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),

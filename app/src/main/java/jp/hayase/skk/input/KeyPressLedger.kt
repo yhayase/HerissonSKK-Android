@@ -11,6 +11,7 @@ class KeyPressLedger {
         val key = Key(device, code)
         val previous = presses[key]
         if (repeat > 0 && previous?.time == time) {
+            if (previous.generation != generation) return true
             if (previous.handled && previous.generation == generation && repeatable) handle()
             return previous.handled
         }
@@ -19,12 +20,12 @@ class KeyPressLedger {
         return handled
     }
 
-    fun up(device: Int, code: Int, time: Long): Boolean {
+    fun up(device: Int, code: Int, time: Long, generation: Long? = null): Boolean {
         val key = Key(device, code)
         val press = presses[key] ?: return false
         if (press.time != time) return false
         presses.remove(key)
-        return press.handled
+        return press.handled || generation != null && press.generation != generation
     }
 
     fun removeDevice(device: Int) { presses.keys.removeAll { it.device == device } }

@@ -23,6 +23,22 @@ import org.junit.runner.RunWith
 class PhysicalInputTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
+    /** 辞書検索の完了を待たずに送った確定・送り変換・候補ラベルを順序どおり適用します。 */
+    @Test fun consecutiveConversionAndCommitKeysStayOrdered() {
+        withSendEditor { editor, counter ->
+            type("Nihon ")
+            key(KeyEvent.KEYCODE_ENTER)
+            type("KakU")
+            key(KeyEvent.KEYCODE_ENTER)
+            type("Tesuto   a")
+            awaitText(editor, "日本書く候補3")
+            instrumentation.runOnMainSync {
+                assertEquals(-1, BaseInputConnection.getComposingSpanStart(editor.text))
+            }
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
     /** K14: TABは読みだけを補完し、取消で元へ戻り、受諾後のSpaceで変換します。 */
     @Test fun manualCompletionStaysInCompositionAndCancelRestoresPrefix() {
         withSendEditor { editor, counter ->
@@ -114,12 +130,11 @@ class PhysicalInputTest {
             type("n")
             key(KeyEvent.KEYCODE_ENTER)
             awaitText(editor, "んン")
-            key(KeyEvent.KEYCODE_Q, KeyEvent.META_CTRL_ON)
             type("kana")
-            awaitText(editor, "んンｶﾅ")
+            awaitText(editor, "んンカナ")
             key(KeyEvent.KEYCODE_J, KeyEvent.META_CTRL_ON)
             type("kitte")
-            awaitText(editor, "んンｶﾅきって")
+            awaitText(editor, "んンカナきって")
             assertEquals("入力先への Enter／アクション: 0 回", text(counter))
         }
     }
@@ -142,6 +157,17 @@ class PhysicalInputTest {
         }
     }
 
+    /** 子音の大文字を忘れても、母音の大文字で送りを開始します。 */
+    @Test fun uppercaseVowelStartsPendingConsonantOkuri() {
+        withSendEditor { editor, counter ->
+            type("KakU")
+            awaitText(editor, "書く")
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitText(editor, "書く")
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
     /** F05・K02: 内部カーソルの編集は入力先の確定済み文字に触れません。 */
     @Test fun internalReadingEditPreservesCommittedPrefix() {
         withSendEditor { editor, _ ->
@@ -157,24 +183,79 @@ class PhysicalInputTest {
         }
     }
 
-    /** K06: 4番目からの一覧ラベルで選び、注釈を本文へ混ぜません。 */
+    @Test fun cancelEmptyLookupRegistrationRestoresEditableReading() {
+        withSendEditor { editor, counter ->
+            type("Mitorokupamyu ")
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            awaitText(editor, "みとろくぱみゅ")
+            instrumentation.runOnMainSync {
+                assertEquals(0, BaseInputConnection.getComposingSpanStart(editor.text))
+                assertEquals(editor.text.length, BaseInputConnection.getComposingSpanEnd(editor.text))
+            }
+            key(KeyEvent.KEYCODE_DEL)
+            awaitText(editor, "みとろくぱみ")
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
+    @Test fun cancelRegistrationRestoresLastSingleCandidate() {
+        withSendEditor { editor, counter ->
+            type("Nihon   ")
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            awaitText(editor, "二本")
+            key(KeyEvent.KEYCODE_ENTER)
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+        }
+    }
+
+    @Test fun cancelRegistrationRestoresLastMenuAndItsLabel() {
+        withSendEditor { editor, counter ->
+            type("Tesuto   ")
+            var lastCandidate = text(editor)
+            var registrationShown = false
+            repeat(12) {
+                if (!registrationShown) {
+                    lastCandidate = text(editor)
+                    key(KeyEvent.KEYCODE_SPACE)
+                    val deadline = SystemClock.uptimeMillis() + 1000
+                    while (SystemClock.uptimeMillis() < deadline) {
+                        registrationShown = instrumentation.uiAutomation.windows.any { window ->
+                            window.root?.findAccessibilityNodeInfosByText("単語登録")?.isNotEmpty() == true
+                        }
+                        if (registrationShown || text(editor) != lastCandidate) break
+                        SystemClock.sleep(20)
+                    }
+                }
+            }
+            assertTrue("候補を使い切っても登録に移りません", registrationShown)
+            key(KeyEvent.KEYCODE_G, KeyEvent.META_CTRL_ON)
+            awaitText(editor, lastCandidate)
+            type("a")
+            awaitText(editor, lastCandidate)
+            assertEquals("入力先への Enter／アクション: 0 回", text(counter))
+            key(KeyEvent.KEYCODE_ENTER)
+            awaitText(counter, "入力先への Enter／アクション: 1 回")
+        }
+    }
+
+    /** K06: 3番目からの一覧ラベルで選び、注釈を本文へ混ぜません。 */
     @Test fun menuLabelCommitsCandidateWithoutAnnotation() {
         withSendEditor { editor, counter ->
-            type("Tesuto    ")
-            awaitText(editor, "候補4")
+            type("Tesuto   ")
+            awaitText(editor, "候補3")
             val deadline = SystemClock.uptimeMillis() + 5000
             var menuShown = false
             while (SystemClock.uptimeMillis() < deadline && !menuShown) {
                 menuShown = instrumentation.uiAutomation.windows.any { window ->
                     val root = window.root
-                    root?.findAccessibilityNodeInfosByText("注釈4")?.isNotEmpty() == true &&
+                    root?.findAccessibilityNodeInfosByText("注釈3")?.isNotEmpty() == true &&
                         root.findAccessibilityNodeInfosByText("a:").isNotEmpty()
                 }
                 if (!menuShown) SystemClock.sleep(20)
             }
             assertTrue("候補一覧のラベルと注釈が表示されません", menuShown)
             type("a")
-            awaitText(editor, "候補4")
+            awaitText(editor, "候補3")
             assertEquals("入力先への Enter／アクション: 0 回", text(counter))
             key(KeyEvent.KEYCODE_ENTER)
             awaitText(counter, "入力先への Enter／アクション: 1 回")

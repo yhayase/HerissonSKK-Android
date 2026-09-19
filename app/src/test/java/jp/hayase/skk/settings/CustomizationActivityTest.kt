@@ -121,6 +121,17 @@ class CustomizationActivityTest {
         assertEquals(KeyGesture("u", ctrl = true), saved.keyBindings.bindings.getValue(SkkCommand.KANA))
     }
 
+    @Test fun `引用キーと未確定表示印を設定画面から保存する`() {
+        val serial = ManualExecutor()
+        val activity = start(serial, MemoryFile())
+        assertEquals("C-q", bindings(activity).getValue(SkkCommand.QUOTE_NEXT).text.toString())
+        assertEquals("", bindings(activity).getValue(SkkCommand.HALFWIDTH).text.toString())
+        value<android.widget.Switch>(activity, "showCompositionMarkers").isChecked = true
+        call(activity, "saveDraft")
+        serial.runAll()
+        assertTrue(checkNotNull(store).snapshot.candidateDisplay.showCompositionMarkers)
+    }
+
     @Test fun `プロファイル変更は既定のかな種別切替だけを AZIK の既定へ移す`() {
         val serial = ManualExecutor()
         val activity = start(serial, MemoryFile())
@@ -150,6 +161,37 @@ class CustomizationActivityTest {
         assertEquals(2, value<Spinner>(recreated, "profile").selectedItemPosition)
         assertTrue(value<android.widget.Switch>(recreated, "emacsEnabled").isChecked)
         assertEquals("C-x", bindings(recreated).getValue(SkkCommand.CANCEL).text.toString())
+    }
+
+    @Test fun `変更なしと値を元に戻した場合は破棄確認なしで閉じる`() {
+        val activity = start(ManualExecutor(), MemoryFile())
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        value<Spinner>(activity, "period").setSelection(1)
+        value<Spinner>(activity, "period").setSelection(0)
+        activity.onBackPressed()
+        assertTrue(activity.isFinishing)
+    }
+
+    @Test fun `保存していない記号設定は戻る操作で確認する`() {
+        val activity = start(ManualExecutor(), MemoryFile())
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        value<Spinner>(activity, "symbols").setSelection(0)
+        activity.onBackPressed()
+        org.junit.Assert.assertFalse(activity.isFinishing)
+        assertTrue(org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog().isShowing)
+    }
+
+    @Test fun `候補一覧の開始位置と記号幅を保存後は確認なしで閉じる`() {
+        val serial = ManualExecutor()
+        val activity = start(serial, MemoryFile())
+        value<Spinner>(activity, "menuStart").setSelection(0)
+        value<Spinner>(activity, "symbols").setSelection(0)
+        call(activity, "saveDraft")
+        serial.runAll()
+        assertEquals(0, checkNotNull(store).snapshot.candidateDisplay.inlineCandidateCount)
+        assertTrue(checkNotNull(store).snapshot.punctuation.fullwidthSymbols)
+        activity.onBackPressed()
+        assertTrue(activity.isFinishing)
     }
 
     private fun start(serial: ManualExecutor, file: MemoryFile): CustomizationSettingsActivity {

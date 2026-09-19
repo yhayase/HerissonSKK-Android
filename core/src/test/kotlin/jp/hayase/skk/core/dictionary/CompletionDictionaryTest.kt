@@ -180,6 +180,14 @@ class CompletionDictionaryTest {
         assertTrue(received === query)
     }
 
+    @Test fun `補助文字とBMPの見出しをSQLiteと同じコードポイント順で検索する`() {
+        val dictionary = CompositeSkkDictionary(source("personal", 1, listOf(
+            "あ😀", "あ\uE000", "あ😀続き", "あ😁",
+        )))
+        assertEquals(listOf("あ\uE000", "あ😀", "あ😀続き", "あ😁"), dictionary.complete(CompletionQuery("あ")))
+        assertEquals(listOf("あ😀続き"), dictionary.complete(CompletionQuery("あ😀")))
+    }
+
     private fun source(
         id: String,
         generation: Long,

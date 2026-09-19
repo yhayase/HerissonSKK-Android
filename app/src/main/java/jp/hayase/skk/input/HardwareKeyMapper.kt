@@ -10,15 +10,27 @@ import jp.hayase.skk.core.InputPhase
 import jp.hayase.skk.core.keys.KeyBindings
 import jp.hayase.skk.core.keys.KeyGesture
 import jp.hayase.skk.core.keys.SpecialKey
+import jp.hayase.skk.core.keys.SkkCommand
+import jp.hayase.skk.core.editing.EditCommand
 
 class HardwareKeyMapper {
     sealed interface Decoded {
         data object Pass : Decoded
         data object Wait : Decoded
+        data object QuoteNext : Decoded
         data class Action(val action: BasicSkkAction) : Decoded
     }
     private var accent = 0
     fun reset() { accent = 0 }
+
+    /** 待機中の取消・素通しだけを判定し、デッドキーの状態を変更しません。 */
+    fun previewConfigured(event: KeyEvent, state: BasicSkkState, view: BasicSkkView,
+        bindings: KeyBindings, emacsEnabled: Boolean,
+        rules: jp.hayase.skk.core.romaji.RomanRuleSet): Decoded {
+        val savedAccent = accent
+        return try { decodeConfigured(event, state, view, bindings, emacsEnabled, rules) }
+        finally { accent = savedAccent }
+    }
 
     /** 文字生成後に意味操作を解決し、未割当文字に旧来のコマンド解釈を重ねません。 */
     fun decodeConfigured(event: KeyEvent, state: BasicSkkState, view: BasicSkkView,
@@ -54,6 +66,19 @@ class HardwareKeyMapper {
             reset()
             return Decoded.Action(BasicSkkAction.Enter)
         }
+        if (!event.isMetaPressed && !altText) {
+            val special = specialKey(event.keyCode)
+            val scalar = if (special == null && plain != 0 &&
+                plain and KeyCharacterMap.COMBINING_ACCENT == 0 && !Character.isISOControl(plain))
+                String(Character.toChars(plain)) else null
+            if (special != null || scalar != null) {
+                val gesture = KeyGesture(scalar, special, event.isCtrlPressed, event.isAltPressed,
+                    event.isShiftPressed)
+                if (bindings.resolveCommand(gesture, state, view, emacsEnabled) == SkkCommand.QUOTE_NEXT) {
+                    reset(); return Decoded.QuoteNext
+                }
+            }
+        }
         if (event.isMetaPressed) return Decoded.Pass
         if (!altText && (event.isCtrlPressed || event.isAltPressed)) {
             val special = specialKey(event.keyCode)
@@ -63,6 +88,14 @@ class HardwareKeyMapper {
                 val action = bindings.resolve(KeyGesture(if (special == null) text else null, special, ctrl = event.isCtrlPressed,
                     alt = event.isAltPressed, shift = event.isShiftPressed), state, view, emacsEnabled)
                 if (action != null) { reset(); return Decoded.Action(action) }
+            }
+            if (emacsEnabled && event.isCtrlPressed && !event.isAltPressed && !event.isShiftPressed) {
+                val command = when (special) {
+                    SpecialKey.HOME -> EditCommand.BUFFER_START
+                    SpecialKey.END -> EditCommand.BUFFER_END
+                    else -> null
+                }
+                if (command != null) { reset(); return Decoded.Action(BasicSkkAction.Edit(command)) }
             }
             return Decoded.Pass
         }
@@ -74,6 +107,11 @@ class HardwareKeyMapper {
             // 再割当済みの確定・補完キーを従来の固定操作として実行しません。
             if (special == SpecialKey.ENTER || special == SpecialKey.TAB) return Decoded.Pass
             if (event.isShiftPressed) return Decoded.Pass
+            if (emacsEnabled && special in listOf(SpecialKey.PAGE_UP, SpecialKey.PAGE_DOWN)) {
+                reset()
+                return Decoded.Action(BasicSkkAction.Edit(
+                    if (special == SpecialKey.PAGE_UP) EditCommand.PAGE_UP else EditCommand.PAGE_DOWN))
+            }
         }
         if (state.mode == InputMode.DIRECT && !altText && accent == 0 && unicode != 0 &&
             unicode and KeyCharacterMap.COMBINING_ACCENT == 0 && !Character.isISOControl(unicode)) {
@@ -87,7 +125,7 @@ class HardwareKeyMapper {
         if (view.deletion != null && text in listOf("y", "n")) {
             return Decoded.Action(BasicSkkAction.Text(text, interpretCommands = false))
         }
-        if (rules !== jp.hayase.skk.core.romaji.RomanRuleSet.standard && rules.continues(state.pendingRomaji, text)) {
+        if (rules.continues(state.pendingRomaji, text)) {
             return Decoded.Action(BasicSkkAction.Text(text, interpretCommands = false))
         }
         if (!altText && unicode and KeyCharacterMap.COMBINING_ACCENT == 0 && text.codePointCount(0, text.length) == 1) {
@@ -106,6 +144,8 @@ class HardwareKeyMapper {
             KeyEvent.KEYCODE_DPAD_RIGHT -> SpecialKey.RIGHT
             KeyEvent.KEYCODE_MOVE_HOME -> SpecialKey.HOME
             KeyEvent.KEYCODE_MOVE_END -> SpecialKey.END
+            KeyEvent.KEYCODE_PAGE_UP -> SpecialKey.PAGE_UP
+            KeyEvent.KEYCODE_PAGE_DOWN -> SpecialKey.PAGE_DOWN
             KeyEvent.KEYCODE_DEL -> SpecialKey.BACKSPACE
             KeyEvent.KEYCODE_FORWARD_DEL -> SpecialKey.DELETE
             else -> null
@@ -125,7 +165,6 @@ class HardwareKeyMapper {
             return when (plain.toChar().lowercaseChar()) {
                 'j' -> { reset(); Decoded.Action(BasicSkkAction.Kana) }
                 'g' -> { reset(); Decoded.Action(BasicSkkAction.Cancel) }
-                'q' -> { reset(); Decoded.Action(BasicSkkAction.Halfwidth) }
                 else -> Decoded.Pass
             }
         }
