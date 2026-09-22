@@ -113,7 +113,7 @@ def main():
             raise RuntimeError("試験用の画面設定を確認できません")
         completed = subprocess.run([sys.executable, str(root / "scripts/test-customization-emulator.py"),
                                     "--serial", args.serial, "--test-class",
-                                    "jp.hayase.skk.testeditor.CandidateDisplayE2eTest"],
+                                    "se.haya.skk.testeditor.CandidateDisplayE2eTest"],
                                    cwd=root, text=True, stdout=subprocess.PIPE,
                                    # 子の各 ADB 操作に期限があります。親から強制終了すると
                                    # 子の finally による設定復元を中断するため、ここでは待ちます。

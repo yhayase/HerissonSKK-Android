@@ -20,3 +20,25 @@ https://unicode-org.github.io/icu/
 DDSKK と AndroidSKK は挙動調査の参考です。これらの実装コードは APK に同梱していません。
 同梱 SKK 辞書はこのプロジェクトで作成した限定的な試験用データです。
 利用者が追加する外部辞書は、この一覧の実行時依存関係には含まれません。
+
+AndroidX Preference 1.2.1 と設定画面の実行時依存関係
+提供元: Android Open Source Project
+androidx.preference、androidx.activity、androidx.appcompat、androidx.core、
+androidx.fragment、androidx.lifecycle、androidx.recyclerview、androidx.savedstate、
+androidx.slidingpanelayout、および上記に含まれるAndroidXの補助ライブラリ
+公開POMが指定するライセンス: Apache License, Version 2.0
+https://android.googlesource.com/platform/frameworks/support/
+ライセンス本文: META-INF/Apache-2.0.txt
+
+org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.6.1
+org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.1
+提供元: JetBrains
+公開POMが指定するライセンス: Apache License, Version 2.0
+https://github.com/Kotlin/kotlinx.coroutines
+ライセンス本文: META-INF/Apache-2.0.txt
+
+com.google.android.material:material:1.12.0
+提供元: Google / Material Components for Android
+公開POMが指定するライセンス: Apache License, Version 2.0
+https://github.com/material-components/material-components-android
+ライセンス本文: META-INF/Apache-2.0.txt

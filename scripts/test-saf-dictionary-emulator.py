@@ -36,7 +36,7 @@ def main():
                               text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               timeout=300).stdout
 
-    ime = "jp.hayase.skk/.SkkInputMethodService"
+    ime = "se.haya.skk/.SkkInputMethodService"
     previous = adb("shell", "settings", "get", "secure", "default_input_method").strip()
     enabled = ime in adb("shell", "ime", "list", "-s").splitlines()
     apks = (
@@ -51,8 +51,8 @@ def main():
         print(adb("shell", "ime", "set", ime), end="")
         result = adb(
             "shell", "am", "instrument", "-w", "-r", "-e", "class",
-            "jp.hayase.skk.testeditor.SafDictionaryE2eTest",
-            "jp.hayase.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner",
+            "se.haya.skk.testeditor.SafDictionaryE2eTest",
+            "se.haya.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner",
         )
         report_root = root / "test-editor/build/reports/saf-dictionary-e2e"
         report_root.mkdir(parents=True, exist_ok=True)

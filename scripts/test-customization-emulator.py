@@ -15,7 +15,7 @@ import time
 
 sys.dont_write_bytecode = True
 
-PACKAGE = "jp.hayase.skk"
+PACKAGE = "se.haya.skk"
 IME = f"{PACKAGE}/.SkkInputMethodService"
 # テストが触れ得る設定だけを、アプリ所有の固定パスとして扱います。
 STATE_PATHS = (
@@ -24,6 +24,8 @@ STATE_PATHS = (
     "files/customization-settings.json.new",
     "shared_prefs/settings.xml",
     "shared_prefs/settings.xml.bak",
+    "shared_prefs/app-emacs-editing.xml",
+    "shared_prefs/app-emacs-editing.xml.bak",
 )
 MISSING_EXIT = 44
 PATH_PROBE = (
@@ -43,9 +45,13 @@ def load_completion_parser(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="専用エミュレーターの adb シリアル")
-    parser.add_argument("--test-class", default="jp.hayase.skk.testeditor.CustomizationE2eTest",
-                        choices=("jp.hayase.skk.testeditor.CustomizationE2eTest",
-                                 "jp.hayase.skk.testeditor.CandidateDisplayE2eTest"))
+    parser.add_argument("--test-class", default="se.haya.skk.testeditor.CustomizationE2eTest",
+                        choices=("se.haya.skk.testeditor.CustomizationE2eTest",
+                                 "se.haya.skk.testeditor.CandidateDisplayE2eTest",
+                                 "se.haya.skk.testeditor.TouchInputTest",
+                                 "se.haya.skk.testeditor.PhysicalPopupLifecycleTest",
+                                 "se.haya.skk.testeditor.SettingsLayoutTest",
+                                 "se.haya.skk.testeditor.KeyboardVisibilityTest"))
     args = parser.parse_args()
     if not re.fullmatch(r"emulator-[0-9]+", args.serial):
         parser.error("設定ファイルを一時変更するため、専用エミュレーターを指定してください")
@@ -107,7 +113,7 @@ def main():
         result = adb(
             "shell", "am", "instrument", "-w", "-r", "-e", "class",
             args.test_class,
-            "jp.hayase.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner",
+            "se.haya.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner",
         )
         report_root.mkdir(parents=True, exist_ok=True)
         (report_root / "latest.txt").write_text(result)

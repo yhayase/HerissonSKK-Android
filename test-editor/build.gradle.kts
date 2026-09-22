@@ -4,10 +4,10 @@ plugins {
 }
 
 android {
-    namespace = "jp.hayase.skk.testeditor"
+    namespace = "se.haya.skk.testeditor"
     compileSdk = 35
     defaultConfig {
-        applicationId = "jp.hayase.skk.testeditor"
+        applicationId = "se.haya.skk.testeditor"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.Skk.Settings" parent="Base.Theme.Skk.Settings">
+        <item name="android:windowLightNavigationBar">?attr/isLightTheme</item>
+    </style>
+</resources>

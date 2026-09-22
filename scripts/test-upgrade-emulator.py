@@ -17,7 +17,7 @@ import uuid
 
 sys.dont_write_bytecode = True
 
-PACKAGE = "jp.hayase.skk"
+PACKAGE = "se.haya.skk"
 TEST_PACKAGE = f"{PACKAGE}.test"
 IME = f"{PACKAGE}/.SkkInputMethodService"
 RUNNER = f"{TEST_PACKAGE}/androidx.test.runner.AndroidJUnitRunner"
@@ -101,13 +101,13 @@ def main():
         phase_results["install_baseline"] = adb("install", "-r", "-d", str(baseline_apk), timeout=600)
         phase_results["install_test"] = adb("install", "-r", str(test_apk), timeout=600)
         phase_results["seed"] = run_instrumentation(
-            adb, "jp.hayase.skk.UpgradePersistenceSeedTest", "seed", fixture_id)
+            adb, "se.haya.skk.UpgradePersistenceSeedTest", "seed", fixture_id)
         require_instrumentation_success(phase_results["seed"], "更新前 fixture 作成")
 
         phase_results["install_current"] = adb("install", "-r", str(current_apk), timeout=600)
         current_restored = True
         phase_results["verify"] = run_instrumentation(
-            adb, "jp.hayase.skk.UpgradePersistenceTest", "verify", fixture_id)
+            adb, "se.haya.skk.UpgradePersistenceTest", "verify", fixture_id)
         require_instrumentation_success(phase_results["verify"], "更新後 fixture 検証")
     except BaseException as error:
         primary_failure = error

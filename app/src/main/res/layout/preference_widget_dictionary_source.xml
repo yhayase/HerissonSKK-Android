@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/dictionary_source_actions"
+    android:layout_width="wrap_content"
+    android:layout_height="match_parent"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <androidx.appcompat.widget.AppCompatImageButton
+        android:id="@+id/dictionary_source_update"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/dictionary_update"
+        android:padding="12dp"
+        android:src="@drawable/ic_dictionary_update"
+        app:tint="?attr/colorControlNormal" />
+
+    <androidx.appcompat.widget.AppCompatImageButton
+        android:id="@+id/dictionary_source_delete"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/dictionary_remove"
+        android:padding="12dp"
+        android:src="@drawable/ic_dictionary_delete"
+        app:tint="?attr/colorControlNormal" />
+
+</LinearLayout>

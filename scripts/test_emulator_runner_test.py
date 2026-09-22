@@ -41,7 +41,7 @@ class InstrumentationResultTest(unittest.TestCase):
 
 
 class ReinstallLifecycleTest(unittest.TestCase):
-    IME = "jp.hayase.skk/.SkkInputMethodService"
+    IME = "se.haya.skk/.SkkInputMethodService"
     FALLBACK = "com.example/.Keyboard"
 
     def run_until_failure(self, enabled, failure, previous=None):

@@ -10,7 +10,7 @@ SPEC.loader.exec_module(RUNNER)
 
 # build-tools 35.0.0 で実際の androidTest APK から取得した必要部分です。
 TEST_BADGING = """\
-package: name='jp.hayase.skk.test' versionCode='' versionName='' compileSdkVersion='35' compileSdkVersionCodename='15'
+package: name='se.haya.skk.test' versionCode='' versionName='' compileSdkVersion='35' compileSdkVersionCodename='15'
 sdkVersion:'26'
 targetSdkVersion:'35'
 """
@@ -18,11 +18,11 @@ targetSdkVersion:'35'
 TEST_XMLTREE = """\
 N: android=http://schemas.android.com/apk/res/android
   E: manifest (line=2)
-    A: package="jp.hayase.skk.test" (Raw: "jp.hayase.skk.test")
+    A: package="se.haya.skk.test" (Raw: "se.haya.skk.test")
     E: instrumentation (line=9)
-      A: android:label(0x01010001)="Tests for jp.hayase.skk" (Raw: "Tests for jp.hayase.skk")
+      A: android:label(0x01010001)="Tests for se.haya.skk" (Raw: "Tests for se.haya.skk")
       A: android:name(0x01010003)="androidx.test.runner.AndroidJUnitRunner" (Raw: "androidx.test.runner.AndroidJUnitRunner")
-      A: android:targetPackage(0x01010021)="jp.hayase.skk" (Raw: "jp.hayase.skk")
+      A: android:targetPackage(0x01010021)="se.haya.skk" (Raw: "se.haya.skk")
       A: android:handleProfiling(0x01010022)=(type 0x12)0x0
     E: application (line=24)
       A: android:debuggable(0x0101000f)=(type 0x12)0xffffffff
@@ -32,13 +32,13 @@ N: android=http://schemas.android.com/apk/res/android
 class UpgradeRunnerPreflightTest(unittest.TestCase):
     def test_test_apk_allows_missing_version_and_reads_xmltree_instrumentation(self):
         self.assertEqual(
-            ("jp.hayase.skk.test", None, ""),
+            ("se.haya.skk.test", None, ""),
             RUNNER.parse_badging(TEST_BADGING),
         )
         self.assertEqual(
             {
                 "runner": "androidx.test.runner.AndroidJUnitRunner",
-                "target_package": "jp.hayase.skk",
+                "target_package": "se.haya.skk",
             },
             RUNNER.parse_instrumentation(TEST_XMLTREE),
         )
@@ -79,7 +79,7 @@ def valid_artifacts():
         "test": Path("/tmp/test.apk"),
     }
     app = {
-        "package": "jp.hayase.skk",
+        "package": "se.haya.skk",
         "version_code": 1,
         "sha256": "baseline",
         "signer_sha256": ["same"],
@@ -89,13 +89,13 @@ def valid_artifacts():
         "baseline": dict(app),
         "current": dict(app, sha256="current"),
         "test": {
-            "package": "jp.hayase.skk.test",
+            "package": "se.haya.skk.test",
             "version_code": None,
             "sha256": "test",
             "signer_sha256": ["same"],
             "instrumentation": {
                 "runner": "androidx.test.runner.AndroidJUnitRunner",
-                "target_package": "jp.hayase.skk",
+                "target_package": "se.haya.skk",
             },
         },
     }
