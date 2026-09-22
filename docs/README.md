@@ -15,6 +15,7 @@
 | 初回追加機能の実装・検証の進捗 | [リリース進捗](release-progress.md) |
 | 実装の証拠と残る判定条件 | [試験対応表](test-coverage.md) |
 | APK、署名・配布物の確認、公開方針 | [配布・更新](distribution.md) |
+| MIT 採用の判断材料、第三者コード・辞書の条件 | [ライセンス調査](licenses.md) |
 | 作業の進め方・品質確認の責務 | [開発手順](development-plan.md) |
 
 ## 設計の担当範囲

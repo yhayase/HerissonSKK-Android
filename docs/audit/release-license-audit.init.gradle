@@ -1,0 +1,11 @@
+gradle.projectsEvaluated {
+    rootProject.tasks.register('auditReleaseLicenses') {
+        doLast {
+            def app = rootProject.project(':app')
+            def entries = app.configurations.getByName('releaseRuntimeClasspath').resolvedConfiguration.resolvedArtifacts.collect {
+                [group: it.moduleVersion.id.group, name: it.name, version: it.moduleVersion.id.version, file: it.file.absolutePath]
+            }.sort { a,b -> (a.group + ':' + a.name) <=> (b.group + ':' + b.name) }
+            new File('/tmp/skk-release-artifacts.json').text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(entries))
+        }
+    }
+}
