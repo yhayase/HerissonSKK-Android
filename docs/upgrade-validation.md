@@ -23,7 +23,7 @@ python3 scripts/test-upgrade-emulator.py \
 
 ## 事前検査と端末保護
 
-スクリプトは端末を変更する前に、三つの APK をローカルで検査します。baseline と現行 app の package が `jp.hayase.skk`、test APK の package が `jp.hayase.skk.test` であること、test APK の instrumentation runner と target package、三つの署名証明書 SHA-256 が一致すること、baseline の versionCode が現行以下であること、baseline と現行 APK の内容が異なることを確認します。test APK は Android の標準出力で versionCode と versionName が空になるため、この二項目を app APK だけに必須とします。一つでも確認できない場合は端末へ APK を導入しません。
+スクリプトは端末を変更する前に、三つの APK をローカルで検査します。baseline と現行 app の package が `se.haya.skk`、test APK の package が `se.haya.skk.test` であること、test APK の instrumentation runner と target package、三つの署名証明書 SHA-256 が一致すること、baseline の versionCode が現行以下であること、baseline と現行 APK の内容が異なることを確認します。test APK は Android の標準出力で versionCode と versionName が空になるため、この二項目を app APK だけに必須とします。一つでも確認できない場合は端末へ APK を導入しません。
 
 端末上では `ro.kernel.qemu=1` を確認した後、現在選択中の IME と試験対象 IME の有効状態を記録します。試験対象が選択中なら別の IME へ切り替え、試験対象 IME を無効化し、状態が安定した後に対象プロセスを停止します。`pidof` でプロセス終了を確認してから baseline を導入します。これにより、schema v3 の実利用既定 DB を旧 APK が開く経路を遮断します。
 
@@ -61,3 +61,7 @@ baseline 導入を試みた後は、試験の成否にかかわらず現行 app 
 instrumentation の成功判定は、一件の test について開始・成功 status が厳密に一組あり、`OK (1 test)` と正常終了 code がある場合だけ成功とします。スキップ、途中終了、複数 test、失敗 status は成功として扱いません。
 
 2026-09-16 の専用エミュレーター実行では API 26 `20260916T065655000139Z`、API 30 `20260916T065226018685Z`、API 35 `20260916T065743946027Z` がそれぞれ 1 件成功しました。旧 APK は `17a5cf0` で、正確な APK SHA-256、証明書、端末 fingerprint、ソース状態は各履歴の `preflight.json` と `metadata.json` で確認します。これは独立 fixture の保持と移行の証拠であり、実利用の既定 DB や設定ファイルを旧版で開いた結果ではありません。
+
+## パッケージ名変更との区別
+
+この試験は同じアプリIDと署名による更新を対象とします。`jp.hayase.skk` から `se.haya.skk` への変更は別アプリへの移行であり、この更新試験の対象ではありません。[辞書移行手順](package-migration.md)に従います。

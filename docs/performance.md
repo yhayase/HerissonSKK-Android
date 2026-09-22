@@ -2,7 +2,7 @@
 
 ## 測定用ビルド
 
-`benchmark` は release の設定を継承し、デバッグ不可とした測定用 IME です。開発用の署名鍵を使い、別パッケージ `jp.hayase.skk.benchmark` と表示名「SKK（性能測定用）」でインストールします。日常の開発版 `jp.hayase.skk` は置き換えません。入力エンジンは `BasicSkkEngine` と SQLite の辞書管理器を使います。この起動・打鍵シナリオだけでは大辞書の検索性能を分離できないため、[辞書性能測定](dictionary-performance.md) も用います。
+`benchmark` は release の設定を継承し、デバッグ不可とした測定用 IME です。開発用の署名鍵を使い、別パッケージ `se.haya.skk.benchmark` と表示名「SKK（性能測定用）」でインストールします。日常の開発版 `se.haya.skk` は置き換えません。入力エンジンは `BasicSkkEngine` と SQLite の辞書管理器を使います。この起動・打鍵シナリオだけでは大辞書の検索性能を分離できないため、[辞書性能測定](dictionary-performance.md) も用います。
 
 ```sh
 ./gradlew :app:assembleBenchmark :test-editor:assembleDebug :test-editor:assembleDebugAndroidTest

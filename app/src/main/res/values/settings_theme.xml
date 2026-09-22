@@ -1,0 +1,16 @@
+<resources>
+    <style name="Base.Theme.Skk.Settings" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+        <item name="android:windowBackground">?attr/colorSurface</item>
+        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <item name="android:navigationBarColor">?attr/colorSurface</item>
+        <item name="android:windowLightStatusBar">?attr/isLightTheme</item>
+    </style>
+    <style name="Theme.Skk.Settings" parent="Base.Theme.Skk.Settings" />
+    <item name="settings_top_bar" type="id" />
+    <item name="settings_content" type="id" />
+    <item name="settings_status" type="id" />
+    <item name="settings_defaults" type="id" />
+    <item name="settings_save" type="id" />
+</resources>

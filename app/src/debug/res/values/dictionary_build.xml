@@ -1,0 +1,3 @@
+<resources>
+    <bool name="include_test_dictionary">true</bool>
+</resources>

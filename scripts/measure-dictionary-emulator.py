@@ -72,10 +72,10 @@ def main():
     for apk in apks:
         print(adb("install", "-r", str(root / apk)), end="", flush=True)
     result = adb("shell", "am", "instrument", "-w", "-r", "-e", "class",
-                 "jp.hayase.skk.dictionary.DictionaryPerformanceAndroidTest", "-e",
+                 "se.haya.skk.dictionary.DictionaryPerformanceAndroidTest", "-e",
                  "dictionaryPerformanceEntries", ",".join(map(str, counts)), "-e",
                  "dictionaryPerformanceSamples", str(samples),
-                 "jp.hayase.skk.test/androidx.test.runner.AndroidJUnitRunner")
+                 "se.haya.skk.test/androidx.test.runner.AndroidJUnitRunner")
     (report / "instrumentation.txt").write_text(result)
     measurements = [line for line in result.splitlines() if "DICTIONARY_PERFORMANCE" in line]
     (report / "measurements.txt").write_text("\n".join(measurements) + "\n")

@@ -45,6 +45,8 @@
     <string name="dictionary_import_encoding_failed">文字コードを判別できませんでした。UTF-8 または EUC-JP の辞書を選び、文字コードの指定を確認してください。</string>
     <string name="dictionary_import_format_failed">%1$s ファイルの形式を確認してください。</string>
     <string name="dictionary_import_read_failed">辞書ファイルを開けませんでした。ファイルへのアクセスを確認し、もう一度選んでください。</string>
+    <string name="dictionary_source_permission_failed">このファイルを更新元として保持できませんでした。別のファイル管理アプリから選び直してください。</string>
+    <string name="dictionary_saved_source_permission_missing">元ファイルへのアクセス権がありません。辞書を削除して、ファイルから追加し直してください。</string>
     <string name="dictionary_import_apply_failed">辞書を保存できませんでした。設定画面を開き直してファイルを選び直し、端末の空き容量も確認してください。現在の辞書は保持されています。</string>
     <string name="dictionary_import_interrupted">画面の再作成で辞書ファイルの確認が中断されました。ファイルをもう一度選んでください。</string>
     <string name="dictionary_applying">辞書を適用しています…</string>

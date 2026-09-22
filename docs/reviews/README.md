@@ -4,6 +4,9 @@
 
 ## 記録一覧
 
+- [入力UI再設計の独立レビュー](input-ui-20260920.md)
+
+- [初回追加機能の独立レビューと指摘検証](release-foundation-20260920.md)
 - [コア接続と遅延通知のレビュー](android-core-adapter-20260916.md)
 - [AndroidSKK の品質・拡張性評価](androidskk-20260912.md)
 - [基本変換エンジン境界レビュー](basic-engine-20260916.md)

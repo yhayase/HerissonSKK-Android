@@ -44,8 +44,8 @@ def main():
 
     result = adb(
         "shell", "am", "instrument", "-w", "-r", "-e", "class",
-        "jp.hayase.skk.CandidateStatusAndroidTest",
-        "jp.hayase.skk.test/androidx.test.runner.AndroidJUnitRunner",
+        "se.haya.skk.CandidateStatusAndroidTest",
+        "se.haya.skk.test/androidx.test.runner.AndroidJUnitRunner",
     )
     report_root = root / "app/build/reports/candidate-view-instrumentation"
     report_root.mkdir(parents=True, exist_ok=True)

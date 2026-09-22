@@ -35,7 +35,7 @@ def main():
                               text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               timeout=180).stdout
 
-    ime = "jp.hayase.skk/.SkkInputMethodService"
+    ime = "se.haya.skk/.SkkInputMethodService"
     previous = adb("shell", "settings", "get", "secure", "default_input_method").strip()
     if not previous or previous == "null":
         raise SystemExit("元の IME 選択を復元できないため、設定を変更せず終了します")
@@ -61,8 +61,8 @@ def main():
         print(adb("shell", "ime", "enable", ime), end="")
         print(adb("shell", "ime", "set", ime), end="")
         result = adb("shell", "am", "instrument", "-w", "-r", "-e", "class",
-                     "jp.hayase.skk.testeditor.PhysicalInputTest,jp.hayase.skk.testeditor.CoreUnicodeTest",
-                     "jp.hayase.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner")
+                     "se.haya.skk.testeditor.PhysicalInputTest,se.haya.skk.testeditor.CoreUnicodeTest",
+                     "se.haya.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner")
         report = root / "test-editor/build/reports/emulator-instrumentation.txt"
         report.parent.mkdir(parents=True, exist_ok=True)
         report.write_text(result)

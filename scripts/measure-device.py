@@ -39,8 +39,8 @@ def main():
                               text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               timeout=600).stdout
 
-    package = "jp.hayase.skk.benchmark"
-    ime = package + "/jp.hayase.skk.SkkInputMethodService"
+    package = "se.haya.skk.benchmark"
+    ime = package + "/se.haya.skk.SkkInputMethodService"
     previous = adb("shell", "settings", "get", "secure", "default_input_method").strip()
     enabled_imes = adb("shell", "ime", "list", "-s").splitlines()
     enabled = ime in enabled_imes
@@ -72,7 +72,7 @@ def main():
             for apk in apks:
                 print(adb("install", "-r", "-t", str(root / apk)), end="", flush=True)
         for installed_package, apk in zip(
-                (package, "jp.hayase.skk.testeditor", "jp.hayase.skk.testeditor.test"), apks):
+                (package, "se.haya.skk.testeditor", "se.haya.skk.testeditor.test"), apks):
             paths = adb("shell", "pm", "path", installed_package).strip().splitlines()
             if len(paths) != 1 or not paths[0].startswith("package:/data/app/"):
                 raise RuntimeError(f"測定用 APK を確認できません: {installed_package}")
@@ -89,11 +89,11 @@ def main():
             raise RuntimeError("測定用 IME が選択されていません")
         measurement_started = True
         result = adb("shell", "am", "instrument", "-w", "-r", "-e", "class",
-                     "jp.hayase.skk.testeditor.PerformanceTest", "-e", "performance", "true",
+                     "se.haya.skk.testeditor.PerformanceTest", "-e", "performance", "true",
                      "-e", "fallback_ime", fallback,
                      "-e", "startup_samples", str(args.startup_samples),
                      "-e", "input_samples", str(args.input_samples),
-                     "jp.hayase.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner")
+                     "se.haya.skk.testeditor.test/androidx.test.runner.AndroidJUnitRunner")
         (report_dir / "instrumentation.txt").write_text(result)
         print(result)
         if "OK (1 test)" not in result or "FAILURES!!!" in result:
@@ -101,7 +101,7 @@ def main():
     finally:
         try:
             if measurement_started:
-                adb("shell", "am", "force-stop", "jp.hayase.skk.testeditor")
+                adb("shell", "am", "force-stop", "se.haya.skk.testeditor")
         finally:
             if selection_changed:
                 try:

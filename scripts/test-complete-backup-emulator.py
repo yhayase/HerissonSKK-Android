@@ -45,7 +45,7 @@ def main():
 
     if adb("shell", "getprop", "ro.kernel.qemu").strip() != "1":
         raise RuntimeError("専用エミュレーターとして確認できません")
-    test_class = "jp.hayase.skk.CompleteBackupProviderFailureTest" if args.provider_failure else "jp.hayase.skk.CompleteBackupSafE2eTest"
+    test_class = "se.haya.skk.CompleteBackupProviderFailureTest" if args.provider_failure else "se.haya.skk.CompleteBackupSafE2eTest"
     apks = (
         "app/build/outputs/apk/debug/app-debug.apk",
         "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
@@ -56,7 +56,7 @@ def main():
     result = adb(
         "shell", "am", "instrument", "-w", "-r", "-e", "class",
         test_class,
-        "jp.hayase.skk.test/androidx.test.runner.AndroidJUnitRunner",
+        "se.haya.skk.test/androidx.test.runner.AndroidJUnitRunner",
     )
     report_root = root / "app/build/reports" / ("complete-backup-provider-failure" if args.provider_failure else "complete-backup-saf-e2e")
     report_root.mkdir(parents=True, exist_ok=True)

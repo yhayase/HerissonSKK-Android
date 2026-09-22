@@ -1,0 +1,173 @@
+package se.haya.skk.core.numeric
+
+import se.haya.skk.core.BasicSkkDictionary
+import se.haya.skk.core.CompletionQuery
+import se.haya.skk.core.DictionaryCandidate
+import se.haya.skk.core.DictionaryQuery
+import se.haya.skk.core.NumericLearningTarget
+import se.haya.skk.core.RegistrationPreparation
+import se.haya.skk.core.PredictionCandidate
+import se.haya.skk.core.PredictionHistoryTarget
+import se.haya.skk.core.PredictionQuery
+import se.haya.skk.core.PredictionSearchFailure
+import se.haya.skk.core.PredictionSearchResult
+import se.haya.skk.core.rankPredictionCandidates
+import se.haya.skk.core.dictionary.CandidateSelection
+import se.haya.skk.core.dictionary.SelectedCandidateOrigin
+import se.haya.skk.core.dictionary.SkkDictionaryCandidate
+
+enum class NumericLookupFailure { EXTRACTION, EXPANSION }
+
+class NumericLookupException(val failure: NumericLookupFailure) : RuntimeException("数値を展開できません")
+
+/** 数値を含む読みだけを正規化キーで検索し、表示候補を安全に展開します。 */
+class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictionary {
+    override fun complete(query: CompletionQuery): List<String> = raw.complete(query)
+
+    override fun predictionUsage(target: PredictionHistoryTarget): Long? = raw.predictionUsage(target)
+
+    override fun predict(query: PredictionQuery): PredictionSearchResult {
+        val extraction = try { NumericConversion.extract(query.prefix) } catch (_: RuntimeException) {
+            return PredictionSearchResult.Indeterminate(PredictionSearchFailure.INVALID_INPUT)
+        }
+        if (!extraction.isUsable || !extraction.hasNumericSpans) {
+            return attachUsage(raw.predict(query), query.limit)
+        }
+        // 数値を含む現在の読みは、通常変換と同じ経路でテンプレートを展開します。
+        val expanded = try { lookup(DictionaryQuery(query.prefix, abbrev = query.abbrev)) } catch (_: RuntimeException) {
+            return PredictionSearchResult.Indeterminate(PredictionSearchFailure.UNAVAILABLE)
+        }
+        val values = expanded.mapIndexed { order, candidate ->
+            val target = candidate.learningTarget?.let {
+                PredictionHistoryTarget(it.query.readingKey, it.templateText, it.okuriCondition, candidate.text)
+            } ?: PredictionHistoryTarget(query.prefix, candidate.text, candidate.okuriCondition, candidate.text)
+            PredictionCandidate(candidate, candidate.text, target, raw.predictionUsage(target), candidateOrder = order)
+        }
+        return rankPredictionCandidates(values, query.limit)
+    }
+
+    private fun attachUsage(result: PredictionSearchResult, limit: Int): PredictionSearchResult = when (result) {
+        is PredictionSearchResult.Ready -> rankPredictionCandidates(
+            result.items.map { it.copy(lastUsedSequence = raw.predictionUsage(it.historyTarget)) }, limit)
+        PredictionSearchResult.ConfirmedEmpty -> result
+        is PredictionSearchResult.Indeterminate -> result
+    }
+
+    override fun lookup(query: DictionaryQuery): List<DictionaryCandidate> {
+        val extraction = extract(query)
+        if (!extraction.hasNumericSpans) return raw.lookup(query)
+        val normalized = query.copy(readingKey = checkNotNull(extraction.lookupKey))
+        val templates = raw.lookup(normalized)
+        if (templates.isEmpty()) return emptyList()
+        if (templates.size > MAX_TEMPLATES) throw NumericLookupException(NumericLookupFailure.EXPANSION)
+        val output = linkedMapOf<String, DictionaryCandidate>()
+        var anySuccess = false
+        var total = 0L
+        var totalOrigins = 0L
+        for (template in templates) {
+            val expanded = NumericConversion.expand(template.asSkk(), extraction.spans) { number ->
+                // #4 の内側候補は表示材料であり、削除対象は外側テンプレートだけです。
+                raw.lookup(DictionaryQuery(number)).map { it.asSkk() }
+            }
+            if (expanded.candidates.isEmpty()) continue
+            anySuccess = true
+            for (value in expanded.candidates) {
+                val previous = output[value.text]
+                if (previous == null) {
+                    total += value.text.length
+                    if (output.size >= NumericConversion.MAX_VARIANTS ||
+                        total > NumericConversion.MAX_TOTAL_OUTPUT_CHARS
+                    ) {
+                        throw NumericLookupException(NumericLookupFailure.EXPANSION)
+                    }
+                    val originCount = template.selection?.origins?.size ?: 0
+                    ensureOriginLimit(totalOrigins + originCount)
+                    val selection = template.selection?.asNumericTemplate()
+                    totalOrigins += originCount
+                    output[value.text] = DictionaryCandidate(
+                        value.text,
+                        value.annotation,
+                        value.okuriCondition,
+                        NumericLearningTarget(normalized, template.text, template.annotation, template.okuriCondition),
+                        selection,
+                    )
+                } else {
+                    val previousCount = previous.selection?.origins?.size ?: 0
+                    val otherOrigins = totalOrigins - previousCount
+                    val merged = mergeSelections(
+                        previous.selection,
+                        template.selection,
+                        (MAX_SELECTION_ORIGINS - otherOrigins).toInt(),
+                    )
+                    totalOrigins += (merged?.origins?.size ?: 0) - (previous.selection?.origins?.size ?: 0)
+                    ensureOriginLimit(totalOrigins)
+                    output[value.text] = previous.copy(selection = merged)
+                }
+            }
+        }
+        if (!anySuccess || output.isEmpty()) throw NumericLookupException(NumericLookupFailure.EXPANSION)
+        return output.values.toList()
+    }
+
+    override fun registrationQuery(original: DictionaryQuery): DictionaryQuery {
+        val extraction = extract(original)
+        return if (extraction.hasNumericSpans) {
+            original.copy(readingKey = checkNotNull(extraction.lookupKey))
+        } else {
+            raw.registrationQuery(original)
+        }
+    }
+
+    override fun prepareRegistration(original: DictionaryQuery, templateText: String): RegistrationPreparation {
+        val extraction = extract(original)
+        if (!extraction.hasNumericSpans) return raw.prepareRegistration(original, templateText)
+        val expanded = NumericConversion.expand(SkkDictionaryCandidate(templateText), extraction.spans) { number ->
+            raw.lookup(DictionaryQuery(number)).map { it.asSkk() }
+        }
+        val committed = expanded.candidates.firstOrNull()?.text
+            ?: throw NumericLookupException(NumericLookupFailure.EXPANSION)
+        return RegistrationPreparation(committed)
+    }
+
+    private fun extract(query: DictionaryQuery) = NumericConversion.extract(query.readingKey).also {
+        if (!it.isUsable) throw NumericLookupException(NumericLookupFailure.EXTRACTION)
+    }
+
+    private fun DictionaryCandidate.asSkk() = SkkDictionaryCandidate(text, annotation, okuriCondition)
+
+    private fun CandidateSelection.asNumericTemplate() = CandidateSelection(
+        personalGeneration,
+        origins,
+        numericTemplate = true,
+    )
+
+    private fun mergeSelections(
+        first: CandidateSelection?,
+        second: CandidateSelection?,
+        maximumOrigins: Int,
+    ): CandidateSelection? {
+        if (first == null || second == null) return null
+        if (first.personalGeneration != second.personalGeneration) {
+            throw NumericLookupException(NumericLookupFailure.EXPANSION)
+        }
+        val origins = LinkedHashSet(first.origins)
+        second.origins.forEach { origin ->
+            origins += origin
+            if (origins.size > maximumOrigins) {
+                throw NumericLookupException(NumericLookupFailure.EXPANSION)
+            }
+        }
+        return CandidateSelection(first.personalGeneration, origins.toList(), numericTemplate = true)
+    }
+
+    private fun ensureOriginLimit(totalOrigins: Long) {
+        if (totalOrigins > MAX_SELECTION_ORIGINS) {
+            throw NumericLookupException(NumericLookupFailure.EXPANSION)
+        }
+    }
+
+    private companion object {
+        const val MAX_TEMPLATES = 1_024
+        const val MAX_SELECTION_ORIGINS = 4_096
+    }
+}

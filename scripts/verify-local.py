@@ -71,8 +71,8 @@ def main():
                     raise RuntimeError(f"APK の ZIP 検査に失敗しました: {variant}")
             manifest = run([aapt, "dump", "xmltree", str(path), "AndroidManifest.xml"], f"manifest-{variant}")
             permissions = run([aapt, "dump", "permissions", str(path)], f"permissions-{variant}")
-            if "android.permission.INTERNET" in permissions:
-                raise RuntimeError(f"オフライン IME に INTERNET 権限があります: {variant}")
+            if "android.permission.INTERNET" not in permissions:
+                raise RuntimeError(f"ネットワーク辞書に必要な INTERNET 権限がありません: {variant}")
             if variant != "debug" and "DictionaryCrashTestService" in manifest:
                 raise RuntimeError(f"デバッグ専用サービスが配布ソースセットにあります: {variant}")
             if "CompleteBackupFaultProvider" in manifest:

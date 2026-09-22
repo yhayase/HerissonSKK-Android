@@ -1,0 +1,7 @@
+<resources>
+    <dimen name="settings_actions_width">-1px</dimen>
+    <dimen name="settings_content_width">-1px</dimen>
+    <string name="settings_back">戻る</string>
+    <string name="settings_save">保存</string>
+    <string name="settings_defaults">標準に戻す</string>
+</resources>

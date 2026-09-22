@@ -6,13 +6,15 @@
 
 [要件](requirements.md) N12 の辞書バックアップ、N04 の失敗・中断時の既存データ保持を具体化します。[互換性](compatibility.md) K13 の標準 SKK テキスト往復は既存の別機能として維持します。本書を完全バックアップの形式・復元契約の正本とします。
 
-必須の保存対象は、個人辞書の全候補、注釈、送り条件、候補順、システム候補の全抑止記録、全システム辞書の内容・ID・名前・世代・有効状態・優先順、および形式の版情報です。無効な辞書も省略しません。抑止の同一性は `(sourceId, entryKey, templateText, okuriCondition)` です。注釈・現在のソース世代は抑止の同一性に含めません。削除済みソースを参照する抑止も保存します。
+必須の保存対象は、個人辞書の全候補、注釈、送り条件、候補順、システム候補の全抑止記録、全システム辞書の内容・ID・名前・世代・有効状態・優先順、候補確定の使用履歴、および形式の版情報です。無効な辞書も省略しません。抑止の同一性は `(sourceId, entryKey, templateText, okuriCondition)` です。注釈・現在のソース世代は抑止の同一性に含めません。削除済みソースを参照する抑止も保存します。
 
 設定、キー割り当て、入力途中の状態、入力先の本文、パスワード欄の情報、進行中の確認・保存トークンは対象外です。設定の書き出しはこの要件の必須項目に追加しません。バックアップは辞書を含む平文です。保存先選択画面でそのことを表示します。
 
 形式、上限、API、組み込み辞書の扱い、復元時の世代割り当ては以下の設計上の選択です。要件に特定の JSON 形式や容量が指定されているわけではありません。
 
-## 形式 v1
+## 形式 v3 と v1・v2 の読込み
+
+現行の書き出しは版3です。版1は取得元URLなし、版1・版2は候補使用履歴なしとして復元します。版3を旧アプリへ復元することはできません。SQLiteは版5へ移行し、既存辞書の取得元は未設定、候補使用履歴は空になります。
 
 非圧縮の UTF-8 JSON Lines を採用します。識別子は `skk-android-dictionary-backup`、拡張子は `.skkbackup`、SAF の MIME は `application/octet-stream` とします。ZIP、任意パス、SQL、実行可能な式は含めません。圧縮展開・パストラバーサルの処理自体を持ちません。
 
@@ -22,12 +24,13 @@
 
 | `type` | フィールド（`type` 以外）と意味 |
 | --- | --- |
-| `header` | `format` は上記識別子、`version` は整数 `1`、`producerVersion` は作成アプリの表示用版文字列です |
-| `source` | `id`, `name`, `kind`（`personal` / `system`）, `generation`, `enabled`, `order`。個人一件を先頭に、全システムを優先順に出力します |
+| `header` | `format` は上記識別子、`version` は整数 `3`（読込みは `1` と `2` も対応）、`producerVersion` は作成アプリの表示用版文字列です |
+| `source` | `id`, `name`, `kind`（`personal` / `system`）, `generation`, `enabled`, `order`, `originUrl`（null可）。版1には`originUrl`を含めません。個人一件を先頭に、全システムを優先順に出力します |
 | `candidate` | `sourceId`, `entryKey`, `ordinal`, `text`, `annotation`（null 可）, `okuriCondition`（null 可）。ソース順、見出し語のコードポイント順、候補順で出力します |
 | `suppression` | `sourceId`, `entryKey`, `templateText`, `okuriCondition`（null 可）。同一性の各文字列をコードポイント順で比較して出力します |
 | `sourceVersion` | `sourceId`, `lastGeneration`。削除済みソースを含む世代台帳を ID 順で出力します |
-| `end` | `sourceCount`, `candidateCount`, `suppressionCount`, `sourceVersionCount`。各セクションの実測件数と完全一致させます |
+| `usage` | `readingKey`, `templateText`, `okuriCondition`（null 可）, `committedText`, `lastUsedSequence`。辞書上の元候補と実際の確定文字列を分離します。版1・版2には含めません |
+| `end` | `sourceCount`, `candidateCount`, `suppressionCount`, `sourceVersionCount`, `usageCount`。各セクションの実測件数と完全一致させます。版1・版2には`usageCount`を含めません |
 
 `header` と `end` は各一件です。空セクションを許しますが、個人ソースは ID `personal`、`kind=personal`、`enabled=true`、`order=0` の一件が必須です。システム ID は個人 ID と衝突させず、システムの `order` は 0 起点の連番とします。空辞書は source のみで表現できます。
 
@@ -39,7 +42,7 @@
 
 外部ファイルの MIME、名前、プロバイダーが返す長さを信用しません。読取中に実バイト数を計測し、次の上限を超える前に中断します。書き出しにも同じ上限を適用し、復元できないバックアップを成功として作りません。
 
-| 項目 | v1 の上限 |
+| 項目 | 上限 |
 | --- | --- |
 | ファイル | 256 MiB |
 | 一行の UTF-8 バイト数 | 8 MiB（LF を除く） |
@@ -48,6 +51,7 @@
 | ソース数 | 個人を含め 1,024 |
 | 候補数 | 全ソース合計 1,000,000 |
 | 抑止数 / 世代台帳数 | それぞれ 100,000 |
+| 候補使用履歴数 | 100,000 |
 | JSON コンテナー深度 | 1（ルートオブジェクトだけ） |
 
 256 MiB はメモリー使用量の保証ではありません。ストリーム解析とアプリ専用領域の検証済み一時ファイルを用い、全 JSON オブジェクトをメモリーへ蓄積しません。レコード数・重複・参照整合性の検証にも上限を適用します。試験で対象端末の実用上限を評価し、上限超過は分割を促す明示エラーにします。既存辞書がこの上限を超える場合、完全バックアップを作れない制限を表示します。
@@ -74,7 +78,7 @@ JSON の重複フィールド、未知のフィールド・レコード種別、
 - `SQLiteDictionaryRepository.exportCompleteSnapshot()` は一回の読取トランザクションで全ソース・全候補・抑止・台帳・fallback 方針を読みます。manager が固定した fallback を補い、同一時点のエクスポートを作ります。既存の有効辞書だけの `loadSnapshot()` は使用しません。
 - `DictionaryManager.prepareCompleteRestore(input, callback)` は直列 I/O キューで検証し、件数・名前・上書き範囲と、現在 DB の revision を含む `PreparedRestore` を返します。辞書本文はプレビューの既定表示に含めません。
 - `DictionaryManager.restoreComplete(prepared, callback)` は同じ直列キューで repository を呼び、復元後に一度だけ検索スナップショットを公開します。
-- `SQLiteDictionaryRepository.restoreComplete(validated, expectedRevision)` は全件置換だけを提供し、マージ・部分復元は v1 に追加しません。戻り値は件数と旧バックアップ世代から新実行世代への対応を含む `RestoreSummary` とします。
+- `SQLiteDictionaryRepository.restoreComplete(validated, expectedRevision)` は全件置換だけを提供し、マージ・部分復元は行いません。戻り値は件数と旧バックアップ世代から新実行世代への対応を含む `RestoreSummary` とします。
 
 検証済みファイルはアプリ専用ディレクトリーに固定し、外部 URI を適用時に再読込しません。検証時のバイト数と SHA-256 を記録し、適用直前に再照合します。変更・欠落時は失敗です。内部ハンドル以外からパスを渡せないようにし、キャンセル・確認画面の破棄・成功時に削除します。プロセス再起動後は準備状態を復元せず、改めて検証します。
 
