@@ -71,6 +71,9 @@ internal enum class LicenseItem(
     val resourcePath: String,
 ) {
     HERISSON_SKK("herisson-skk", "HerissonSKK", "MIT License", "META-INF/HerissonSKK-MIT.txt"),
+    ICON_USAGE("icon-usage", "アプリアイコンの利用条件", "公式アプリの配布・紹介可、別製品は要個別許可", "META-INF/icon-usage.txt"),
+    EXTERNAL_DICTIONARIES("external-dictionaries", "外部辞書について", "別途取得する辞書の配布元と条件", "META-INF/external-dictionaries.txt"),
+    GPL_2_0("gpl-2.0", "GNU General Public License v2.0", "GPL-2.0", "META-INF/GPL-2.0.txt"),
     LICENSE_SCOPE("license-scope", "ライセンスの適用範囲", "同梱する本文と対象ファイル", "META-INF/license-scope.txt"),
     THIRD_PARTY_NOTICES("third-party-notices", "第三者ライセンス通知", "同梱ライブラリの通知", "META-INF/third-party-notices.txt"),
     APACHE_2_0("apache-2.0", "Apache License 2.0", "Apache-2.0", "META-INF/Apache-2.0.txt"),

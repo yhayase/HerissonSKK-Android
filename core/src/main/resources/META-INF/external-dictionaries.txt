@@ -1,0 +1,28 @@
+外部辞書について
+
+HerissonSKK 本体の独自コードと独自文書は MIT ライセンスです。アプリアイコンには別の利用条件が適用されます。辞書データは本体とは別であり、MIT ライセンスの対象ではありません。
+
+本アプリは辞書データを APK に同梱しません。取得時は利用者の端末から配布元へ直接接続します。本アプリの開発者は、ここに挙げる辞書データを配布していません。
+
+SKK-JISYO.S、SKK-JISYO.L、SKK-JISYO.jinmei、SKK-JISYO.geo
+取得元: https://skk-dev.github.io/dict/SKK-JISYO.S.gz
+取得元: https://skk-dev.github.io/dict/SKK-JISYO.L.gz
+取得元: https://skk-dev.github.io/dict/SKK-JISYO.jinmei.gz
+取得元: https://skk-dev.github.io/dict/SKK-JISYO.geo.gz
+条件: GPL-2.0-or-later
+条件の案内: https://github.com/skk-dev/dict/blob/master/committers.md
+
+次の著作権表示は、2026年9月23日に配布元で確認したヘッダーに基づきます。アプリが取得した特定版の表示を保証するものではありません。
+SKK-JISYO.S: Copyright (C) 1988-1995, 1997, 1999-2003。Masahiko Sato、Hironobu Takahashi、Masahiro Doteguchi、Miki Inooka、Yukiyoshi Kameyama、Akihiko Sasaki、Dai Ando、Junichi Okukawa、Katsushi Sato、Nobuhiro Yamagishi。
+SKK-JISYO.L: Copyright (C) 1988-1995, 1997, 1999-2014。SKK-JISYO.S の表示に加え、NAKAJIMA Mikio、MITA Yuusuke、SKK Development Team。
+SKK-JISYO.jinmei: Copyright (C) 1993 Wnn Consortium、Copyright (C) 2002, 2003, 2004 SKK Development Team。Author: OMRON SOFTWARE Co., Ltd.
+SKK-JISYO.geo: Copyright (C) 2001, 2002, 2003-2005 IIDA Yosiaki。配布元のヘッダーは郵便事業庁由来の基礎データについて 2005年9月30日を最終更新として示します。現在の住所を保証するものではありません。
+
+SKK-JISYO.zipcode
+取得元: https://raw.githubusercontent.com/skk-dev/dict/master/zipcode/SKK-JISYO.zipcode
+辞書データの条件: Public Domain
+条件と生成方法: https://github.com/skk-dev/dict/blob/master/zipcode/README.md
+郵便番号辞書の生成プログラムには GPL が適用されます。これは辞書データの Public Domain という条件とは別です。
+配布元のヘッダーは 2022年5月4日の更新を示します。現在の住所を保証するものではありません。
+
+GPL-2.0-or-later の辞書に関係する GPL version 2 の本文は、設定の「その他」→「ライセンス」→「GNU General Public License v2.0」でオフライン表示できます。正確な条件は配布元の案内も確認してください。

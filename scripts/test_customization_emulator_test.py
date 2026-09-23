@@ -41,6 +41,45 @@ def command_path(arguments):
 
 
 class CustomizationRunnerTest(unittest.TestCase):
+    def test_dictionary_reset_is_limited_to_backed_up_database_family(self):
+        calls = []
+        RUNNER.reset_dictionary(lambda *args, **kwargs: calls.append(args) or completed())
+        self.assertEqual(set(RUNNER.DICTIONARY_PATHS), {command_path(args) for args in calls})
+        self.assertTrue(set(RUNNER.DICTIONARY_PATHS).issubset(RUNNER.STATE_PATHS))
+
+    def test_dictionary_and_sidecars_are_restored_byte_for_byte(self):
+        original = {path: (path + "\x00\xff").encode() for path in RUNNER.DICTIONARY_PATHS}
+        state = dict(original)
+
+        def adb(*arguments, input_bytes=None, **_):
+            command = arguments[-1]
+            path = command_path(arguments)
+            if RUNNER.PATH_PROBE in command:
+                return completed(0 if path in state else RUNNER.MISSING_EXIT)
+            if " rm " in f" {command} ":
+                state.pop(path, None)
+                return completed()
+            if input_bytes is not None:
+                state[path] = input_bytes
+                return completed()
+            return completed(stdout=state[path])
+
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory)
+            manifest = RUNNER.capture_state(adb, backup)
+            RUNNER.reset_dictionary(adb)
+            self.assertEqual({}, state)
+            state[RUNNER.DICTIONARY_PATHS[0]] = b"test dictionary"
+            RUNNER.restore_state(adb, backup, manifest)
+            self.assertEqual(original, state)
+            # 元々なかった WAL/SHM も、試験で生成された場合は残しません。
+            state.clear()
+            state[RUNNER.DICTIONARY_PATHS[0]] = original[RUNNER.DICTIONARY_PATHS[0]]
+            manifest = RUNNER.capture_state(adb, backup)
+            state.update({path: b"created by test" for path in RUNNER.DICTIONARY_PATHS[1:]})
+            RUNNER.restore_state(adb, backup, manifest)
+            self.assertEqual({RUNNER.DICTIONARY_PATHS[0]: original[RUNNER.DICTIONARY_PATHS[0]]}, state)
+
     def test_capture_allows_only_exact_missing_files(self):
         payload = b'{"generation":3}'
 

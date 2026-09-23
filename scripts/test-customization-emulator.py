@@ -17,7 +17,10 @@ sys.dont_write_bytecode = True
 
 PACKAGE = "se.haya.skk"
 IME = f"{PACKAGE}/.SkkInputMethodService"
-# テストが触れ得る設定だけを、アプリ所有の固定パスとして扱います。
+# 辞書本体と SQLite の補助ファイルを一組で退避します。
+DICTIONARY_PATHS = tuple("databases/skk-dictionaries.db" + suffix
+                         for suffix in ("", "-journal", "-wal", "-shm"))
+# テストが触れ得る状態だけを、アプリ所有の固定パスとして扱います。
 STATE_PATHS = (
     "files/customization-settings.json",
     "files/customization-settings.json.bak",
@@ -26,7 +29,7 @@ STATE_PATHS = (
     "shared_prefs/settings.xml.bak",
     "shared_prefs/app-emacs-editing.xml",
     "shared_prefs/app-emacs-editing.xml.bak",
-)
+) + DICTIONARY_PATHS
 MISSING_EXIT = 44
 PATH_PROBE = (
     'if [ -f "$1" ]; then exit 0; fi; '
@@ -107,6 +110,8 @@ def main():
         adb("shell", "am", "force-stop", PACKAGE)
         backup = capture_state(adb_bytes, backup_dir)
         write_json(backup_dir / "manifest.json", backup)
+        # 候補順位と使用履歴を端末に残った辞書に依存させません。
+        reset_dictionary(adb_bytes)
 
         print(adb("shell", "ime", "enable", IME), end="")
         print(adb("shell", "ime", "set", IME), end="")
@@ -180,6 +185,11 @@ def capture_state(adb_bytes, backup_dir):
         else:
             manifest["paths"][path] = {"present": False}
     return manifest
+
+
+def reset_dictionary(adb_bytes):
+    for path in DICTIONARY_PATHS:
+        remote(adb_bytes, "run-as", PACKAGE, "rm", "-f", "--", path)
 
 
 def restore_state(adb_bytes, backup_dir, manifest):

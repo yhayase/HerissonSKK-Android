@@ -90,6 +90,31 @@ class SettingsLayoutTest {
         )
     }
 
+    @Test fun systemAndToolbarBackPreserveUnsavedSettingsUntilDiscard() {
+        openSettings()
+        openPage("確定と改行")
+        awaitText("Enterで確定だけ行う")
+        assertTrue(device.findObject(UiSelector().text("Enterで確定だけ行う")).click())
+        device.pressBack()
+        awaitText("変更を保存しますか？")
+        assertVisibleText("保存して閉じる")
+        assertVisibleText("破棄")
+        device.waitForIdle()
+        assertTrue("取消ボタンを操作できません", awaitText("キャンセル")
+            .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        device.waitForIdle()
+        awaitText("Enterで確定だけ行う")
+        val back = awaitNode("戻るボタンがありません") { it.contentDescription?.toString() == "戻る" }
+        val box = bounds(back)
+        assertTrue(device.click(box.centerX(), box.centerY()))
+        awaitText("変更を保存しますか？")
+        device.waitForIdle()
+        assertTrue("破棄ボタンを操作できません", awaitText("破棄")
+            .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        device.waitForIdle()
+        awaitText("設定")
+    }
+
     private fun assertBasicPage(page: String, label: String, summary: String) {
         openPage(page)
         awaitText(label)

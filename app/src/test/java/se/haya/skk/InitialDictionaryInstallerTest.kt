@@ -142,6 +142,20 @@ class InitialDictionaryInstallerTest {
         } finally { controller.pause().stop().destroy() }
     }
 
+    @Test fun `初期設定から外部辞書の通知を開ける`() {
+        val controller = Robolectric.buildActivity(SetupActivity::class.java).setup()
+        try {
+            val setup = controller.get().supportFragmentManager
+                .findFragmentById(R.id.settings_content) as SetupFragment
+
+            setup.findPreference<androidx.preference.Preference>("setup_external_dictionary_notice")!!.performClick()
+
+            val next = org.robolectric.Shadows.shadowOf(controller.get()).nextStartedActivity
+            assertEquals(LicensesActivity::class.java.name, next.component?.className)
+            assertEquals("external-dictionaries", next.getStringExtra(LicensesActivity.EXTRA_ITEM))
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun `追加辞書の準備に失敗したら選択を変更できる`() {
         val controller = Robolectric.buildActivity(SetupActivity::class.java).setup()
         work.removeFirst().run()

@@ -6,6 +6,7 @@ data class NetworkDictionaryCatalogEntry(
     val url: String,
     val displayName: String = name,
     val description: String = "",
+    val licenseName: String,
     val licenseUrl: String = NetworkDictionaryCatalog.LICENSE_URL,
 )
 
@@ -20,11 +21,12 @@ object NetworkDictionaryCatalog {
         official("geo", "SKK-JISYO.geo", "地名の読み"),
         NetworkDictionaryCatalogEntry("zipcode", "SKK-JISYO.zipcode",
             "https://raw.githubusercontent.com/skk-dev/dict/master/zipcode/SKK-JISYO.zipcode",
-            "SKK-JISYO.zipcode", "7桁の郵便番号から住所。配布元の更新: 2022年5月", POSTCODE_LICENSE_URL),
+            "SKK-JISYO.zipcode", "7桁の郵便番号から住所。配布元の更新: 2022年5月", "Public Domain", POSTCODE_LICENSE_URL),
     )
 
     private fun official(key: String, name: String, description: String) = NetworkDictionaryCatalogEntry(
         key, "SKK-JISYO.$key", "https://skk-dev.github.io/dict/SKK-JISYO.$key.gz", name, description,
+        "GPL-2.0-or-later",
     )
 
     fun find(key: String): NetworkDictionaryCatalogEntry? = entries.firstOrNull { it.key == key }

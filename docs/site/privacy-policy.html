@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>プライバシーポリシー | HerissonSKK (for Android)</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.75;
+      background: Canvas;
+      color: CanvasText;
+    }
+    body { margin: 0; }
+    header, main, footer { width: min(100% - 2rem, 46rem); margin-inline: auto; }
+    header { padding-block: 2.5rem 1rem; }
+    main { padding-block: 0 2rem; }
+    footer { padding-block: 1rem 2.5rem; border-top: 1px solid color-mix(in srgb, CanvasText 24%, transparent); }
+    h1 { font-size: clamp(1.75rem, 7vw, 2.5rem); line-height: 1.25; }
+    h2 { margin-top: 2rem; font-size: 1.3rem; line-height: 1.4; }
+    a { color: LinkText; text-underline-offset: 0.18em; }
+    a:focus-visible { outline: 3px solid Highlight; outline-offset: 3px; }
+    .meta { color: GrayText; }
+  </style>
+</head>
+<body>
+  <header>
+    <p><a href="./">HerissonSKK (for Android)</a></p>
+    <h1>プライバシーポリシー</h1>
+    <p class="meta">制定・最終更新日: 2026-09-23</p>
+  </header>
+  <main>
+    <p>Yasuhiro Hayase（以下「作者」）は、日本語入力アプリ HerissonSKK (for Android)（以下「本アプリ」）を提供します。本ポリシーは、本アプリとこの案内サイトにおける情報の取扱いを説明します。</p>
+
+    <h2>入力内容と学習データ</h2>
+    <p>本アプリは、文字変換と編集のため、入力中の文字、読み、候補、入力欄の周辺テキストを端末内で処理します。通常の入力欄では、変換候補の学習結果、登録した単語、読み、確定した文字列、候補の利用順などをアプリ専用の端末内ストレージに保存することがあります。個人データの保存は設定で無効にできます。</p>
+    <p>パスワード欄として通知された入力欄では、変換、候補表示、登録、学習を無効にします。入力先アプリがパーソナライズ学習を禁止した場合も、学習データを保存しません。本アプリは、入力内容や個人辞書を辞書配布サーバーへ送信しません。</p>
+
+    <h2>アプリ別設定</h2>
+    <p>アプリ別の編集キー設定を表示するため、端末上で起動可能なアプリの表示名とパッケージ名を読み取ります。一覧全体は保存せず、利用者が個別設定を行ったアプリのパッケージ名だけを端末内に保存します。この情報はネットワークへ送信しません。</p>
+
+    <h2>クリップボード</h2>
+    <p>Emacs 編集の kill-line 機能を使うと、削除したテキストを端末のクリップボードへ書き込みます。連続した kill 操作では、本アプリがその入力セッションで書き込んだ内容かを確認するため、クリップボードを読み取ります。一般的なクリップボード履歴を収集する機能はありません。クリップボードは OS の共有領域であり、端末の設定や他のアプリから見える場合があります。</p>
+
+    <h2>辞書のダウンロードと通信情報</h2>
+    <p>初期設定では、SKK-JISYO.S と SKK-JISYO.L のどちらも保存されていない場合に、SKK-JISYO.S を GitHub 上の配布元から自動的にダウンロードします。また、利用者の操作により、辞書の追加・更新、GitHub 上の配布元からの取得、または利用者が指定した公開 HTTPS URL からの取得を行います。転送先が設定されている場合は、その転送先にも接続します。</p>
+    <p>配布サーバーと転送先には、IP アドレス、接続日時、要求先のホストやパス、通信方式、固定のアプリ識別文字列などの通信情報が伝わり、各事業者の方針に従って記録される場合があります。DNS の名前解決では、DNS 事業者に問い合わせ先のホスト名などが伝わる場合があります。本アプリは、辞書取得の要求に入力内容、個人辞書、端末固有 ID、アプリ一覧を付加しません。利用者が指定したサーバーの運用方針は作者が管理できません。</p>
+
+    <h2>辞書ファイルとバックアップ</h2>
+    <p>辞書の読込み、個人辞書の書出し、完全辞書バックアップでは、Android のファイル選択画面を使用します。利用者がクラウドストレージなどの文書プロバイダーを選ぶと、その事業者へファイルが渡り、事業者のプライバシーポリシーが適用されます。</p>
+    <p>書き出す辞書と完全バックアップは暗号化されません。完全バックアップには、個人辞書、追加辞書、学習履歴、候補の非表示指定、辞書の取得元 URL などが含まれます。機密情報として扱い、保存先と共有先を利用者自身で管理してください。本アプリは、アプリ内データが Android の自動クラウドバックアップと端末間転送の対象外になるよう設定しています。</p>
+
+    <h2>保存期間と削除</h2>
+    <p>学習データ、辞書、設定は、利用者が削除するまで端末内の本アプリ用ストレージに保存されます。Android の設定から本アプリのストレージを消去するか、本アプリをアンインストールすると、端末内のアプリデータを削除できます。利用者が書き出した辞書、バックアップ、クリップボードの内容、文書プロバイダーに保存した複製は自動では削除されません。それぞれの保存先で削除してください。</p>
+
+    <h2>案内サイト</h2>
+    <p>この案内サイトは GitHub Pages で配信します。サイト自体には、アクセス解析、広告、外部フォント、外部 JavaScript を組み込んでいません。GitHub はサイト配信のため、IP アドレス、ブラウザー情報、アクセス日時などを処理する場合があります。詳しくは <a href="https://docs.github.com/ja/site-policy/privacy-policies/github-general-privacy-statement">GitHub のプライバシーに関する声明</a>を確認してください。</p>
+
+    <h2>本ポリシーの変更</h2>
+    <p>本アプリの機能、配布方法、関係するサービスの変更に応じて、本ポリシーを改定することがあります。改定した場合は、このページに内容と最終更新日を掲載します。</p>
+
+    <h2>問い合わせ</h2>
+    <p>本ポリシーと情報の取扱いに関する問い合わせ先: <a href="mailto:herisson@haya.se">herisson@haya.se</a></p>
+  </main>
+  <footer>
+    <p><a href="./">トップページへ戻る</a></p>
+  </footer>
+</body>
+</html>

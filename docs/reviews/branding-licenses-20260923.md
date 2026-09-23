@@ -1,5 +1,8 @@
 # 名称・アイコン・MIT 表示の反映（2026-09-23）
 
+履歴資料です。この検証後に、所有者がアプリアイコンを MIT の対象外とする方針へ変更しました。以下の MIT 表示の記録は当時の成果物に対するもので、現在の条件は[アイコン利用条件](../../core/src/main/resources/META-INF/icon-usage.txt)を参照します。
+
+
 ## 変更
 
 アプリと IME の表示名を HerissonSKK (for Android) にし、所有者指定のハリネズミ画像を adaptive launcher icon に適用しました。原本とアプリ用 PNG のバイト列は同一です。画像自体を描き直さず、Android のリソース定義で白い背景と余白を付けています。アプリ ID は `se.haya.skk` のままです。

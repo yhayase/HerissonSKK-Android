@@ -4,7 +4,7 @@
 
 ## アプリアイコン
 
-所有者が指定した `HerissonSKK-icon-refined.png` を採用します。2026-09-23 に所有者が、画像も本体と同じ MIT ライセンスの対象に含めると決定しました。原本の SHA-256 が兄弟プロジェクト `../skk-browser-extension/assets/brand/HerissonSKK-master.png` と一致することを確認しました。同プロジェクトの README とブランド素材の記録に従い、ChatGPT の画像生成で図案を作り、Codex で品質調整とアイコン用の整形を行い、作者が選定した画像と記録します。Android 版ではその原本の画素を変更していません。作者が採用結果を確認し、公開内容に対する最終的な責任を負います。
+所有者が指定した `HerissonSKK-icon-refined.png` を採用します。この画像は HerissonSKK のブランド識別として扱い、本体の MIT ライセンスの対象ではありません。公式アプリの配布・紹介での使用は認めますが、別製品への再利用には個別の許可が必要で、原則として認めません。詳細と問い合わせ先は[アイコン使用条件](../core/src/main/resources/META-INF/icon-usage.txt)を参照してください。原本の SHA-256 が兄弟プロジェクト `../skk-browser-extension/assets/brand/HerissonSKK-master.png` と一致することを確認しました。同プロジェクトの README とブランド素材の記録に従い、ChatGPT の画像生成で図案を作り、Codex で品質調整とアイコン用の整形を行い、作者が選定した画像と記録します。Android 版ではその原本の画素を変更していません。作者が採用結果を確認し、公開内容に対する最終的な責任を負います。
 
 - 原本: [HerissonSKK-icon-refined.png](../HerissonSKK-icon-refined.png)
 - アプリ内の画像: `app/src/main/res/drawable-nodpi/ic_herisson.png`

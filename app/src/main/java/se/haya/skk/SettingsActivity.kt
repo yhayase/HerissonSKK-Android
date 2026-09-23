@@ -2,6 +2,7 @@ package se.haya.skk
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -29,6 +30,12 @@ class SettingsActivity : SettingsPageActivity() {
             PhysicalKeyboardLayoutSettingsDispatch.UNAVAILABLE -> Toast.makeText(this,
                 R.string.physical_keyboard_layout_settings_unavailable, Toast.LENGTH_LONG).show()
             PhysicalKeyboardLayoutSettingsDispatch.HARD_KEYBOARD -> Unit
+        }
+    }
+
+    internal fun openPrivacyPolicy() {
+        if (dispatchPrivacyPolicy { intent -> startActivity(intent) } == PrivacyPolicyDispatch.UNAVAILABLE) {
+            Toast.makeText(this, "プライバシーポリシーを開けるアプリがありません。", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -69,6 +76,7 @@ class SettingsIndexFragment : PreferenceFragmentCompat() {
         row(dictionaries, "学習と補完") { basic("learning") }
         row(dictionaries, "バックアップと復元") { startActivity(Intent(context, CompleteDictionaryBackupActivity::class.java)) }
         val other = category("その他")
+        row(other, "プライバシーポリシー") { (requireActivity() as SettingsActivity).openPrivacyPolicy() }
         row(other, "ライセンス") { startActivity(Intent(context, LicensesActivity::class.java)) }
         row(other, "初期設定") { startActivity(Intent(context, SetupActivity::class.java)) }
     }
@@ -77,6 +85,24 @@ internal enum class PhysicalKeyboardLayoutSettingsDispatch {
     HARD_KEYBOARD,
     INPUT_METHOD_FALLBACK,
     UNAVAILABLE,
+}
+
+internal enum class PrivacyPolicyDispatch {
+    OPENED,
+    UNAVAILABLE,
+}
+
+internal const val PRIVACY_POLICY_URL = "https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html"
+
+internal fun privacyPolicyIntent(): Intent = Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_POLICY_URL))
+
+internal fun dispatchPrivacyPolicy(startActivity: (Intent) -> Unit): PrivacyPolicyDispatch = try {
+    startActivity(privacyPolicyIntent())
+    PrivacyPolicyDispatch.OPENED
+} catch (_: ActivityNotFoundException) {
+    PrivacyPolicyDispatch.UNAVAILABLE
+} catch (_: SecurityException) {
+    PrivacyPolicyDispatch.UNAVAILABLE
 }
 
 internal fun dispatchPhysicalKeyboardLayoutSettings(

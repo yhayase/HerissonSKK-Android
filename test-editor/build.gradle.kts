@@ -5,11 +5,11 @@ plugins {
 
 android {
     namespace = "se.haya.skk.testeditor"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "se.haya.skk.testeditor"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

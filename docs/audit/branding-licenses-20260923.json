@@ -84,5 +84,10 @@
     "third-party-notices.txt": "8dd2e36efbcaff668fc5469e0e9c5706c43eaaa11bfc8309bac4b3910cfddf9b",
     "icu-LICENSE.txt": "451167c55c0fa447cc2d5632714f5e3c567fe4f1e1badefab2c1333852198aca",
     "Apache-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "subsequent_icon_policy_change": {
+    "date": "2026-09-23",
+    "scope": "上記の表示確認とハッシュは変更前の成果物の履歴です。現在のアイコンは MIT 対象外で、公式アプリの配布・紹介は利用可、別製品への流用は事前の個別許可が必要です。",
+    "current_terms": "core/src/main/resources/META-INF/icon-usage.txt"
   }
 }

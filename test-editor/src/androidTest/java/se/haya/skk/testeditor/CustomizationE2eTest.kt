@@ -508,8 +508,15 @@ class CustomizationE2eTest {
 
     private fun choosePreference(title: String, choice: String) {
         clickAppText(title)
-        val option = awaitNode("選択肢がありません: $choice") { root ->
-            descendants(root).firstOrNull { node -> node.text?.toString() == choice && node.isEnabled }
+        val option = awaitNode("選択ダイアログに項目がありません: $choice") { root ->
+            // 現在値の要約にも同じ文字列があるため、開いたダイアログのリストに限定します。
+            if (!isApp(root)) return@awaitNode null
+            val list = descendants(root).firstOrNull {
+                it.className?.toString() == "android.widget.ListView" && it.isVisibleToUser
+            } ?: return@awaitNode null
+            descendants(list).firstOrNull { node ->
+                node.text?.toString() == choice && node.isEnabled && node.isVisibleToUser
+            }
         }
         assertTrue("選択肢を選べません: $choice", clickNodeOrParent(option))
     }
@@ -667,8 +674,10 @@ class CustomizationE2eTest {
     private fun isServedEditor(editor: EditText): Boolean {
         var served = false
         instrumentation.runOnMainSync {
+            // IMM の接続開始だけでなく、SKK が現在の接続を処理できるまで待ちます。
             served = editor.hasFocus() && editor.isAttachedToWindow &&
-                editor.context.getSystemService(InputMethodManager::class.java).isActive(editor)
+                editor.context.getSystemService(InputMethodManager::class.java).isActive(editor) &&
+                (editor as InputTestActivity.ImeConnectionProbe).imeConnectionReady
         }
         return served
     }
@@ -684,8 +693,7 @@ class CustomizationE2eTest {
     }
 
     private fun type(value: String) {
-        val events = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(value.toCharArray())!!
-        events.forEach { instrumentation.sendKeySync(it) }
+        instrumentation.sendStringSync(value)
         instrumentation.waitForIdleSync()
     }
 

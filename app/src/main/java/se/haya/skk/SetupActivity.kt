@@ -182,6 +182,16 @@ class SetupFragment : PreferenceFragmentCompat() {
                 additionalChoices += this
             })
         }
+        dictionaries.addPreference(Preference(context).apply {
+            key = "setup_external_dictionary_notice"
+            title = "外部辞書について"
+            summary = "配布元とライセンスを確認する"
+            isIconSpaceReserved = false
+            setOnPreferenceClickListener {
+                startActivity(LicensesActivity.intentFor(context, LicenseItem.EXTERNAL_DICTIONARIES))
+                true
+            }
+        })
         priority = Preference(context).apply {
             title = "辞書の優先順位"
             isSelectable = false

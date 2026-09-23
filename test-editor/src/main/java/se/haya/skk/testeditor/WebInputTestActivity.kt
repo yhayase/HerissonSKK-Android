@@ -62,6 +62,7 @@ class WebInputTestActivity : Activity() {
         }
         setContentView(webView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT))
+        applySystemInsets()
         webView.loadDataWithBaseURL(null, HTML, "text/html", "UTF-8", null)
     }
 

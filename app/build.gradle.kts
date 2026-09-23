@@ -3,13 +3,20 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// 検証スクリプトでは SDK ごとに JVM を分け、Robolectric のネイティブ資源競合を避けます。
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    providers.gradleProperty("robolectric.enabledSdks").orNull?.let {
+        systemProperty("robolectric.enabledSdks", it)
+    }
+}
+
 android {
     namespace = "se.haya.skk"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "se.haya.skk"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

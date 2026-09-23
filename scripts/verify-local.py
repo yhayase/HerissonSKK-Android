@@ -12,7 +12,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 
-REQUIRED_NOTICES = {"META-INF/HerissonSKK-MIT.txt", "META-INF/license-scope.txt", "META-INF/icu-LICENSE.txt", "META-INF/Apache-2.0.txt", "META-INF/third-party-notices.txt"}
+REQUIRED_NOTICES = {"META-INF/HerissonSKK-MIT.txt", "META-INF/license-scope.txt", "META-INF/icon-usage.txt", "META-INF/icu-LICENSE.txt", "META-INF/Apache-2.0.txt", "META-INF/third-party-notices.txt", "META-INF/external-dictionaries.txt", "META-INF/GPL-2.0.txt"}
 
 
 def main():
@@ -47,22 +47,29 @@ def main():
             "sys.exit(0 if result.wasSuccessful() and result.testsRun > 0 and not result.skipped else 1)\n"
         )
         run(["python3", "-c", host_runner], "host-tests")
-        command = ["./gradlew", ":core:test", ":app:testDebugUnitTest", ":app:lintDebug", ":app:lintRelease",
-                   ":app:assembleDebug", ":app:assembleRelease", ":app:assembleBenchmark",
+        # Robolectric 4.14.1 は異なる SDK のネイティブ資源を同じ JVM で開くと競合します。
+        # 各 SDK を別実行し、上書きされる前の XML を保存して全件を集計します。
+        android_results = report / "android-unit-results"
+        data["android_unit_tests_by_sdk"] = {}
+        for sdk in (26, 30, 35):
+            command = ["./gradlew", ":app:testDebugUnitTest", f"-Probolectric.enabledSdks={sdk}"]
+            if args.offline:
+                command.append("--offline")
+            run(command, f"android-unit-api{sdk}")
+            shutil.copytree(root / "app/build/test-results/testDebugUnitTest", android_results / str(sdk))
+            data["android_unit_tests_by_sdk"][str(sdk)] = validated_test_totals(
+                (android_results / str(sdk)).glob("TEST-*.xml"), f"API {sdk}")
+        command = ["./gradlew", ":core:test", ":app:lintDebug", ":app:lintRelease",
+                   ":app:assembleDebug", ":app:assembleRelease", ":app:assembleBenchmark", ":app:bundleRelease",
                    ":app:assembleDebugAndroidTest", ":test-editor:assembleDebug", ":test-editor:assembleDebugAndroidTest", ":test-editor:lintDebug"]
         if args.offline:
             command.append("--offline")
         run(command, "gradle")
         data["unit_tests"] = {}
         for module, task in (("core", "test"), ("app", "testDebugUnitTest")):
-            totals = dict.fromkeys(("tests", "failures", "errors", "skipped"), 0)
-            for result_file in (root / module / "build/test-results" / task).glob("TEST-*.xml"):
-                suite = ET.parse(result_file).getroot()
-                for key in totals:
-                    totals[key] += int(suite.get(key, "0"))
-            data["unit_tests"][module] = totals
-            if not totals["tests"] or any(totals[key] for key in ("failures", "errors", "skipped")):
-                raise RuntimeError(f"単体試験の未実行・失敗・スキップがあります: {module}: {totals}")
+            result_files = (android_results.glob("*/TEST-*.xml") if module == "app" else
+                            (root / module / "build/test-results" / task).glob("TEST-*.xml"))
+            data["unit_tests"][module] = validated_test_totals(result_files, module)
         aapt = find_aapt(root)
         for variant, filename in [("debug", "app-debug.apk"), ("release", "app-release-unsigned.apk"), ("benchmark", "app-benchmark.apk")]:
             path = root / "app/build/outputs/apk" / variant / filename
@@ -78,6 +85,9 @@ def main():
                     raise RuntimeError(f"APK の ZIP 検査に失敗しました: {variant}")
             manifest = run([aapt, "dump", "xmltree", str(path), "AndroidManifest.xml"], f"manifest-{variant}")
             permissions = run([aapt, "dump", "permissions", str(path)], f"permissions-{variant}")
+            badging = run([aapt, "dump", "badging", str(path)], f"badging-{variant}")
+            if "sdkVersion:'26'" not in badging or "targetSdkVersion:'36'" not in badging:
+                raise RuntimeError(f"配布物の最低 API／対象 API が一致しません: {variant}")
             if "android.permission.INTERNET" not in permissions:
                 raise RuntimeError(f"ネットワーク辞書に必要な INTERNET 権限がありません: {variant}")
             if variant != "debug" and "DictionaryCrashTestService" in manifest:
@@ -87,6 +97,17 @@ def main():
             data["artifacts"].append({"variant": variant, "path": str(path.relative_to(root)),
                                       "bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                                       "notices": sorted(REQUIRED_NOTICES)})
+        bundle = root / "app/build/outputs/bundle/release/app-release.aab"
+        with zipfile.ZipFile(bundle) as archive:
+            if archive.testzip() is not None:
+                raise RuntimeError("AAB の ZIP 検査に失敗しました")
+            for notice in REQUIRED_NOTICES:
+                if archive.read("base/root/" + notice) != (root / "core/src/main/resources" / notice).read_bytes():
+                    raise RuntimeError(f"AAB のライセンス本文がソースと一致しません: {notice}")
+        data["artifacts"].append({"variant": "release-bundle", "path": str(bundle.relative_to(root)),
+                                  "bytes": bundle.stat().st_size,
+                                  "sha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
+                                  "notices": sorted(REQUIRED_NOTICES)})
         data["success"] = True
     except BaseException as error:
         data["success"] = False
@@ -96,6 +117,17 @@ def main():
         data["finished_utc"] = datetime.now(timezone.utc).isoformat()
         (report / "result.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
         print(f"ローカル検証記録: {report}")
+
+
+def validated_test_totals(result_files, label):
+    totals = dict.fromkeys(("tests", "failures", "errors", "skipped"), 0)
+    for result_file in result_files:
+        suite = ET.parse(result_file).getroot()
+        for key in totals:
+            totals[key] += int(suite.get(key, "0"))
+    if not totals["tests"] or any(totals[key] for key in ("failures", "errors", "skipped")):
+        raise RuntimeError(f"単体試験の未実行・失敗・スキップがあります: {label}: {totals}")
+    return totals
 
 
 def find_aapt(root):

@@ -91,13 +91,16 @@ Android の `getSelectedText`、`setComposingRegion` は、既存の選択文字
 
 4 文書を読み、必要に応じて `docs/phase1.md` の現行基盤記録と照合しました。DDSKK は上記固定コミットのソースとリリース同梱テストを確認しました。ISO-2022-JP のソースは文字コード変換して読みました。ファイル全体の一部に変換不能文字がありましたが、報告で根拠とした行の日本語とコードは読み取りできています。
 
+公開用にローカルの絶対パスを `DDSKK_DIR` へ置き換えています。固定した参照版と実行結果は変更していません。
+
 以下は一時辞書を使用する DDSKK の `skk-e2e-test` による独立プローブです。ユーザー設定を読み込まず、記録保存を抑止しました。
 
 ```sh
+DDSKK_DIR=/path/to/ddskk
 emacs --batch --quick \
-  --directory /home/hayase/tmp/ddskk \
-  --directory /home/hayase/tmp/ddskk/test \
-  --load /home/hayase/tmp/ddskk/test/skk-test.el \
+  --directory "$DDSKK_DIR" \
+  --directory "$DDSKK_DIR/test" \
+  --load "$DDSKK_DIR/test/skk-test.el" \
   --eval '(require (quote ccc))' \
   --eval '(setq skk-init-file "/tmp/skk-review-no-init" skk-record-file "/tmp/skk-review-record" skk-keep-record nil skk-save-jisyo-instantly nil)' \
   --eval '(let ((skk-egg-like-newline t)) (princ (format "Q-empty=%S\nn-RET=%S\nk-RET=%S\n" (skk-e2e-test nil nil (function skk-mode) "Q k a n a C-j") (skk-e2e-test nil nil (function skk-mode) "n RET") (skk-e2e-test nil nil (function skk-mode) "k RET"))))'

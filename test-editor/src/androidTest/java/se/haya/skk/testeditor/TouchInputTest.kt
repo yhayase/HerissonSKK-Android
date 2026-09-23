@@ -342,20 +342,28 @@ class TouchInputTest {
             awaitKey("IME切替")
 
             tap("IME切替")
-            awaitCondition("入力方法選択画面が開きません") {
-                automation.windows.any { window ->
-                    val root = window.root ?: return@any false
-                    val list = accessibilityDescendants(root).firstOrNull {
-                        it.viewIdResourceName == "android:id/select_dialog_listview" && it.isVisibleToUser
-                    } ?: return@any false
-                    val nodes = accessibilityDescendants(list).toList()
-                    nodes.any { it.text?.toString() == "HerissonSKK (for Android)" && it.isVisibleToUser } &&
-                        nodes.any { it.isCheckable && it.isVisibleToUser }
+            // OS の ListView／RecyclerView や選択マークの実装には依存しません。
+            fun selectedImeRow(): AccessibilityNodeInfo? = automation.windows.firstNotNullOfOrNull { window ->
+                val root = window.root ?: return@firstNotNullOfOrNull null
+                if (root.packageName?.toString() != "android") return@firstNotNullOfOrNull null
+                val nodes = accessibilityDescendants(root).filter { it.isVisibleToUser }.toList()
+                if (nodes.none { it.text?.toString() == "HerissonSKK (for Android)" })
+                    return@firstNotNullOfOrNull null
+                nodes.firstOrNull { row ->
+                    row.isClickable && row.isEnabled && accessibilityDescendants(row).any { it.isChecked || it.isSelected } &&
+                        accessibilityDescendants(row).any {
+                            it.text?.toString() in listOf("HerissonSKK (for Android)", "日本語・SKK")
+                        }
                 }
             }
+            awaitCondition("入力方法選択画面の選択中の行が見つかりません") { selectedImeRow() != null }
             assertEquals("選択前に既定IMEが変わりました", selectedBefore,
                 shell("settings get secure default_input_method").trim())
-            device.pressBack()
+            val selected = Rect().also(requireNotNull(selectedImeRow())::getBoundsInScreen)
+            assertTrue(device.click(selected.centerX(), selected.centerY()))
+            awaitCondition("選択後に入力方法選択画面が閉じません") { selectedImeRow() == null }
+            assertEquals("同じIMEの再選択で既定IMEが変わりました", selectedBefore,
+                shell("settings get secure default_input_method").trim())
         }
     }
 

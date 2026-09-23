@@ -9,6 +9,7 @@ import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
 import android.os.Build
+import android.os.IBinder
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
@@ -16,6 +17,8 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.CursorAnchorInfo
 import android.view.inputmethod.InputMethodManager
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.widget.TextView
 import android.widget.FrameLayout
 import se.haya.skk.settings.CustomizationRuntime
@@ -94,7 +97,12 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private var changingPhysicalHost = false
     private var inputHost: FrameLayout? = null
     private var physicalPopup: PhysicalInputPopup? = null
-    private var physicalPopupHost: PhysicalPopupHost? = null
+    private var physicalPopupHost: PhysicalPopupHostPort? = null
+    private var physicalBackCallback: PhysicalBackCallback? = null
+    private var physicalPopupHostFactory: (() -> PhysicalPopupHostPort) = {
+        PhysicalPopupHost(this, ::renderPhysicalPopup)
+    }
+    private var physicalHostWindowToken: () -> IBinder? = { window?.window?.attributes?.token }
     private var cursorAnchor: CursorAnchorInfo? = null
     private var cursorMonitorGeneration: Long? = null
     private var renderedPresentation = CandidateStatusPresentation("")
@@ -110,6 +118,24 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     )
     private var configurationRestart: ConfigurationRestart? = null
     private var changingConfiguration = false
+
+    @android.annotation.TargetApi(33)
+    private class PhysicalBackCallback(onBack: () -> Unit) {
+        private val callback = OnBackInvokedCallback(onBack)
+        private var dispatcher: OnBackInvokedDispatcher? = null
+
+        fun register(next: OnBackInvokedDispatcher) {
+            if (dispatcher === next) return
+            unregister()
+            next.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+            dispatcher = next
+        }
+
+        fun unregister() {
+            dispatcher?.unregisterOnBackInvokedCallback(callback)
+            dispatcher = null
+        }
+    }
 
     private lateinit var customization: CustomizationStore
     private lateinit var appEmacsSettings: AppEmacsEditingStore
@@ -342,6 +368,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             physicalHostRequested = false
         }
         physicalPopup?.dismiss()
+        unregisterPhysicalBackCallback()
         physicalPopupHost?.dismiss()
         clearInlineAnnotation()
         super.onWindowHidden()
@@ -349,6 +376,11 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     override fun onWindowShown() {
         super.onWindowShown()
+        // 構成変更中に IME のトークンがまだなければ、ホストの追加は失敗します。
+        // 窓が表示された時点で再試行し、登録表示だけが失われる状態を避けます。
+        if (Build.VERSION.SDK_INT >= 33 && physicalHostAllowed && !physicalHostRequested) {
+            updatePhysicalHostVisibility()
+        }
         updateInlineAnnotation()
         renderPhysicalPopup()
     }
@@ -448,8 +480,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         configurationRestart = null
         if (keyCode == KeyEvent.KEYCODE_BACK && physicalHostRequested &&
             !shouldShowTouchCharacters()) {
-            physicalHostAllowed = false
-            setPhysicalHostShown(false)
+            // 予測型の戻るでも DOWN は IME へ届きます。UP より前に窓を閉じると、
+            // 転送コールバックが解除され、入力先の終了処理へ切り替わります。
+            event.startTracking()
             return true
         }
         val currentSession = session
@@ -570,6 +603,11 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && event.isTracking && physicalHostRequested &&
+            !shouldShowTouchCharacters()) {
+            if (!event.isCanceled) handlePhysicalHostBack()
+            return true
+        }
         val handled = presses.up(event.deviceId, keyCode, event.downTime, generation)
         if (quoteNext.quotedUp(event)) return false
         return handled || super.onKeyUp(keyCode, event)
@@ -622,6 +660,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         val restorePhysicalHost = physicalHostRequested
         if (Build.VERSION.SDK_INT >= 33) {
             physicalPopup?.dismiss()
+            unregisterPhysicalBackCallback()
             physicalPopupHost?.dismiss()
         }
         changingConfiguration = true
@@ -670,6 +709,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         physicalHostRequested = false
         physicalPopup?.dismiss()
         physicalPopup = null
+        unregisterPhysicalBackCallback()
         physicalPopupHost?.dismiss()
         physicalPopupHost = null
         clearInlineAnnotation()
@@ -708,25 +748,35 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     private fun updatePhysicalHostVisibility() {
+        setPhysicalHostShown(physicalHostVisibility())
+    }
+
+    private var physicalHostVisibility: () -> Boolean = {
         val current = session
-        setPhysicalHostShown(physicalHostAllowed && !shouldShowTouchCharacters() &&
-            current?.active == true && !current.protectedInput &&
-            currentInputEditorInfo?.inputType?.let { it != InputType.TYPE_NULL } == true)
+        physicalHostAllowed && !shouldShowTouchCharacters() && current?.active == true &&
+            !current.protectedInput && currentInputEditorInfo?.inputType?.let {
+                it != InputType.TYPE_NULL
+            } == true
     }
 
     private fun setPhysicalHostShown(shown: Boolean) {
-        if (physicalHostRequested == shown) return
+        if (physicalHostRequested == shown) {
+            if (shown) schedulePhysicalBackCallback()
+            else unregisterPhysicalBackCallback()
+            return
+        }
         if (Build.VERSION.SDK_INT >= 33) {
             if (shown) {
-                val token = window?.window?.attributes?.token ?: return
                 ensureCandidatePresenter()
-                val host = physicalPopupHost ?: PhysicalPopupHost(this, ::renderPhysicalPopup)
-                    .also { physicalPopupHost = it }
-                physicalHostRequested = host.show(token)
+                val host = physicalPopupHost ?: physicalPopupHostFactory().also { physicalPopupHost = it }
+                physicalHostRequested = physicalHostWindowToken()?.let(host::show) == true
+                if (physicalHostRequested) schedulePhysicalBackCallback()
+                else unregisterPhysicalBackCallback()
                 renderPhysicalPopup()
             } else {
                 physicalHostRequested = false
                 physicalPopup?.dismiss()
+                unregisterPhysicalBackCallback()
                 physicalPopupHost?.dismiss()
             }
             return
@@ -739,6 +789,28 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             changingPhysicalHost = false
         }
         if (!shown) physicalPopup?.dismiss()
+    }
+
+    @android.annotation.TargetApi(33)
+    private fun schedulePhysicalBackCallback() {
+        if (Build.VERSION.SDK_INT < 33) return
+        Handler(Looper.getMainLooper()).post {
+            if (!physicalHostRequested) return@post
+            val dispatcher = window?.window?.onBackInvokedDispatcher ?: return@post
+            val callback = physicalBackCallback ?: PhysicalBackCallback(::handlePhysicalHostBack)
+                .also { physicalBackCallback = it }
+            callback.register(dispatcher)
+        }
+    }
+
+    private fun unregisterPhysicalBackCallback() {
+        if (Build.VERSION.SDK_INT >= 33) physicalBackCallback?.unregister()
+    }
+
+    internal fun handlePhysicalHostBack() {
+        if (!physicalHostRequested) return
+        physicalHostAllowed = false
+        setPhysicalHostShown(false)
     }
 
     private fun clearStatusWindow() {
@@ -770,10 +842,14 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     private fun updateInlineAnnotation() {
         if (!shouldShowTouchCharacters()) {
+            val current = session?.takeIf { it.active } ?: run {
+                clearInlineAnnotation()
+                return
+            }
             val connection = currentInputConnection ?: return
             if (annotationConnection !== connection) {
                 annotationConnection = connection
-                cursorMonitorGeneration = session?.generation
+                cursorMonitorGeneration = current.generation
                 cursorAnchor = null
                 annotationMonitor.start(connection) { accepted ->
                     if (!accepted && annotationConnection === connection) {

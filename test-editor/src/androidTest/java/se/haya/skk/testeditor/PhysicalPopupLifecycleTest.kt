@@ -262,8 +262,8 @@ class PhysicalPopupLifecycleTest {
     }
 
     private fun type(value: String) {
-        KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(value.toCharArray())!!
-            .forEach(instrumentation::sendKeySync)
+        // getEvents の共通時刻で後続イベントが古くならないよう、送信直前に再時刻付けします。
+        instrumentation.sendStringSync(value)
     }
 
     /** Ctrl-J は候補を登録本文へ確定し、入力先の Enter 操作にはしません。 */

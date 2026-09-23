@@ -4,7 +4,7 @@
 
 ## 基準と手順
 
-DDSKK 17.2 リリースのタグ `ddskk-17.2_Mena` を、ローカルの `/home/hayase/tmp/ddskk` で確認しました。参照先は `e8bf68b27021c29781dbfa6a8ef7b770565bdb5b` で、`skk-version.el` の版も 17.2 です。現行の要件と互換性仕様を更新しました。過去の AndroidSKK 評価に含まれる旧参照は、当時の調査根拠として維持します。
+DDSKK 17.2 リリースのタグ `ddskk-17.2_Mena` を、DDSKK のローカルチェックアウトで確認しました。参照先は `e8bf68b27021c29781dbfa6a8ef7b770565bdb5b` で、`skk-version.el` の版も 17.2 です。現行の要件と互換性仕様を更新しました。過去の AndroidSKK 評価に含まれる旧参照は、当時の調査根拠として維持します。
 
 ユーザー指定どおり、独立した `gpt-6-astra`／`high` のレビュアが [一次レビュー](requirements-20260916-review.md) を実施し、別の `gpt-6-astra`／`high` が [メタレビュー](requirements-20260916-meta-review.md) を行いました。主担当はメタレビューの判定と現行実装を照合し、以下の範囲に絞って文書を修正しました。
 

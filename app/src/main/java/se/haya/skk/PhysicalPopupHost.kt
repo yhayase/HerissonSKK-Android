@@ -7,14 +7,20 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 
+internal interface PhysicalPopupHostPort {
+    val view: View
+    fun show(imeToken: IBinder): Boolean
+    fun dismiss()
+}
+
 /**
  * Android 13 以降の物理候補用に、文字キーの表示要求と独立した窓を保持します。
  * この版以降では非タッチの IME 窓が主入力窓を置き換えず、候補専用表示の null トークン経路も避けられます。
  */
 @android.annotation.TargetApi(33)
-internal class PhysicalPopupHost(context: Context, onReady: () -> Unit) {
+internal class PhysicalPopupHost(context: Context, onReady: () -> Unit) : PhysicalPopupHostPort {
     private val windows = context.getSystemService(WindowManager::class.java)
-    val view = View(context).apply {
+    override val view = View(context).apply {
         isFocusable = false
         isClickable = false
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -22,7 +28,7 @@ internal class PhysicalPopupHost(context: Context, onReady: () -> Unit) {
     }
     private var token: IBinder? = null
 
-    fun show(imeToken: IBinder): Boolean {
+    override fun show(imeToken: IBinder): Boolean {
         if (token === imeToken) return true
         dismiss()
         val params = WindowManager.LayoutParams(1, 1,
@@ -45,7 +51,7 @@ internal class PhysicalPopupHost(context: Context, onReady: () -> Unit) {
         }
     }
 
-    fun dismiss() {
+    override fun dismiss() {
         if (token != null) windows.removeViewImmediate(view)
         token = null
     }

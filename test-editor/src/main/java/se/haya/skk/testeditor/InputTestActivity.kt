@@ -14,9 +14,15 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.util.concurrent.atomic.AtomicInteger
 
 /** 外部へ送信せず、Enter が入力先まで届いた回数を表示します。 */
 class InputTestActivity : Activity() {
+    /** IME が現在の接続でセッションを準備し、座標監視を開始したことを試験から確認します。 */
+    interface ImeConnectionProbe {
+        val imeConnectionReady: Boolean
+    }
+
     var editorActionCount = 0
         private set
     val receivedKeys = mutableListOf<KeyEvent>()
@@ -34,12 +40,37 @@ class InputTestActivity : Activity() {
         val result = TextView(this).apply { text = getString(R.string.test_action_count, 0) }
         layout.addView(result)
         fun editor(label: Int, type: Int, options: Int = EditorInfo.IME_ACTION_NONE, initial: Boolean = false) {
-            layout.addView(object : EditText(this) {
+            layout.addView(object : EditText(this), ImeConnectionProbe {
+                private val connectionSerial = AtomicInteger()
+                private val monitoredSerial = AtomicInteger()
+                override val imeConnectionReady: Boolean
+                    get() = connectionSerial.get().let { it > 0 && monitoredSerial.get() == it }
+
                 override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
                     val base = super.onCreateInputConnection(outAttrs) ?: return null
                     val mode = if (initial) intent.getStringExtra(EXTRA_CONNECTION_MODE) else null
-                    if (mode == null) return base
+                    val serial = connectionSerial.incrementAndGet()
                     return object : InputConnectionWrapper(base, false) {
+                        override fun requestCursorUpdates(cursorUpdateMode: Int): Boolean {
+                            if (cursorUpdateMode != 0 && connectionSerial.get() == serial) {
+                                monitoredSerial.set(serial)
+                            }
+                            return super.requestCursorUpdates(cursorUpdateMode)
+                        }
+
+                        @android.annotation.TargetApi(33)
+                        override fun requestCursorUpdates(cursorUpdateMode: Int, cursorUpdateFilter: Int): Boolean {
+                            if (cursorUpdateMode != 0 && connectionSerial.get() == serial) {
+                                monitoredSerial.set(serial)
+                            }
+                            return super.requestCursorUpdates(cursorUpdateMode, cursorUpdateFilter)
+                        }
+
+                        override fun closeConnection() {
+                            monitoredSerial.compareAndSet(serial, 0)
+                            super.closeConnection()
+                        }
+
                         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? =
                             if (mode == "no_snapshot" || mode == "unknown_offset") null else super.getExtractedText(request, flags)
 

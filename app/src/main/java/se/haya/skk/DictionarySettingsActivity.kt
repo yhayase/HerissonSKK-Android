@@ -729,7 +729,7 @@ class DictionarySettingsActivity : SettingsPageActivity() {
         if (busy) return
         MaterialAlertDialogBuilder(this)
             .setTitle("${entry.displayName}を追加")
-            .setMessage("${entry.description}\n内容を確認してから、保存で適用します。")
+            .setMessage("${entry.description}\nライセンス: ${entry.licenseName}\n内容を確認してから、保存で適用します。")
             .setNeutralButton("配布元・ライセンス") { _, _ ->
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(entry.licenseUrl)))
             }

@@ -5,6 +5,7 @@ import se.haya.skk.dictionary.DictionaryFreshness
 import se.haya.skk.dictionary.DictionaryManagerStatus
 import se.haya.skk.dictionary.DictionarySourceInfo
 import se.haya.skk.dictionary.DictionarySourceKind
+import se.haya.skk.dictionary.network.NetworkDictionaryCatalog
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,6 +14,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DictionarySettingsActivityTest {
+    @Test fun `公式辞書はGPLで郵便番号辞書はパブリックドメインとして分類する`() {
+        val licenses = NetworkDictionaryCatalog.entries.associate { it.key to it.licenseName }
+
+        assertEquals("GPL-2.0-or-later", licenses["S"])
+        assertEquals("GPL-2.0-or-later", licenses["L"])
+        assertEquals("GPL-2.0-or-later", licenses["jinmei"])
+        assertEquals("GPL-2.0-or-later", licenses["geo"])
+        assertEquals("Public Domain", licenses["zipcode"])
+    }
+
     @Test
     fun `取り込みピッカー状態を再生成後に一度だけ消費する`() {
         val original = DictionaryPickerState().apply { begin(DictionaryPickerOperation.IMPORT) }

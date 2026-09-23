@@ -36,3 +36,22 @@
 - [Android IME 要件の独立レビュー（2026-09-16）](requirements-20260916-review.md)
 - [ローマ字変換・文字種変換レビュー](romanizer-20260916.md)
 - [SQLite 辞書永続化レビュー](sqlite-dictionary-20260916.md)
+
+## 追加記録
+
+- [入力UIの実機指摘への対応](acceptance-fixes-20260921.md)
+- [API 36 公開要件への対応（2026-09-23）](api36-20260923.md)
+- [名称・アイコン・MIT 表示の反映（2026-09-23）](branding-licenses-20260923.md)
+- [外部辞書の公開前確認](dictionary-release-20260923.md)
+- [編集キーと設定テーマの修正（2026-09-22）](editing-material-20260922.md)
+- [Emacs キーバインドの三択設定（2026-09-22）](emacs-mode-20260922.md)
+- [キーボードの不要表示への対応](keyboard-visibility-20260921.md)
+- [実機受入で挙がった入力UI以外の修正](nonui-fixes-20260920.md)
+- [Google Play 公開準備向けデータフロー監査（2026-09-23）](play-data-flows-20260923.md)
+- [再帰登録 UI の再設計（2026-09-22）](registration-ui-20260922.md)
+- [リリース前の未解決試験の調査](release-tests-20260923.md)
+- [設定・辞書管理・入力表示の再調整](settings-input-refinement-20260921.md)
+- [設定画面の標準ウィジェットへの統一](settings-standard-widgets-20260921.md)
+- [設定画面とフリック表示の修正・検証](settings-ui-20260921.md)
+- [読み確定・送り・補完・登録中候補の修正（2026-09-22）](skk-reading-20260922.md)
+- [リポジトリ公開前の整理](public-repository-cleanup-20260923.md)

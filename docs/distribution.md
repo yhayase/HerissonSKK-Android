@@ -4,9 +4,13 @@
 
 名称は **HerissonSKK (for Android)**、アイコンは所有者指定の `HerissonSKK-icon-refined.png` に決定しました。アプリの表示名・adaptive launcher icon への反映を完了しました。
 
-Google Play ストアで配布できるよう準備します。所有者の指示により、この準備にはまだ着手しません。Play 関係の費用・制度・技術要件は着手時に公式情報を確認し、過去の調査結果を現在の条件として使いません。
+Google Play ストアへの公開準備を開始しました。所有者から開発者アカウント登録手続きの完了報告を受けています。[公開準備計画](play-release-plan.md)に現行要件、作業順序、所有者との分担を記録します。API 36 対応と release AAB の作成・検査は完了しました。本番署名、ストア掲載画像、Console の申告、クローズドテスト、公開用成果物の最終検査と公開判断が残ります。
 
-本体の独自コード・独自文書と指定アプリアイコンに MIT を採用し、[LICENSE](../LICENSE) とアプリ内表示を追加しました。[調査・適用範囲](licenses.md)に従い、第三者コード・Material Icons・外部辞書の条件を分けて表示します。
+価格は無料、配布地域は制限せず Google Play で配布可能な全地域とします。公開問い合わせ先は `herisson@haya.se`、プライバシーポリシーはこのリポジトリの GitHub Pages に掲載します。[掲載文案](play-store-listing.md)と[ポリシー HTML](site/privacy-policy.html)を準備しました。設定の「その他」から、利用者の操作で固定 HTTPS のポリシー URL を外部ブラウザーへ開けます。リポジトリの Public 化と Pages の設定・公開は、コミット・push と最終確認の後に行う予定であり、現時点では未実施です。
+
+本体の独自コード・独自文書に MIT を採用し、[LICENSE](../LICENSE) とアプリ内表示を追加しました。指定アプリアイコンは HerissonSKK のブランド識別として扱い、MIT の対象ではありません。公式アプリの配布・紹介で使用でき、別製品への再利用には個別の許可が必要で、原則として認めません。[アイコン使用条件](../core/src/main/resources/META-INF/icon-usage.txt)と[調査・適用範囲](licenses.md)に従い、第三者コード・Material Icons・外部辞書の条件を分けて表示します。
+
+ローカルゲート `build/reports/local-verification/20260923T103354295483Z/result.json` はコア324件・Android単体1,133実行・ホスト31件、lint、3構成の APK、release AAB、8件の通知検査に成功しました。物理入力は API 26／35／36 で各6件、API 36 のタブレット幅の表示・復帰は縦横各4件が `build/reports/api36-release-matrix-20260923/wide-result.json` で成功し、API 26／35／36 の `CustomizationE2eTest` 各2件も `build/reports/readiness-final-20260923/result.json` で成功しました。記録した範囲で API 36 の検証を完了しています。[API 36 の検証記録](reviews/api36-20260923.md)を参照してください。debug は検証用署名、release は未署名であり、一般公開していません。
 
 以下は従来の配布方針と検証の履歴です。初回を APK 配布基本とし、Play を必須としない記載は上記方針に置き換わります。初期 S 辞書の挙動や成果物の状態も各記録時点のものです。
 

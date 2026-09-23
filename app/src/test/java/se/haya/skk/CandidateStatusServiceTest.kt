@@ -3,6 +3,7 @@ package se.haya.skk
 import android.text.Selection
 import android.text.InputType
 import android.view.KeyEvent
+import android.view.InputDevice
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.BaseInputConnection
@@ -35,11 +36,26 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.shadows.ShadowInputDevice
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35])
 class CandidateStatusServiceTest {
+    @Implements(InputDevice::class)
+    class ConnectedPhysicalKeyboard : ShadowInputDevice() {
+        companion object {
+            @JvmStatic @Implementation fun getDeviceIds(): IntArray = intArrayOf(1)
+            @JvmStatic @Implementation fun getDevice(id: Int): InputDevice? =
+                if (id == 1) ShadowInputDevice.makeInputDeviceNamed("試験用キーボード").also {
+                    ReflectionHelpers.setField(it, "mSources", InputDevice.SOURCE_KEYBOARD)
+                    ReflectionHelpers.setField(it, "mKeyboardType", InputDevice.KEYBOARD_TYPE_ALPHABETIC)
+                } else null
+        }
+    }
+
     @Test fun `物理表示はインライン中のタッチページを候補一覧に流用しない`() {
         val first = DictionaryCandidate("候補1")
         val touchPage = listOf(LabeledCandidate('a', first, first.text, 0))
@@ -307,6 +323,40 @@ class CandidateStatusServiceTest {
             dispatchRequests()
             assertEquals(null, ReflectionHelpers.getField<Any?>(service, "annotationTarget"))
             assertEquals("候補1", unsupported.editable.toString())
+        } finally {
+            controller.destroy()
+        }
+    }
+
+    @Test @Config(shadows = [ConnectedPhysicalKeyboard::class])
+    fun `入力セッション開始前の窓表示は座標監視を要求せず開始後に要求する`() {
+        val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
+        val service = controller.get()
+        val connection = Connection()
+        val requests = ArrayDeque<Runnable>()
+        ReflectionHelpers.setField(service, "annotationMonitor", CursorAnchorMonitor(
+            Executor { requests.add(it) }, Executor { it.run() }))
+        fun dispatchRequests() { while (requests.isNotEmpty()) requests.removeFirst().run() }
+        try {
+            attach(service, connection)
+
+            service.onWindowShown()
+            dispatchRequests()
+            assertTrue(connection.cursorRequests.isEmpty())
+            assertEquals(null, ReflectionHelpers.getField<InputConnection?>(service,
+                "annotationConnection"))
+
+            val session = EditorSession(1, connection, false, true, 0, 0)
+            ReflectionHelpers.setField(service, "session", session)
+            service.onWindowShown()
+            dispatchRequests()
+
+            assertEquals(listOf(InputConnection.CURSOR_UPDATE_IMMEDIATE or
+                InputConnection.CURSOR_UPDATE_MONITOR), connection.cursorRequests)
+            assertTrue(ReflectionHelpers.getField<InputConnection>(service,
+                "annotationConnection") === connection)
+            assertEquals(session.generation, ReflectionHelpers.getField<Long>(service,
+                "cursorMonitorGeneration"))
         } finally {
             controller.destroy()
         }
