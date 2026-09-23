@@ -1,0 +1,1306 @@
+{
+  "source_commit": "00dae8a53e2f5b66380d6e43c555260299ce7f43",
+  "files": [
+    {
+      "path": "app/build.gradle.kts",
+      "bytes": 1655,
+      "sha256": "aba0e9073e0f5b98d46ef3ab026dbbbcc78dd83c68d875446ded3deb6dcae203"
+    },
+    {
+      "path": "app/src/androidTest/AndroidManifest.xml",
+      "bytes": 482,
+      "sha256": "b9940355d7932a578d2d3e54c4fd7cea541bfe58b16ee8f6c360939dc018dce4"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/CandidateStatusAndroidTest.kt",
+      "bytes": 10911,
+      "sha256": "8835237cc4212db5973aa529629ed2c93a3d8439c32d8076038313968ff379d7"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/CompleteBackupFaultProvider.java",
+      "bytes": 5997,
+      "sha256": "fb657b6ef50bb9deb7026a19b53f1c0d41e23c613f5044edac671c20523ef196"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/CompleteBackupProviderFailureTest.kt",
+      "bytes": 7365,
+      "sha256": "a40602a06236317b16be3d803ecd6e1b5bc0cd402ed91f7f2f49d6ed45f95645"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/CompleteBackupSafE2eTest.kt",
+      "bytes": 21847,
+      "sha256": "491aadf2abf8f7ce340e53ca39e48783b2b581c243ef42a29a288dc00f131e36"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/DictionarySettingsUiTest.kt",
+      "bytes": 10893,
+      "sha256": "3043ef070775d481a189473ed90051ca1ad9d7e792bba87dfa3284eaca5c9ded"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/UpgradePersistenceTest.kt",
+      "bytes": 15856,
+      "sha256": "c92aa9ade1affda43a34b69a95cbca08f99a562e0876cc37d80909c49e01a17d"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/dictionary/CompleteDictionaryBackupAndroidTest.kt",
+      "bytes": 17179,
+      "sha256": "2f31fdf06155245a038282fd00acacdccb4038a7c27046b084e0db3c24a8bca8"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/dictionary/DictionaryCrashRecoveryTest.kt",
+      "bytes": 11838,
+      "sha256": "c4f956b7236107304b82f589c546530b45539ce3c64d105d3c6e330d05fdff06"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/dictionary/DictionaryPerformanceAndroidTest.kt",
+      "bytes": 14495,
+      "sha256": "2162a76e875052626cde44168738f4ee40ea7b6280c3b04c97b3bef1af966e8f"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/dictionary/LargeDictionaryImportAndroidTest.kt",
+      "bytes": 2195,
+      "sha256": "876a1a9e88df0a2d7ed5f4b1e9dc002c392b520eb2abc1471221c48791b99069"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/dictionary/NetworkDictionaryLiveTest.kt",
+      "bytes": 2856,
+      "sha256": "22dc331aeeba5dbdf008488a57fd3ee14f4e98f953d877c1dc174dc4aefe5ff2"
+    },
+    {
+      "path": "app/src/androidTest/java/se/haya/skk/dictionary/SQLiteDictionaryAndroidTest.kt",
+      "bytes": 16034,
+      "sha256": "90db80ad077a8b954ddddb38bc36951cf61b92d3a3019d4062c262468128309d"
+    },
+    {
+      "path": "app/src/benchmark/res/values/strings.xml",
+      "bytes": 87,
+      "sha256": "3948a71eb66463933deddb21750c9cc6e81ac606079362fc652d73afbe309fec"
+    },
+    {
+      "path": "app/src/debug/AndroidManifest.xml",
+      "bytes": 334,
+      "sha256": "f326166b04bf1c6bbc7dc53b2b8f4dd318b00a12b0411c8ed7957b7ebaa3cbba"
+    },
+    {
+      "path": "app/src/debug/java/se/haya/skk/dictionary/DictionaryCrashTestService.kt",
+      "bytes": 6247,
+      "sha256": "c330df1fd3d53a3900eb6c312b85ce080dbe6197f0164d01b221feb6378e692b"
+    },
+    {
+      "path": "app/src/debug/res/values/dictionary_build.xml",
+      "bytes": 78,
+      "sha256": "a51c1741a487b86053d3c3eb5fbfe35861608e54a8fa8d9cd6726df035f613f5"
+    },
+    {
+      "path": "app/src/main/AndroidManifest.xml",
+      "bytes": 2226,
+      "sha256": "5f7bfae213e0b79c02dbb956c3cd050b44de5a97780f686070031c5dfc1d5f25"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/AppEmacsSettingsActivity.kt",
+      "bytes": 7657,
+      "sha256": "e9a0aef709c4687d86d71e78d8808987af44f2242dd1d288b00d33ddb77bd8b2"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/AppEmacsSettingsFragment.kt",
+      "bytes": 4941,
+      "sha256": "b2217e887ea6971574fc7a195dd21720188b96ce6b73dbe8d2912301f6b4e649"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/BasicSettingsActivity.kt",
+      "bytes": 6978,
+      "sha256": "988be757c4687ef81e4ed10f5ec1fc0c808edce179b8e93d430d9e0ce4a720a6"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/CandidateStatusView.kt",
+      "bytes": 39734,
+      "sha256": "be802cccaffe6c00fbc463f5d6b510720ac38c48836276f8bf1e2a4f104a747f"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/CompleteDictionaryBackupActivity.kt",
+      "bytes": 10918,
+      "sha256": "0bfefefdf54eb9c0a6e80af972476882f47f0b94f86072d5c3d07c2ace77aa81"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/CompleteDictionaryBackupFragment.kt",
+      "bytes": 2709,
+      "sha256": "aa3fca1db9a79d132ea4b8c0bd2757a711ef5112e06a236a495ee88ca307dc03"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/ConfigurationRestartIdentity.kt",
+      "bytes": 1917,
+      "sha256": "38d2fcd8d2651a2fd2692cf9dcc490d6df187a33c869982091e1d004ef54150e"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/CursorAnchorAcceptance.kt",
+      "bytes": 718,
+      "sha256": "a963809039a34259cf24472eb13fadcd886d0b0c5573b07c03488044d9825fc4"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/CursorAnchorMonitor.kt",
+      "bytes": 2449,
+      "sha256": "0c3de07218c982dd214355814b3720996e5af79935656eb5f7eb84f0ac8a78ef"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/CustomizationPageFragment.kt",
+      "bytes": 17193,
+      "sha256": "d12a7030fa4badd7e7d01ab74bc2d4f977f42855fc71c68eaf8864ae1990c38a"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/CustomizationSettingsActivity.kt",
+      "bytes": 26796,
+      "sha256": "4e88a9383e297d3152c14f6937d23bbadc11ea17946f9b13e427429374dcb746"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/DictionarySettingsActivity.kt",
+      "bytes": 45597,
+      "sha256": "0629b572d37c555bf4ca4909882a1655eabc24f9d42580aca0d82142ca3ce3eb"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/DictionarySettingsFragment.kt",
+      "bytes": 18038,
+      "sha256": "46399481852ca66d1664e9ccc552279cd91e2cf6bf9bed4081cffcb8143c5ff5"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/InitialDictionaryInstaller.kt",
+      "bytes": 9674,
+      "sha256": "78e69b3674a5f75ca74135f9682b81f1b3b12f94adfc87f626fafe2102250649"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/InlineCandidateAnnotationPopup.kt",
+      "bytes": 6888,
+      "sha256": "c4cc2858b6320ad0837b8c37dd0dd34d528ba7430fb9eff71e1c83e034041fd0"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/LongCandidateBodyView.kt",
+      "bytes": 2310,
+      "sha256": "86fb878f83ea168b01a23669cfdf19b428d6733dedffb466c366e74dd3228695"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/PhysicalInputPopup.kt",
+      "bytes": 7665,
+      "sha256": "3a6444f595186151a40bb033f11c3672b9d1378e7f4e417a936f036e3c3b6321"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/PhysicalPopupHost.kt",
+      "bytes": 1881,
+      "sha256": "b7420aef5c0b6377ea11f9acdc8ecaa527f4acb7cac2e9a5dbd14a3204441af1"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/RegistrationEditorView.kt",
+      "bytes": 11110,
+      "sha256": "72539a4f82d40d9ceb3d54ad13945a41101db3acda3814e22b7b76766b46452f"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/RegistrationPresentation.kt",
+      "bytes": 3624,
+      "sha256": "954b3412914769d3e356eeec6e775d07b020b6705ecf83f4e8fce17147c2e16c"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/SettingsActivity.kt",
+      "bytes": 5103,
+      "sha256": "f8697f016c8cd6c267542ab1221049adadf8ec675d19819a3acc2efc28b53da0"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/SettingsPageActivity.kt",
+      "bytes": 4508,
+      "sha256": "dd6711f8d4d073d742bc4a29e97320c78cb5f97f31b08f8a2e4898ca1a1c8742"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/SetupActivity.kt",
+      "bytes": 11242,
+      "sha256": "12958914d935b1232cccda80687854543e986c4130cdfe2b0ccd67d50ca0ca00"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/SkkInputMethodService.kt",
+      "bytes": 56577,
+      "sha256": "c114c0c0f6dfc272bd2d3b0e1ba85d614a33bf99570509b17c60251d4390097f"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/SystemInsets.kt",
+      "bytes": 1995,
+      "sha256": "1bc2a8e2af7375a0ffa019933a2f6d8ea6a63c40d94b65486b4c0b1b2c2fd3bb"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/BuiltinDictionary.kt",
+      "bytes": 978,
+      "sha256": "ecf5d82f8c818ba3b66dce8b25ee28be7df40f35c7b4a2bace8cce1f168e79c5"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/CandidateDeletion.kt",
+      "bytes": 2606,
+      "sha256": "7e37d42981bbbcec0a9e33a5c2335be68fbe98eee4fe96d0130c3810bd197277"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/CompleteBackupOperations.kt",
+      "bytes": 2801,
+      "sha256": "28c8de771f1fde6d0c0d232edbf4a0581c1973e5992f9ef8a4c7ccb58168e750"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/DictionaryManager.kt",
+      "bytes": 36222,
+      "sha256": "602d471c4030f8237eb6864fd3f2ee294b10fb67fa8a02ac64158972e7d560ae"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/DictionaryRuntime.kt",
+      "bytes": 853,
+      "sha256": "50e4c3095f029e4a262ef6d8110e7f1b52beff8958fc5f2f8dacc254e7a579cd"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/DictionarySettingsDraft.kt",
+      "bytes": 7149,
+      "sha256": "704ef10763ae8c3a2ebe678f3d498da682b10354eeedf6d19857a80bed85c80f"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/PersonalDataPolicy.kt",
+      "bytes": 1284,
+      "sha256": "d0ca42f3da0f1eaf37f3ba916d35fa8c979716d6dfe75abab510e121a67d4d35"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/SQLiteDictionaryRepository.kt",
+      "bytes": 75430,
+      "sha256": "a2732f27e616cdca0490b45727e82fc8cf4a36e19c01cc605a111801f21d4471"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/SQLiteSkkDictionary.kt",
+      "bytes": 7302,
+      "sha256": "4bc6359d1504feb5259915a9a3ebba66164188a530da2435d5ef37b717d4793f"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/ValidatedDictionaryBackup.kt",
+      "bytes": 7975,
+      "sha256": "34295f7a16d611b933c8217c120e7ed15b95832e24df7fbf40ca51850f9418e1"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/network/NetworkDictionaryCatalog.kt",
+      "bytes": 1477,
+      "sha256": "2629e5c0a8ae049d2dc2bfa421e6d18417c82fa4756c8a366327046e712de178"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/dictionary/network/NetworkDictionaryDownloader.kt",
+      "bytes": 8644,
+      "sha256": "2b6aa3ace72f703c51f4f897d77e2766b77397d60abb8fee052b530c22d05887"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/AsyncPredictionDictionary.kt",
+      "bytes": 10651,
+      "sha256": "4c9ec68be96d1a6e3a23edaa8886bc6398b9b100380c65de63f1b7b0d987aab2"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/EditorEditPort.kt",
+      "bytes": 39549,
+      "sha256": "5d09541609559f433d45ccacc47db9edd4ef5047705db9865bc308f236304586"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/EditorSession.kt",
+      "bytes": 54285,
+      "sha256": "81a2aaacbdec6f453ee7c2f37ac85f3f4980ab7f7ba8f8ebd9b23ee7f5e240a5"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/HardwareKeyMapper.kt",
+      "bytes": 13386,
+      "sha256": "dcfbe91a464d763ecdc30f799370c11d4740ac45bea90c7090994ba1a71e91c9"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/HardwareKeyboardPresence.kt",
+      "bytes": 557,
+      "sha256": "2b4c32c5c79ec8416bcef8601213b8216275a472d271d3f5b13af3b49bfcc28f"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/KeyFlickGesture.kt",
+      "bytes": 1050,
+      "sha256": "04f330ae91dd2fb247f5578b525797ab2a17d240fb7bc776923a5a7a794db246"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/KeyPressLedger.kt",
+      "bytes": 1402,
+      "sha256": "ff61e7929cfe7ce0c6dec0e7d2dae373e52c57c302b6e5303bd4fdd97d5c0a2d"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/PilotEngine.kt",
+      "bytes": 5182,
+      "sha256": "18353ab2201eee27d115283b3c2b24ed1be0408a0868627f73d69d91fc901c32"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/QuoteNextKey.kt",
+      "bytes": 1161,
+      "sha256": "8d32f40ffd9f55bb0af7dd0b5e62e4545d62b2b1cbafe933999449e566a80161"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/TouchKeyboardController.kt",
+      "bytes": 3690,
+      "sha256": "e83f9bd9c1bfa6fe300bbe3ac2b80a4d60231714a7fa312e35799d3137be5980"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/input/TouchKeyboardView.kt",
+      "bytes": 27146,
+      "sha256": "dcc221c86306c06c739b0e80399c1a85e3336eb7508f5c7df693c07fe0f48e32"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/settings/AppEmacsEditingStore.kt",
+      "bytes": 12691,
+      "sha256": "aa3f18069fef196384a080161b9b7ab23634eed5b38b174ea7290ad4f8d23ac6"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/settings/BasicSettingsStore.kt",
+      "bytes": 9691,
+      "sha256": "de04cd0268ed9c459f4a7cbc0b71a88b6c3c0f144a5694a2bbcb679d350ff0a9"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/settings/CustomizationRuntime.kt",
+      "bytes": 640,
+      "sha256": "cb71631ce783433ffff5f2624379f45e159ab2560e72bebb46136befd8b248e1"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/settings/CustomizationSettings.kt",
+      "bytes": 6975,
+      "sha256": "df6a06389aaf85826de377f687aeb22aee64f9304432bac9263f028a83beba44"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/settings/CustomizationStore.kt",
+      "bytes": 21810,
+      "sha256": "9e0b3503d07521f106bc246de2bf278bc93ae96a88aaf85721f8e9ea23b32399"
+    },
+    {
+      "path": "app/src/main/java/se/haya/skk/settings/KeyGestureText.kt",
+      "bytes": 1441,
+      "sha256": "eb84f5eb82e7535324fcfe8365e2b388d0c0cc597799d998da85abfc6e2a001b"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_dictionary_add.xml",
+      "bytes": 280,
+      "sha256": "08cd525edb2485b35b4fa086d1eee59008523c408023eb582735ca62e7a886d7"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_dictionary_delete.xml",
+      "bytes": 348,
+      "sha256": "8422da966a2d663b45508ba91143f3f5809d982c5e5135d97aca13f3796a831e"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_dictionary_drag.xml",
+      "bytes": 362,
+      "sha256": "1bf471bce9381f6d965ec0d334d24a20992f1169ce6fb08968511f3efd60e057"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_dictionary_update.xml",
+      "bytes": 613,
+      "sha256": "9253ddd10b4cc2acfe2060830047dc03d12cbe5b2786682a120c4986a0f599ae"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_keyboard.xml",
+      "bytes": 402,
+      "sha256": "f3c90bbdf2b99f23a72fbfd954beec78acc43d09d043482e3c5e1f161d3386c5"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_settings_back.xml",
+      "bytes": 372,
+      "sha256": "a855777edcc56b87e53f047630d191ca0588aee9f2ffd0359f9c676ff8e14467"
+    },
+    {
+      "path": "app/src/main/res/layout/preference_widget_dictionary_source.xml",
+      "bytes": 1272,
+      "sha256": "d0abf136bc890d339be94b27f6f7fffb01c42b1f58085cbd0f9253246e1dfb0e"
+    },
+    {
+      "path": "app/src/main/res/layout/preference_widget_material_switch.xml",
+      "bytes": 370,
+      "sha256": "c1f8ea2d992943cf7e1ba134532370e226f3ee35c796c76d2754a4eb0432c4d7"
+    },
+    {
+      "path": "app/src/main/res/layout/settings_page.xml",
+      "bytes": 2668,
+      "sha256": "4ed17e5239166df44931fb962d5c6649f40711f0d5487fec1a6543ac9593576b"
+    },
+    {
+      "path": "app/src/main/res/values-v27/settings_theme.xml",
+      "bytes": 189,
+      "sha256": "4ec7a700f06a81e6fb4d911c091e7b412810677ba1de90f3cc83a29ba11f7a40"
+    },
+    {
+      "path": "app/src/main/res/values-w360dp/settings_dimensions.xml",
+      "bytes": 80,
+      "sha256": "894033fda4ad025ba649bdec7f7a43c5407b7c522e0c5cecb3f6cfd559db9626"
+    },
+    {
+      "path": "app/src/main/res/values-w720dp/settings_dimensions.xml",
+      "bytes": 80,
+      "sha256": "d8d0e04f80f4aa909da9c00bd8da45dd1fe0e37f56c70145720a7244189e33dc"
+    },
+    {
+      "path": "app/src/main/res/values/candidate_status_ids.xml",
+      "bytes": 889,
+      "sha256": "aeaec482ef460f98aae583edf579b76dd8b12cd099aeac1328858d3624cde6e2"
+    },
+    {
+      "path": "app/src/main/res/values/dictionary_build.xml",
+      "bytes": 79,
+      "sha256": "3bcbeafd2b6cbaed01d5a364a1d7b4be65d329d364923ffb25f4cbc32b3701d9"
+    },
+    {
+      "path": "app/src/main/res/values/dictionary_strings.xml",
+      "bytes": 7346,
+      "sha256": "0de5a5fffa1126cedb2a8a9be5152a29ae46d3c7ee9644cf4a5183f07eeb3cc2"
+    },
+    {
+      "path": "app/src/main/res/values/ids.xml",
+      "bytes": 126,
+      "sha256": "30cc0f1d1371194b535197119fce8301c9e4491a44d1f6977bce8010b7f95e4a"
+    },
+    {
+      "path": "app/src/main/res/values/ime_dictionary_strings.xml",
+      "bytes": 491,
+      "sha256": "637d8c8de622d15281c32b520cd58d806baa938f5a8546e815ba0118f5676c83"
+    },
+    {
+      "path": "app/src/main/res/values/registration_strings.xml",
+      "bytes": 500,
+      "sha256": "b0d9157b5db759a3f5a4bdba83e9c7d32c676bc9254371b13d2bab10662afb26"
+    },
+    {
+      "path": "app/src/main/res/values/settings_dimensions.xml",
+      "bytes": 293,
+      "sha256": "7c28f816775d92aef7b7df3096b84fc56a684b9bfec50cd3eaafc601bd0caf63"
+    },
+    {
+      "path": "app/src/main/res/values/settings_navigation_strings.xml",
+      "bytes": 1206,
+      "sha256": "43b0cc94ef492f05410c624e202f92d8026794389cf94a448b4167fd2f6c2d22"
+    },
+    {
+      "path": "app/src/main/res/values/settings_theme.xml",
+      "bytes": 867,
+      "sha256": "1a8a9ef56d07c437870fd0a5cb8771fb319fbbea0f1c50cc605f1bd022a780f4"
+    },
+    {
+      "path": "app/src/main/res/values/strings.xml",
+      "bytes": 2545,
+      "sha256": "08367229cbcb7e0f92763556a9f14ff729fcb87bba8f3cb73714ea10ae00112b"
+    },
+    {
+      "path": "app/src/main/res/xml/data_extraction_rules.xml",
+      "bytes": 630,
+      "sha256": "eda9dddce1e895de1efd716fe75e244187bf8f91a3bb7444c6ea1731e51c74a8"
+    },
+    {
+      "path": "app/src/main/res/xml/input_method.xml",
+      "bytes": 345,
+      "sha256": "e1a6b7014b82a9a97ce1a5ace6114b8fc9c3cf519fcc479e138777d5a60aaa9d"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/AppEmacsSettingsActivityTest.kt",
+      "bytes": 9130,
+      "sha256": "6a705ec67096aa8e09fd623e98bce18a8b2aeeb8dec8f77ec10388da43a67e3e"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/BasicSettingsActivityTest.kt",
+      "bytes": 7174,
+      "sha256": "d9fd1385d52a0c6534ee8036ffb5c0f3e2bb062f53303abe790eea468dccdf19"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CandidateLearningPersistenceServiceTest.kt",
+      "bytes": 5529,
+      "sha256": "2c25791c955ac3a8b005292ea8046f9345a3c8b542251c0ddae008ca7679ff37"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CandidateStatusServiceTest.kt",
+      "bytes": 22377,
+      "sha256": "4f06febe57f71956910510868d4409fdd1dd2f4d55b47fd1469ee1cad30a0eca"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CandidateStatusViewTest.kt",
+      "bytes": 23336,
+      "sha256": "7b6f8a4cf0331f1effa8366e583c5ff3a1a94221da114e5a55f0ac42069c85f2"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CompleteBackupIoActivityTest.kt",
+      "bytes": 7421,
+      "sha256": "7293d9c51d109e0c0cf66b264655a615ba1a259ab3d1dafb01cda1f782cde206"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CompleteBackupServiceTest.kt",
+      "bytes": 7036,
+      "sha256": "16dc1c470c31a8ad63fbcd359496c950eed8df57d11e6e16723c1042110ae98d"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CompleteDictionaryBackupActivityTest.kt",
+      "bytes": 9821,
+      "sha256": "3c44e86be064ba51b014677a73157c8c0cdc377957104d517c35eb11b1f78e30"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CompletionServiceTest.kt",
+      "bytes": 7224,
+      "sha256": "cdc08e4df06c1b282c679f46c7bb2028a73689a97f897c50e8c79b4189d5c87e"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/ConfigurationRestartIdentityTest.kt",
+      "bytes": 1796,
+      "sha256": "cf47f18d51a23633cf8ab6d4cbb0700cab6f73c377b87cdbf8c03cbcf48f2e9e"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CursorAnchorAcceptanceTest.kt",
+      "bytes": 1350,
+      "sha256": "11f2b9f5c8db608188fe21afa8c87da83b99b599f006d47e19830c82ddf568c5"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CursorAnchorMonitorTest.kt",
+      "bytes": 3511,
+      "sha256": "aa6b4ae277573130bf7a203e58d9b62fef324b2aad46a5fc37387b2c9f153301"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/CustomizationServiceTest.kt",
+      "bytes": 16132,
+      "sha256": "ea3d7b66e8fd8226eb8006c85b6a3dca61a1315f7bd506feaf30ca8f1d84f283"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/DictionaryImportFailureActivityTest.kt",
+      "bytes": 17683,
+      "sha256": "613da2507b62b092254aa9563b1a77d47d9e9eed14b9cfed16e0beb482c5debc"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/DictionarySettingsActivityTest.kt",
+      "bytes": 4197,
+      "sha256": "bda400e8095c45dfbda35702ea2d5f27785a46eeab4b9e85abdb4115e47c4f70"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/ImeSwitchServiceTest.kt",
+      "bytes": 2613,
+      "sha256": "f7a0697266fc1f90510be8ffff834c28c1298cf8b7769777a019bf6f9b34426f"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/InitialDictionaryInstallerTest.kt",
+      "bytes": 16841,
+      "sha256": "61fae3a3bbb92b29c14032fe93b91b7fad09e8a115cc29d84611e03d9a3462cc"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/InlineCandidateAnnotationPopupTest.kt",
+      "bytes": 2481,
+      "sha256": "076b167f51fc687baee004e762d17c40ffbd29652efeb0c7053d5680f10b9e3d"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/KeyboardVisibilityServiceTest.kt",
+      "bytes": 5487,
+      "sha256": "0b07b371a2508c66019df828991fb62ecb047291feef6e5a4485881083759772"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/PhysicalInputPopupTest.kt",
+      "bytes": 1960,
+      "sha256": "2d6d37a7bd61efc38afbd163bed21ef704814a8bbf41f8f776fff8ab2c3d8dd2"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/QuoteNextServiceTest.kt",
+      "bytes": 4494,
+      "sha256": "99a025fea87490c00a9333c74339a3ddc0fc34a237bfb8ea21b891044086a123"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/RedesignedCandidateViewTest.kt",
+      "bytes": 6554,
+      "sha256": "d88b5dfb3b9a3c746ccce0f454c9502c5a559cb385816e5fe18eef66a6d1379b"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/RegistrationEditorViewTest.kt",
+      "bytes": 7690,
+      "sha256": "c7aaece380a554259ff3f39281fb9314cdc42522e530a033e557d43ac9efc344"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/ServiceConfigurationTest.kt",
+      "bytes": 2089,
+      "sha256": "c3f0c007b652589ebefc45333d068883c604014a354c19fe35259f746a718968"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/SettingsActivityTest.kt",
+      "bytes": 2272,
+      "sha256": "8f76aa26cb1254ffb668aeda58e2948a7a36c0c5f756d699c2893d4be56ecac4"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/SystemInsetsTest.kt",
+      "bytes": 5318,
+      "sha256": "51d981df3d7731c0b535d2c3a8bb94dca6a511fda18dd1bb5e832d362dee18ea"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/dictionary/BoundedSQLiteDictionaryTest.kt",
+      "bytes": 19147,
+      "sha256": "aa4cbd5794e4771c7690a3d7cd127a8d98a1107ee449146c0d02cbc3d9b6b773"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/dictionary/CandidateDeletionRepositoryTest.kt",
+      "bytes": 15021,
+      "sha256": "f291ad2979fdf978d73a4c1de17b626e9417c07f84157f7468a448c83ce0ccde"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/dictionary/CompleteBackupManagerTest.kt",
+      "bytes": 11590,
+      "sha256": "5a4208d71afaaae60fc1aa3ff479ba6cd35731f3fb4883f6f318d422edac7dd6"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/dictionary/CompleteDictionaryRepositoryTest.kt",
+      "bytes": 19550,
+      "sha256": "828c2bf6a165ac00dc9a1241ae9015fd53a02005439cf7b2e338d89238e4ce61"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/dictionary/DictionaryManagerDeletionTest.kt",
+      "bytes": 9695,
+      "sha256": "4bbb4a34eef6c51163ec19075a32d37ff3384c0e9ab017776478c391d26015ea"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/dictionary/DictionaryManagerTest.kt",
+      "bytes": 35622,
+      "sha256": "7720f6f7838604b4c69f3b8a28cd2a5278104df1c26a0abcfe41202d36ce37d7"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/dictionary/DictionarySuppressionManagerTest.kt",
+      "bytes": 5161,
+      "sha256": "71b6d5ff4cc3689f0e99c019a5fe6d2015afa9dcdeaa73a059022a1bb54e32f2"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/dictionary/SQLiteDictionaryRepositoryTest.kt",
+      "bytes": 26590,
+      "sha256": "7b400e2e930e609f38afe080bdeeef09712574be81cff1b3c695ec16c85670e3"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/dictionary/network/NetworkDictionaryDownloaderTest.kt",
+      "bytes": 5465,
+      "sha256": "3b8b43eb9f0f9665b3be9bdcca7a722e8effb8d9de7713a74df5080e2cc5df32"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/AsyncPredictionDictionaryTest.kt",
+      "bytes": 15286,
+      "sha256": "7b07ea2d87c0fb9e04288ef0a6dabd573ed51a2fef8e52a7435dbcfbad53c529"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/CandidateDeletionSessionTest.kt",
+      "bytes": 13188,
+      "sha256": "dc7d0f3bcb4aea212b98dcfc53b70a7dd156e1ef3689f533356ca01617defb67"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/CandidateLearningSessionTest.kt",
+      "bytes": 4171,
+      "sha256": "441c138790452df8de84977ed903f82953f4e57cbfb191b0ef87a295a8c275f0"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/CompletionRegistrationSessionTest.kt",
+      "bytes": 2814,
+      "sha256": "4de3b80ddecb4b325c12026958e9d58e8df44151a6404486dceddb8e238a42a3"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/CompletionSessionTest.kt",
+      "bytes": 5276,
+      "sha256": "aecddb22be390bda5d0d55f32b5f515898407593d434e9afb99a555712b9c8c4"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/CompositionMarkerSessionTest.kt",
+      "bytes": 6914,
+      "sha256": "1c76f3235863ebeaacf0893570cb33c2d6372f6f5f988a196342f0892a6e7339"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/ConfiguredKeyMapperTest.kt",
+      "bytes": 16040,
+      "sha256": "3befc776ef04c5c26e8981c2738368ca1cb94db93a6d20501bbb09585474f104"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/DeferredDictionarySessionTest.kt",
+      "bytes": 10611,
+      "sha256": "70294c39c8226322974780c71c8d5714fa5596978e690e10b9d73c7aef7b3c82"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/EditorEditPortTest.kt",
+      "bytes": 42722,
+      "sha256": "debb373eef357eaf0d4365036175228e5ab3fa4d4355c07bd2f40f8142911d4b"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/EditorSessionEditingTest.kt",
+      "bytes": 33493,
+      "sha256": "695225edfe74e97dd9b67b162980000ae5b282d83d2d547d51742ffd109f3cb5"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/EditorSessionTest.kt",
+      "bytes": 41587,
+      "sha256": "630ffe4e0b7f17e5d731f1fa273604c6df273c1f7f12c2c3ec98aeba57effcc7"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/HardwareCompletionCycleTest.kt",
+      "bytes": 2875,
+      "sha256": "887ab0973a1f462444cf108e2f5e888dcda0c9bba58817687f1802d32af9ba41"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/HardwareKeyMapperTest.kt",
+      "bytes": 5702,
+      "sha256": "9a5caf635466513e0a13762e4f275b02598cccd2ffbfe6524107c04ac5d646b3"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/HardwareReadingRegressionTest.kt",
+      "bytes": 2664,
+      "sha256": "40095bd3df6813a0eeecaf3c257678bd0feef80c7497417190f7adb9b73d8698"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/InlineAnnotationSessionTest.kt",
+      "bytes": 2405,
+      "sha256": "b6b7da75cc245fbbb84bc0df5ebdc676205a4638242661756748bb8959214e08"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/KeyPressLedgerTest.kt",
+      "bytes": 2741,
+      "sha256": "cb311a73ba3caced2e247d77daeee4ac9a1a23ae4cdd312d6503b48866f3ef40"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/PredictionPrefixIntegrationTest.kt",
+      "bytes": 4254,
+      "sha256": "1a9eb148a164d5bee5d6d78a75aaaf62175fdf9aded48ef6f1a27d2f75afb0fc"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/QuoteNextKeyTest.kt",
+      "bytes": 1787,
+      "sha256": "07fa42b82a8ea526a75327400038ce469677e267351a1b571cb61563322f3d36"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/RegistrationSessionTest.kt",
+      "bytes": 9570,
+      "sha256": "695887406aa2c39d924b4a66078e498ec339d7ccfcef2a82df260f4daade895f"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/TouchKeyboardControllerTest.kt",
+      "bytes": 2981,
+      "sha256": "5c61d7118a933780ace369c4938e2d9d52997330a2a5dfe9d97701b6a1fbc794"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/input/TouchKeyboardViewTest.kt",
+      "bytes": 20307,
+      "sha256": "0e78997773a44a02d742d44438cee66ba01823689228e78eea1517e32777435b"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/settings/AppEmacsEditingStoreTest.kt",
+      "bytes": 9699,
+      "sha256": "3cd14ec59952ad98ce621f23fc580e601c62b212dbbbadc26e104f75744adda6"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/settings/BasicSettingsStoreTest.kt",
+      "bytes": 11775,
+      "sha256": "2c11c014adb0cfc35f14707ba2d8decec78c13426be1b147d062f37d86e8307c"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/settings/CustomizationActivityTest.kt",
+      "bytes": 20904,
+      "sha256": "39d41a23d45bd5b440970a8bbdd6ac73522f232b38c4d0a82bd48cc38f4c0a7d"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/settings/CustomizationStoreTest.kt",
+      "bytes": 20341,
+      "sha256": "12092511d6fa243e2e437a68d8d36a63f6e4fe0a4d5bb3a30ad70aad3fd38642"
+    },
+    {
+      "path": "app/src/test/java/se/haya/skk/settings/KeyGestureTextTest.kt",
+      "bytes": 1013,
+      "sha256": "12b002527b74255cf6dfb36ecdfaed59b11773457a4327419ab690b8669fadbf"
+    },
+    {
+      "path": "build.gradle.kts",
+      "bytes": 206,
+      "sha256": "41ea3c3fdceb3f06c39a0375efec91327f0d4888790c7bb1064f4bd3d36f8e38"
+    },
+    {
+      "path": "core/build.gradle.kts",
+      "bytes": 196,
+      "sha256": "c6dade5b75cb27aed7520fd455ce19816c9450ddba17e5d1e4db7044a13f780b"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/BasicSkkEngine.kt",
+      "bytes": 104274,
+      "sha256": "1e53dbf56bad96ed3ca55581d84914aa071a10ed64fdde99896079308ec68307"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/CandidateDeletion.kt",
+      "bytes": 1365,
+      "sha256": "54f5a6db19229352ca1ac4281daaabff59d00968d55df21977611b37c204caf0"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/Completion.kt",
+      "bytes": 893,
+      "sha256": "8de2de96a63e079e4759a58dae218272d717ce9feeb9dd95bf0dcb0434652443"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/EditableBuffer.kt",
+      "bytes": 4332,
+      "sha256": "5930d0fed42c0cecf14fe4b03e67fac1dba03e1ef393214ff6c7b133e2a53f50"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/InputConfiguration.kt",
+      "bytes": 2511,
+      "sha256": "e9b26785da81fc5bfbc55d5d59666ab856c3f3d5d4f89c3c8e240942d3e9179f"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/Prediction.kt",
+      "bytes": 3899,
+      "sha256": "ad7055abbb8d1168e5b5093b9f771f3bde5e7f7edfaa85ff9e4be0128286564c"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/Registration.kt",
+      "bytes": 2488,
+      "sha256": "a32ecba1bf4ee7b4bc3322ce1703e4aadd9f619923b3460faec7c900da3eb899"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/dictionary/CandidateSelection.kt",
+      "bytes": 1364,
+      "sha256": "1fccd912e28bd023842a67eafbcba6c453789a01b7c4da3ce9ff59b005541448"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/dictionary/CompleteDictionaryBackupCodec.kt",
+      "bytes": 29318,
+      "sha256": "a8f35cfb30a6098185540ca5cc6a3ad55477c415bc5a4a121114335bf3bb749e"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/dictionary/CompleteDictionaryBackupModels.kt",
+      "bytes": 3240,
+      "sha256": "36f35cb9bb314a69c5b4cdf0937a51148e227281f4caf8827176c5bfac70f7af"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/dictionary/CompositeSkkDictionary.kt",
+      "bytes": 15774,
+      "sha256": "a65c48726413cba5ade2d6201a4619eb6617516083be6009534a46fb690e1361"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/dictionary/DeferredDictionaryReadException.kt",
+      "bytes": 272,
+      "sha256": "df5116ac757118606c46a9e372f6dc3c4164972d750f577658d9e76db90dc656"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/dictionary/DictionaryReadScope.kt",
+      "bytes": 864,
+      "sha256": "3c4beb2cc49d388727ee7d0ac58ca588f24f0ace4d06a285847d4919d659ad20"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/dictionary/DictionaryUnavailableException.kt",
+      "bytes": 595,
+      "sha256": "8a53cc6599f5313261dfcea95c0ab239912dda0229990e69e95e103ba8105889"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/dictionary/SkkDictionaryCodec.kt",
+      "bytes": 22165,
+      "sha256": "c927e2850a86eccfb9322afdc9a269ebae84bf0388e0f819a4f80aabab7f2492"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/dictionary/SkkDictionaryModels.kt",
+      "bytes": 3013,
+      "sha256": "d5954d41051749a42b81c80f847e2a7c7ea507f4c8c212b0b37d0059006dd501"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/editing/Editing.kt",
+      "bytes": 8143,
+      "sha256": "2cda964a169be4fa2cc01f6b95108c3d5817d1195091158c2af01cea792f9010"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/keys/KeyBindings.kt",
+      "bytes": 19185,
+      "sha256": "7293f74ee85ed654a34c4f82addf4b1ef585a0ee599547de867fdee3374584f3"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/numeric/NumericConversion.kt",
+      "bytes": 13069,
+      "sha256": "9c818370fc819591d0dff87c4b69d386d68a9c209413730d1aa6c33d96c25ef4"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/numeric/NumericSkkDictionary.kt",
+      "bytes": 8512,
+      "sha256": "c4cdb90aa6e5b83a7fcc6eaf235d59012ec7119c2471e8c4f6ec3634da796a60"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/romaji/AzikRules.kt",
+      "bytes": 7324,
+      "sha256": "8df37ad0d3b6a9f5dc1a70a4a315d2f12b07589af8eb61fd9d6db22e3b8f3a51"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/romaji/KanaTransforms.kt",
+      "bytes": 2774,
+      "sha256": "211e17145021e6ccfbf5f7981f1a0b6943d9bfc3616738e4ecc3e9335039135b"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/romaji/RomanRuleSet.kt",
+      "bytes": 11448,
+      "sha256": "33a507929fc616e11b5181297fb3281e76ea2f856486b496c99f2f8dab075e50"
+    },
+    {
+      "path": "core/src/main/kotlin/se/haya/skk/core/romaji/Romanizer.kt",
+      "bytes": 7578,
+      "sha256": "a0110ce453d00b244aa4fd3fd56e12931800f8f222c21a5eef77da49c0fd93e1"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/BasicSkkCompletionTest.kt",
+      "bytes": 14443,
+      "sha256": "bfe035a21ba41b28242bf55c0b02e205ad2a9b0a18c95289322c58bae047cb0a"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/BasicSkkEngineInvariantTest.kt",
+      "bytes": 2408,
+      "sha256": "1864dbccbf9b9973d6c7765688a7b4a83afdf7f1ae5cd8dcf3309f1ce682ee1b"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/BasicSkkEngineTest.kt",
+      "bytes": 22062,
+      "sha256": "caee2de36394fb13504124fbb2e8e1a6ffccf2c16f566e0828baeb4b5069a790"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/BasicSkkInternalEditingTest.kt",
+      "bytes": 9114,
+      "sha256": "2918d2fb44124bdac4b11157e3bed15037b791d03a878d1433892073a33da118"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/BasicSkkRegistrationTest.kt",
+      "bytes": 20849,
+      "sha256": "04b5c340b834820f6f2a40ba8b8fd77208f324053d3a52d104a3299267fe65f1"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/BasicSkkSemanticCommandTest.kt",
+      "bytes": 7588,
+      "sha256": "a1b511378452533af8d4b7f82ca1afcd68a2eb28ab15b7d109f1ba889d915ef2"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/CandidateDeletionInvariantTest.kt",
+      "bytes": 4524,
+      "sha256": "c9a9d980d990e112e28bb34964450fabc61c387e0e7cf4d99ce18b70a657f400"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/CandidateDeletionTest.kt",
+      "bytes": 9568,
+      "sha256": "0671fc813dd4201bcae7394e2392bf24b75548eeeebfdcc4d4d5ee4606334104"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/CandidateLearningTest.kt",
+      "bytes": 2424,
+      "sha256": "1052942b0e6a895e51d4e6c2e37e942e3748699e093ba1b70e4747117562c8a0"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/CompletionBoundaryTest.kt",
+      "bytes": 2717,
+      "sha256": "428651b462e01c57a53de52cb85e0c929a2bae2418c831d557ab8528f9ab3cc6"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/CompletionInvariantTest.kt",
+      "bytes": 2551,
+      "sha256": "7c15ba8dd41c86f077388a058b8e4a6a5af542b012699c5dbbd48671afa24ce5"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/DeferredDictionaryEngineTest.kt",
+      "bytes": 8220,
+      "sha256": "5dc16ef536a30edd17246c12e0e40cb445f05005f5dc4d8b75b7d22a0eebcc4a"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/DictionaryAvailabilityTest.kt",
+      "bytes": 1911,
+      "sha256": "a2f2df3f9e055cfc8a053c05b647cf00f70ddbacc8b039c7d054dd5d1dcff1c6"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/EditableBufferTest.kt",
+      "bytes": 6597,
+      "sha256": "4e5eacc8516bca2db6bbe3997b75adc81264b751612b06e78be7318e5cfd5036"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/GraphemeConformanceTest.kt",
+      "bytes": 1865,
+      "sha256": "2d8862375ade22f9928228af307e6a54e64cf5ff12a76299e06a2216fe273992"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/InputConfigurationTest.kt",
+      "bytes": 10386,
+      "sha256": "56668ee8adf6d7ac5c855775ee9e43e74618094cb607915481cc0f31b8739f91"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/RegistrationInvariantTest.kt",
+      "bytes": 3722,
+      "sha256": "3d2ec0fa27433f01cb4482fc99b6eebb2dede1c5a9625618d89606c0d4f9c3a3"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/StandardSpecialRomajiTest.kt",
+      "bytes": 2884,
+      "sha256": "f6a928a94094bfa0074bc30afaf23bb99cacadb473620149916185158269685e"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/TouchCandidateSemanticsTest.kt",
+      "bytes": 17040,
+      "sha256": "37c55d441759c9b193b19aef39e69b3bbe4179f3df8e6a54c0be45ab31149432"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/UppercaseVowelOkuriTest.kt",
+      "bytes": 4672,
+      "sha256": "90ef808b134c32d5350d756fd69889b434f4e5669bea26e4d671e51500de308e"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/dictionary/CompleteDictionaryBackupCodecTest.kt",
+      "bytes": 13261,
+      "sha256": "3530ab7e1a0256f627849fe8af644180b185d2471b9ce5fd53b53ea78e7b1b43"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/dictionary/CompletionDictionaryTest.kt",
+      "bytes": 9558,
+      "sha256": "4fdc3e07cbb201fc905b899433b42545c4c556cd8ab54186b95e96acc88820eb"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/dictionary/CompositeSkkDictionaryTest.kt",
+      "bytes": 7646,
+      "sha256": "09989006e423fc462d5511ff198e2e37423ab811d41b80bdc152ebca2eaf63d0"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/dictionary/CompositeSuppressionTest.kt",
+      "bytes": 3021,
+      "sha256": "e9e05faa99ceff311fa5ef862ba7474b312de143f2ab76d1672e4d3c711544ba"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/dictionary/PredictionDictionaryTest.kt",
+      "bytes": 3950,
+      "sha256": "ff95f6f4a4c359d59db39f9d3f3ccd8d9071bc638030161ade390283e07db8c9"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/dictionary/SkkDictionaryCodecTest.kt",
+      "bytes": 13453,
+      "sha256": "ee24a2dce43f3cfc544d94231c3da489ac248b4d48d5bcc8875e42857eb57045"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/editing/EditingTest.kt",
+      "bytes": 6124,
+      "sha256": "5bb2dd76347a9e99b1e42d77093858554d1b00a85eec32320fb96d88cc9339b1"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/keys/KeyBindingsTest.kt",
+      "bytes": 14017,
+      "sha256": "945d580702366bf329be62ad8dd5c0fa0c518e7a78aa5c4fedbfe8cc6342475b"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/numeric/NumericConversionTest.kt",
+      "bytes": 6548,
+      "sha256": "c94af31095768c501f1d1cb2d623aeaf4b4648f3e7d224bf69027a15e5319352"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/numeric/NumericSkkDictionaryTest.kt",
+      "bytes": 15285,
+      "sha256": "4b2f78049016b1d5439336beb202a4f52db49eca1e4f94941221aa3b9147fc2b"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/romaji/AzikRulesTest.kt",
+      "bytes": 4865,
+      "sha256": "d9617e3f22ec6f51c9703f312be78617ce99cd4d6b93afc50561b3aba24666f6"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/romaji/KanaTransformsTest.kt",
+      "bytes": 1084,
+      "sha256": "9f3273fab66a2dca9189f05d9df59181f5c394c5f274b2bd9e119226d2d276d2"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/romaji/RomanRuleSetTest.kt",
+      "bytes": 6668,
+      "sha256": "39069278d8c9d4e79c85f28c5a715b6b3d9ae70d67c720d694cb79707d4a70b0"
+    },
+    {
+      "path": "core/src/test/kotlin/se/haya/skk/core/romaji/RomanizerTest.kt",
+      "bytes": 6942,
+      "sha256": "cae2665ecc658a5d6472a5bd0c76dd2607822919b5c2a22aab68d365705995c7"
+    },
+    {
+      "path": "docs/audit/release-license-audit.init.gradle",
+      "bytes": 655,
+      "sha256": "0a14d5d62be6e50f69d648b34621c90b6a6682fd716ad1fdc5282276f0ea7ac9"
+    },
+    {
+      "path": "gradlew",
+      "bytes": 8762,
+      "sha256": "a3648413b47ef77af21d5ebc36c687c7d103aaef3e17f33de7d4f080a6f300a3"
+    },
+    {
+      "path": "gradlew.bat",
+      "bytes": 2966,
+      "sha256": "57931b17dd228e5c24dac90e815d0bf82477e831a4618dfab4136f5446b42a9f"
+    },
+    {
+      "path": "scripts/measure-device.py",
+      "bytes": 6686,
+      "sha256": "4d19424e423667d7f8cdbd730a0326f9c07ff9812b5c5ab3d5b833af27120d3f"
+    },
+    {
+      "path": "scripts/measure-dictionary-emulator.py",
+      "bytes": 4803,
+      "sha256": "39d06dd79eaa35505aac03ebb904db86613c857411b125d205c971d69b4f3f39"
+    },
+    {
+      "path": "scripts/review/androidskk-core.py",
+      "bytes": 13077,
+      "sha256": "c6e0c237b5d23be0b97df6fd9ff97499467b09e6937f2245dd59f05c32943bf3"
+    },
+    {
+      "path": "scripts/review/browser-core-probes.test.ts",
+      "bytes": 2315,
+      "sha256": "5ec2c5b4554e2b5bf7e4e6d970789cff7f6e85ff186808f64f07152637cd6e0e"
+    },
+    {
+      "path": "scripts/test-complete-backup-emulator.py",
+      "bytes": 3511,
+      "sha256": "653354eb62d86688c3d1581ecf815004bf295e9adc8396e092230b1faca0da61"
+    },
+    {
+      "path": "scripts/test-customization-emulator.py",
+      "bytes": 13169,
+      "sha256": "c14b809393c8d2368906c65421717129e2d6d4a5c97bc8fc318ec3c9d9e322fb"
+    },
+    {
+      "path": "scripts/test-dictionary-emulator.py",
+      "bytes": 3065,
+      "sha256": "ab2f002121203f1c04c7d75f950aaa01c336f14a95a00c492f99b83a38cb4913"
+    },
+    {
+      "path": "scripts/test-dictionary-settings-emulator.py",
+      "bytes": 3200,
+      "sha256": "e0cba7d54799b686c9264a4df798848fa5e817bbb7240d05fdcede9657076b9a"
+    },
+    {
+      "path": "scripts/test-display-emulator.py",
+      "bytes": 6814,
+      "sha256": "8fd739119d071a3c822e1389fd37b39373c9c4c65d646e6e07733848a8740566"
+    },
+    {
+      "path": "scripts/test-emulator.py",
+      "bytes": 4897,
+      "sha256": "49e329a9a952697e843c59aae3d840c86e12b6515717ddb064eec4defe7a0ece"
+    },
+    {
+      "path": "scripts/test-saf-dictionary-emulator.py",
+      "bytes": 3784,
+      "sha256": "32f10e648175ddf034f23cf690050c0e5ddb359532540048944dd6ced0a71ea2"
+    },
+    {
+      "path": "scripts/test-upgrade-emulator.py",
+      "bytes": 16255,
+      "sha256": "4290e6940cceac2eaafab962db04c7b122828607745e077219ebad2d97a8b85a"
+    },
+    {
+      "path": "scripts/test-view-emulator.py",
+      "bytes": 3093,
+      "sha256": "14745292cfbef9f5c312c40d3505cf17b595b26798342a273a2ac58feadfdd8d"
+    },
+    {
+      "path": "scripts/test_customization_emulator_test.py",
+      "bytes": 7207,
+      "sha256": "a0e8a4d289b316e04848bbc8064ef887781940a56fa05304571cacafc7a5c95a"
+    },
+    {
+      "path": "scripts/test_display_emulator_test.py",
+      "bytes": 2984,
+      "sha256": "f140bc6da32651c3ebd61deeda26454e700b9e9fd9b03e0dc63ad7c87bf141e4"
+    },
+    {
+      "path": "scripts/test_emulator_runner_test.py",
+      "bytes": 4386,
+      "sha256": "2377bc003a9ad8e2011d3f36451522d0cfc92bcc67da5ccedf36f1c5fcf7c1ee"
+    },
+    {
+      "path": "scripts/test_upgrade_emulator_runner_test.py",
+      "bytes": 4037,
+      "sha256": "1d2be2c9aa72ac110b695bac45f86413df0518847a2f6783d862407265a62a19"
+    },
+    {
+      "path": "scripts/verify-local.py",
+      "bytes": 6127,
+      "sha256": "d42cc0dff7fb1a5f55b83dbacefdb3ec30aca08728d1a482353a49ccc23d8d02"
+    },
+    {
+      "path": "settings.gradle.kts",
+      "bytes": 325,
+      "sha256": "263fc30998d1dba44d57cbb2e1c6ba97130f138c85d95563b34adb8604d0ab2d"
+    },
+    {
+      "path": "test-editor/build.gradle.kts",
+      "bytes": 909,
+      "sha256": "6f6a9509e2144430e80bcb4bc44eb9d7350020ec111dad8d66cab247f5dc1c4a"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/CandidateDisplayE2eTest.kt",
+      "bytes": 27902,
+      "sha256": "e1c533a35da9999639f01474c5ff463f5f4215a28b3f0e5e2e81f49f08229547"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/CoreUnicodeTest.kt",
+      "bytes": 1135,
+      "sha256": "1d5573103bd1e0b588fc7563dac4fea2718574ce7c0391e540d5ba5ec29ad6ad"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/CustomizationE2eTest.kt",
+      "bytes": 39141,
+      "sha256": "1f8605ae405fd0b6d2448b9aed26b02f23b5905be9ca3426e478848d48a3c591"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/KeyboardVisibilityTest.kt",
+      "bytes": 9213,
+      "sha256": "33774bb2cede0332329721605f687f9e2801f1ea21685c13add576e531bdabc1"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/PerformanceTest.kt",
+      "bytes": 12055,
+      "sha256": "5be88570e278de629ed403e8d62d786b7606a1e0e0bcd99ad84a42c73b852fc1"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/PhysicalInputTest.kt",
+      "bytes": 25056,
+      "sha256": "6a49e45329540735a08b9aa23216b33f4c9339593bae3a1cef625f2c62415f25"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/PhysicalPopupLifecycleTest.kt",
+      "bytes": 14151,
+      "sha256": "79c62343962972f388736066d9f51b6367ad596559af5242b20eea8ae72f71ec"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/SafDictionaryE2eTest.kt",
+      "bytes": 44851,
+      "sha256": "58a5a2e57b32996bc729ff843f7055c19cb684cbe6ef79a3c58f6c28c2575bea"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/SettingsLayoutTest.kt",
+      "bytes": 12826,
+      "sha256": "72524bf489bafd181413e87d7538e09e4f90c7e8c3073827386c0ea2e0c109fe"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/SettingsTestUi.kt",
+      "bytes": 2760,
+      "sha256": "a4c6c0556cf9b6db1c34a1390e3567e5ad897e6a6988f4c38d4acc0590dc1535"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/TouchInputTest.kt",
+      "bytes": 24436,
+      "sha256": "26e0ee364953e3d21e8e17f7077b865186ed6694097d869df97a21589f37d6e5"
+    },
+    {
+      "path": "test-editor/src/androidTest/java/se/haya/skk/testeditor/WebEditorAssertions.kt",
+      "bytes": 11922,
+      "sha256": "991987adb9ceb62c30470bebdee0003ff2d60dcb6d564267ce84eb87f12e3610"
+    },
+    {
+      "path": "test-editor/src/main/AndroidManifest.xml",
+      "bytes": 1055,
+      "sha256": "c60b62a2709164f6604df0ff0837c6189036493cf66710016182140063b05190"
+    },
+    {
+      "path": "test-editor/src/main/java/se/haya/skk/testeditor/InputTestActivity.kt",
+      "bytes": 5332,
+      "sha256": "ec1f3dc92c389f271540661a79a13522096672111dff5a37af057bc1bb992059"
+    },
+    {
+      "path": "test-editor/src/main/java/se/haya/skk/testeditor/StableEditorActivity.kt",
+      "bytes": 929,
+      "sha256": "d42aabf31c2314e4ccea70255f0d5ed303a6a7e51e614b258b7b5df9d3f6735b"
+    },
+    {
+      "path": "test-editor/src/main/java/se/haya/skk/testeditor/SystemInsets.kt",
+      "bytes": 1487,
+      "sha256": "d4e78dec6ee519935f0bfabf9a22e5e03a936452a436ac1c211bf713138f50b9"
+    },
+    {
+      "path": "test-editor/src/main/java/se/haya/skk/testeditor/TypeNullFullscreenActivity.kt",
+      "bytes": 1514,
+      "sha256": "d472b875f37cf4a5787f6ce1846de85a167b08f54edb06a644e582b97c9095c3"
+    },
+    {
+      "path": "test-editor/src/main/java/se/haya/skk/testeditor/WebInputTestActivity.kt",
+      "bytes": 4309,
+      "sha256": "2d043a15f321060bea5a5ea13cece8e302b0648ea6df6a7bb41557b19c230685"
+    },
+    {
+      "path": "test-editor/src/main/res/values/strings.xml",
+      "bytes": 581,
+      "sha256": "46c634f16a53e0666e555489b28b43e4cf90248137e54511fa51095b6490bd43"
+    }
+  ],
+  "excluded": "画像・バイナリ・辞書・Unicode試験データ・文書本文・生成物・依存ライブラリ。監査用Gradleスクリプトはコードとして含む。"
+}

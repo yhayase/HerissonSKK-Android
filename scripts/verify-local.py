@@ -12,7 +12,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 
-REQUIRED_NOTICES = {"META-INF/icu-LICENSE.txt", "META-INF/Apache-2.0.txt", "META-INF/third-party-notices.txt"}
+REQUIRED_NOTICES = {"META-INF/HerissonSKK-MIT.txt", "META-INF/license-scope.txt", "META-INF/icu-LICENSE.txt", "META-INF/Apache-2.0.txt", "META-INF/third-party-notices.txt"}
 
 
 def main():
@@ -34,6 +34,9 @@ def main():
         return result.stdout
 
     try:
+        bundled_mit = root / "core/src/main/resources/META-INF/HerissonSKK-MIT.txt"
+        if bundled_mit.read_bytes() != (root / "LICENSE").read_bytes():
+            raise RuntimeError("本体の MIT 本文と APK 用リソースが一致しません")
         data["commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
         data["dirty"] = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True))
         run(["java", "-version"], "java")
@@ -67,6 +70,10 @@ def main():
                 missing = REQUIRED_NOTICES - set(apk.namelist())
                 if missing:
                     raise RuntimeError(f"ライセンス通知が APK にありません: {variant}: {sorted(missing)}")
+                for notice in REQUIRED_NOTICES:
+                    expected = root / "core/src/main/resources" / notice
+                    if apk.read(notice) != expected.read_bytes():
+                        raise RuntimeError(f"APK のライセンス本文がソースと一致しません: {variant}: {notice}")
                 if apk.testzip() is not None:
                     raise RuntimeError(f"APK の ZIP 検査に失敗しました: {variant}")
             manifest = run([aapt, "dump", "xmltree", str(path), "AndroidManifest.xml"], f"manifest-{variant}")

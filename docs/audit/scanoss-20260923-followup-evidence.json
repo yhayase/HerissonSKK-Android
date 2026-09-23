@@ -1,0 +1,76 @@
+{
+  "対象": "SCANOSS 未確認4件の追加調査",
+  "date": "2026-09-23",
+  "backup_xml": {
+    "local_path": "app/src/main/res/xml/data_extraction_rules.xml",
+    "sha256": "eda9dddce1e895de1efd716fe75e244187bf8f91a3bb7444c6ea1731e51c74a8",
+    "bytes": 630,
+    "initial_commit": "ae1d18737be2e96dafd8cd4d80fbd274dc83a8a4",
+    "creation_event": {
+      "session_id": "01a08fa9-add0-7f92-8633-7cae29ef3f4f",
+      "timestamp": "2026-09-11T13:32:34.723Z",
+      "jsonl_line": 447,
+      "event_sha256": "b733fe616b55ad5bdb0a15eff2f0e914c8f93af73d8635d525b0f8d4d4a3438d",
+      "prior_lint_event_line": 412,
+      "finding": "Lint の DataExtractionRules 警告後、apply_patch で新規生成。パッチから復元したファイル、初回コミット、現行ファイルのバイト列が一致。",
+      "scope_limit": "作成操作を記録から確認。記録外の接触やモデル学習由来を排除する証明ではない。"
+    },
+    "upstream_url": "https://raw.githubusercontent.com/governikus/ausweisapp/1.26.5/resources/packaging/android/data_extraction_rules.xml",
+    "license_url": "https://raw.githubusercontent.com/governikus/ausweisapp/1.26.5/LICENSE.txt",
+    "license_sha256": "5654c46d0dc2cc67b0f576a9e15f43dc0cbeccee512dbf629b800249ce32dd39",
+    "actual_project_license": "EUPL-1.2",
+    "scanner_license_label": "MIT",
+    "official_schema_url": "https://developer.android.com/identity/data/autobackup"
+  },
+  "system_insets": {
+    "local_path": "app/src/main/java/se/haya/skk/SystemInsets.kt",
+    "sha256": "1bc2a8e2af7375a0ffa019933a2f6d8ea6a63c40d94b65486b4c0b1b2c2fd3bb",
+    "theme_patch_events": [
+      {
+        "session_id": "01a0c73e-892e-7a53-91c2-289f60801434",
+        "jsonl_line": 302,
+        "timestamp": "2026-09-22T04:07:06.869Z",
+        "event_sha256": "7de4f96f8f4a680ed5c09d970c5179d154392ba6e8bc44133f2104578fb72385"
+      },
+      {
+        "session_id": "01a0c73e-892e-7a53-91c2-289f60801434",
+        "jsonl_line": 341,
+        "timestamp": "2026-09-22T04:09:09.546Z",
+        "event_sha256": "7ceaf4f1ad121b3557e83fe56fc7e77d558832fdda6ddaaee86fdfdb32eabdef"
+      }
+    ],
+    "comparison_source_retrieved": false,
+    "official_api_urls": [
+      "https://developer.android.com/reference/android/view/View",
+      "https://developer.android.com/reference/android/view/WindowInsetsController"
+    ]
+  },
+  "service_configuration_test": {
+    "local_path": "app/src/test/java/se/haya/skk/ServiceConfigurationTest.kt",
+    "sha256": "c3f0c007b652589ebefc45333d068883c604014a354c19fe35259f746a718968",
+    "creation_event": {
+      "session_id": "01a08fa9-add0-7f92-8633-7cae29ef3f4f",
+      "jsonl_line": 358,
+      "timestamp": "2026-09-11T13:27:48.631Z",
+      "event_sha256": "55fa93bb0cc09d9f5f7ef2936009584a580de3d900d540d528f8959ab449575e"
+    },
+    "later_regression_commit": "f279fab",
+    "comparison_source_retrieved": false,
+    "recovered_upstream_commit": "6f02fcbb9e7960ff199ee3c35c92237d62d5ab63",
+    "archive_url": "https://data.gharchive.org/2023-05-21-14.json.gz",
+    "archive_event_sha256": "8891f4724d5bafb61ccec6fa9325db814ed7ecb54b426739698a3483a8a972df",
+    "metadata_url": "https://repos.ecosyste.ms/api/v1/hosts/GitHub/repositories/passbutler%2Fpassbutler-android",
+    "metadata_sha256": "f87c3b8d303f8b320f3e2ed09eb954ea70824b95fd51e9560c1ff17a770f935a",
+    "official_api_url": "https://developer.android.com/reference/android/text/InputType",
+    "finding": "ローカルの試験作成と後続修正を確認。上流本文は未回収であり、直接比較による誤検知の確定ではない。"
+  },
+  "manifest": {
+    "local_path": "app/src/main/AndroidManifest.xml",
+    "sha256": "5f7bfae213e0b79c02dbb956c3cd050b44de5a97780f686070031c5dfc1d5f25",
+    "initial_commit": "ae1d187",
+    "official_guide": "https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method",
+    "unavailable_revision": "https://stackoverflow.com/revisions/70725406/1",
+    "comparison_source_retrieved": false,
+    "finding": "公式 IME ガイド確認後の初期パッチと、後続の個別宣言追加を確認。"
+  }
+}

@@ -1,7 +1,7 @@
 <resources>
-    <string name="app_name">SKK（開発版）</string>
+    <string name="app_name">HerissonSKK (for Android)</string>
     <string name="subtype_name">日本語・SKK</string>
-    <string name="setup_title">SKK の設定</string>
+    <string name="setup_title">HerissonSKK の設定</string>
     <string name="setup_description">ローマ字から読みを作り、候補を選んで確定する日本語入力です。初めて使うときは、入力方法を有効にして基本辞書を導入します。</string>
     <string name="enable_ime">入力方法の設定を開く</string>
     <string name="select_ime">入力方法を選ぶ</string>

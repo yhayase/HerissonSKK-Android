@@ -1,0 +1,88 @@
+{
+  "source_commit": "00dae8a53e2f5b66380d6e43c555260299ce7f43",
+  "dirty": true,
+  "tests": [
+    {
+      "suite": "se.haya.skk.LicensesActivityTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "se.haya.skk.SettingsActivityTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "dependency_coordinates": 68,
+  "artifacts": [
+    {
+      "variant": "debug",
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "bd5377b163a96360d8db9bfe38be4a1a37b35fa06928524b39edee45355b2fec",
+      "license_resources": [
+        "HerissonSKK-MIT.txt",
+        "license-scope.txt",
+        "third-party-notices.txt",
+        "Apache-2.0.txt",
+        "icu-LICENSE.txt"
+      ]
+    },
+    {
+      "variant": "release",
+      "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+      "sha256": "4c6e6dbd8564c41c6e22de3210b1c140bd17b8d42c1947c87286a9a13f6891d7",
+      "license_resources": [
+        "HerissonSKK-MIT.txt",
+        "license-scope.txt",
+        "third-party-notices.txt",
+        "Apache-2.0.txt",
+        "icu-LICENSE.txt"
+      ]
+    }
+  ],
+  "icon_original_sha256": "d57e88b8a12161999b4988310d8aa63c87ad3b29bc3b7d6c987ad398fb091a91",
+  "icon_copy_exact": true,
+  "not_executed": [
+    "本番署名",
+    "Google Play 配布準備",
+    "実機導入",
+    "未解決試験 #2/#3/#4 の調査"
+  ],
+  "emulator_checks": [
+    {
+      "serial": "emulator-5584",
+      "sdk": "35",
+      "license_navigation": "passed",
+      "mit_and_icon_scope": "passed",
+      "updated_third_party_notices": "passed",
+      "back_navigation": "passed",
+      "app_name_and_icon": "captured_and_reviewed",
+      "previous_apk_restored": true,
+      "default_ime_unchanged": true
+    },
+    {
+      "serial": "emulator-5586",
+      "sdk": "26",
+      "license_navigation": "passed",
+      "mit_and_icon_scope": "passed",
+      "updated_third_party_notices": "passed",
+      "back_navigation": "passed",
+      "app_name_and_icon": "captured_and_reviewed",
+      "previous_apk_restored": true,
+      "default_ime_unchanged": true
+    }
+  ],
+  "license_scope": "本体の独自コード・独自文書・指定ハリネズミアイコン: MIT。第三者部分・外部辞書: 元の条件。",
+  "ai_disclosure": "README とアイコン由来記録に Codex / ChatGPT の関与を記載。",
+  "license_hashes": {
+    "HerissonSKK-MIT.txt": "a039c38752906a78327ab108d53c11ce44cd776b5a18f01b12382e9cd06fdf65",
+    "license-scope.txt": "5886042b1affb02012f31984f2ca4d414ba07bf5083afd6ee1800ee9078993e6",
+    "third-party-notices.txt": "8dd2e36efbcaff668fc5469e0e9c5706c43eaaa11bfc8309bac4b3910cfddf9b",
+    "icu-LICENSE.txt": "451167c55c0fa447cc2d5632714f5e3c567fe4f1e1badefab2c1333852198aca",
+    "Apache-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  }
+}

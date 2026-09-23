@@ -1,0 +1,35 @@
+{
+  "status": "scan_complete_review_complete_with_comparison_limits",
+  "client_version": "1.54.2",
+  "endpoint": "https://api.osskb.org/scan/direct",
+  "files": 260,
+  "wfp_bytes": 494812,
+  "wfp_sha256": "b0a562604291ba96daac6e5f138d43cef7fd1e83d4d93ce7149f9cb7260ffafe",
+  "wfp_path": "/tmp/skk-android-source.wfp",
+  "flags": 2306,
+  "threads": 2,
+  "timeout_seconds": 45,
+  "retry": 1,
+  "hpsm": false,
+  "transmitted": true,
+  "approval": "送信先・フィンガープリント等の具体的な送信内容を説明した後、利用者が「送信してください」と承認",
+  "result_files": 260,
+  "result_counts": {
+    "snippet": 15,
+    "none": 242,
+    "file": 3
+  },
+  "results_sha256": "44932502bfca85380922610b504710dc7296b263eb081165fe21da99436a65d6",
+  "review_counts": {
+    "known_third_party": 2,
+    "common_patterns_compared": 12,
+    "local_provenance_and_common_patterns_reviewed": 4
+  },
+  "source_hashes_reverified": true,
+  "report": "scanoss-20260923.md",
+  "comparison_limits": {
+    "upstream_source_unavailable": 3,
+    "note": "直接比較の未完了であり、確認された流用・修正要求の件数ではない。"
+  },
+  "followup_report": "scanoss-20260923-followup.md"
+}

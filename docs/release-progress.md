@@ -7,7 +7,7 @@
 - 入力・設定・辞書管理・再帰登録の改善を `998ca03` で main へ統合し、push 済みです。利用者が気になる振舞いへの対応は完了との確認を受けました。
 - [候補・再帰登録UIの改善](https://github.com/yhayase/skk-android/milestone/1)は完了です。[初回リリース](https://github.com/yhayase/skk-android/milestone/2)は継続します。
 - 最新ローカルゲートは1,378件と lint・APK 検査が成功し、API 35 は物理6件・タッチ9件が成功しました。API 26 の入力文字数不一致・予測候補2件、過去の回転試験失敗の原因判定をリリース前の残件へ追加しました（[#2](https://github.com/yhayase/skk-android/issues/2)、[#3](https://github.com/yhayase/skk-android/issues/3)、[#4](https://github.com/yhayase/skk-android/issues/4)）。失敗を試験側だけの問題とは断定しません。
-- 名称 **HerissonSKK (for Android)** と `HerissonSKK-icon-refined.png` の採用が決定しました。アプリへの反映は残ります。MIT の[適合性調査](licenses.md)を実施し、正式採用・第三者通知等の整備は未完了です。Google Play で配布できるよう準備する方針ですが、準備への着手は保留しています。本番署名と最終公開判断も残ります。
+- 名称 **HerissonSKK (for Android)** と指定アイコンをアプリへ反映しました。本体・指定アイコンの MIT 本文と適用範囲、第三者通知、オフラインのライセンス画面を追加しました。[変更と検証](reviews/branding-licenses-20260923.md)に記録します。Google Play で配布できるよう準備する方針ですが、準備への着手は保留しています。本番署名と最終公開判断も残ります。
 - 既に受け入れた性能・実キーボード操作・日常利用を再確認することは求めません。下記の2026-09-20の表と人間作業一覧は当時の履歴であり、現在の未完了作業の一覧ではありません。
 
 現在の範囲・完了条件は[ロードマップ](roadmap.md#初回リリースまでの残件)、最新の検証証拠は[再帰登録UI記録](reviews/registration-ui-20260922.md)を参照してください。

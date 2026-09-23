@@ -1,0 +1,3659 @@
+{
+  "app/build.gradle.kts": [
+    {
+      "component": "stasis",
+      "file": "client-android/app/build.gradle.kts",
+      "file_hash": "2537827add3db94793b5f4d306a75ca2",
+      "file_url": " ",
+      "hits": 7,
+      "id": "snippet",
+      "latest": "1e4175c",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/Apache-2.0.txt",
+          "copyleft": "no",
+          "name": "Apache-2.0",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "yes",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/Apache-2.0.html"
+        }
+      ],
+      "lines": "15-48",
+      "matched": "68%",
+      "oss_lines": "73-106",
+      "purl": [
+        "pkg:github/sndnv/stasis"
+      ],
+      "release_date": "2025-06-13",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "7c38d305d136c02dab01c0e074a03f1e",
+      "status": "pending",
+      "url": "https://github.com/sndnv/stasis",
+      "url_hash": "c931d9fc4689bfa9e92895c8ff62391c",
+      "vendor": "sndnv",
+      "version": "1e4175c"
+    }
+  ],
+  "app/src/androidTest/AndroidManifest.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/CandidateStatusAndroidTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/CompleteBackupFaultProvider.java": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/CompleteBackupProviderFailureTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/CompleteBackupSafE2eTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/DictionarySettingsUiTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/UpgradePersistenceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/dictionary/CompleteDictionaryBackupAndroidTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/dictionary/DictionaryCrashRecoveryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/dictionary/DictionaryPerformanceAndroidTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/dictionary/LargeDictionaryImportAndroidTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/dictionary/NetworkDictionaryLiveTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/androidTest/java/se/haya/skk/dictionary/SQLiteDictionaryAndroidTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/benchmark/res/values/strings.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/debug/AndroidManifest.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/debug/java/se/haya/skk/dictionary/DictionaryCrashTestService.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/debug/res/values/dictionary_build.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/AndroidManifest.xml": [
+    {
+      "component": "70725406",
+      "file": "1",
+      "file_hash": "93369c37cb0571265bb8c33ff5e55798",
+      "file_url": " ",
+      "hits": 5,
+      "id": "snippet",
+      "latest": "1",
+      "licenses": [
+        {
+          "name": "CC-BY-SA-4.0",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/CC-BY-SA-4.0.html"
+        }
+      ],
+      "lines": "6-29",
+      "matched": "63%",
+      "oss_lines": "254-277",
+      "purl": [
+        "pkg:stackoverflow/70725406"
+      ],
+      "release_date": "2022-01-15",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "0a0634345753a003c2fa2246d816e047",
+      "status": "pending",
+      "url": "https://stackoverflow.com/revisions/70725406/1",
+      "url_hash": "93369c37cb0571265bb8c33ff5e55798",
+      "vendor": "Taha alam",
+      "version": "1"
+    }
+  ],
+  "app/src/main/java/se/haya/skk/AppEmacsSettingsActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/AppEmacsSettingsFragment.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/BasicSettingsActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/CandidateStatusView.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/CompleteDictionaryBackupActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/CompleteDictionaryBackupFragment.kt": [
+    {
+      "component": "trackbook",
+      "file": "app/src/main/java/org/y20k/trackbook/SettingsFragment.kt",
+      "file_hash": "0598675557796d98b5bee4ce8f2f0fe4",
+      "file_url": " ",
+      "hits": 5,
+      "id": "snippet",
+      "latest": "v2.2.1",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/MIT.txt",
+          "copyleft": "no",
+          "name": "MIT",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "no",
+          "source": "license_file",
+          "url": "https://spdx.org/licenses/MIT.html"
+        }
+      ],
+      "lines": "5-14",
+      "matched": "13%",
+      "oss_lines": "40-49",
+      "purl": [
+        "pkg:codeberg/y20k/trackbook"
+      ],
+      "release_date": "2024-07-09",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "98d91e0b298d7db371e1548fd9ae745c",
+      "status": "pending",
+      "url": "https://codeberg.org/y20k/trackbook/archive/v2.2.1.zip",
+      "url_hash": "cc35525c77913ec1935898f803dbaee5",
+      "vendor": "y20k",
+      "version": "v2.2.1"
+    }
+  ],
+  "app/src/main/java/se/haya/skk/ConfigurationRestartIdentity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/CursorAnchorAcceptance.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/CursorAnchorMonitor.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/CustomizationPageFragment.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/CustomizationSettingsActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/DictionarySettingsActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/DictionarySettingsFragment.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/InitialDictionaryInstaller.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/InlineCandidateAnnotationPopup.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/LongCandidateBodyView.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/PhysicalInputPopup.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/PhysicalPopupHost.kt": [
+    {
+      "component": "newproj",
+      "file": "app/src/main/java/com/tacoclient/launcher/ImGuiManager.kt",
+      "file_hash": "faab058f570776073cfe05315c48b380",
+      "file_url": " ",
+      "hits": 3,
+      "id": "snippet",
+      "latest": "debug-build/20250509-152630-9b04526",
+      "licenses": [],
+      "lines": "6-32",
+      "matched": "53%",
+      "oss_lines": "6-32",
+      "purl": [
+        "pkg:github/lilorangecat/newproj"
+      ],
+      "release_date": "2025-05-07",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "8092f4cbab2d8491d74ff0499727c45f",
+      "status": "pending",
+      "url": "https://github.com/lilorangecat/newproj",
+      "url_hash": "88227c7f05e744eef7efd0b4782684a8",
+      "vendor": "lilorangecat",
+      "version": "debug-build/20250507-154549-75617a6"
+    }
+  ],
+  "app/src/main/java/se/haya/skk/RegistrationEditorView.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/RegistrationPresentation.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/SettingsActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/SettingsPageActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/SetupActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/SkkInputMethodService.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/SystemInsets.kt": [
+    {
+      "component": "my-app-update",
+      "file": "app/src/main/java/com/flights/studio/EditNoteActivity.kt",
+      "file_hash": "425f30c42f9d08f12df152270f41d701",
+      "file_url": " ",
+      "hits": 4,
+      "id": "snippet",
+      "latest": "0.2.211",
+      "licenses": [
+        {
+          "name": "EPL-2.0 AND GPL-2.0-only AND GPL-2.0-only WITH Classpath-exception-2.0",
+          "source": "scancode",
+          "url": "https://spdx.org/licenses/EPL-2.0.html",
+          "urls": {
+            "Classpath-exception-2.0": "https://spdx.org/licenses/Classpath-exception-2.0.html",
+            "EPL-2.0": "https://spdx.org/licenses/EPL-2.0.html",
+            "GPL-2.0-only": "https://spdx.org/licenses/GPL-2.0-only.html"
+          }
+        },
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/Apache-2.0.txt",
+          "copyleft": "no",
+          "name": "Apache-2.0",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "yes",
+          "source": "scancode",
+          "url": "https://spdx.org/licenses/Apache-2.0.html"
+        }
+      ],
+      "lines": "9-28",
+      "matched": "46%",
+      "oss_lines": "603-622",
+      "purl": [
+        "pkg:github/aliencodingjava/my-app-update"
+      ],
+      "release_date": "2025-09-17",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "16c806766389532a82bb83ad5bfd17cf",
+      "status": "pending",
+      "url": "https://github.com/aliencodingjava/my-app-update",
+      "url_hash": "5a9e47e53446ddd6ab51fe5d20194868",
+      "vendor": "aliencodingjava",
+      "version": "0.2.211"
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/BuiltinDictionary.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/CandidateDeletion.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/CompleteBackupOperations.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/DictionaryManager.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/DictionaryRuntime.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/DictionarySettingsDraft.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/PersonalDataPolicy.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/SQLiteDictionaryRepository.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/SQLiteSkkDictionary.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/ValidatedDictionaryBackup.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/network/NetworkDictionaryCatalog.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/dictionary/network/NetworkDictionaryDownloader.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/AsyncPredictionDictionary.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/EditorEditPort.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/EditorSession.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/HardwareKeyMapper.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/HardwareKeyboardPresence.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/KeyFlickGesture.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/KeyPressLedger.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/PilotEngine.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/QuoteNextKey.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/TouchKeyboardController.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/input/TouchKeyboardView.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/settings/AppEmacsEditingStore.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/settings/BasicSettingsStore.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/settings/CustomizationRuntime.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/settings/CustomizationSettings.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/settings/CustomizationStore.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/java/se/haya/skk/settings/KeyGestureText.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/drawable/ic_dictionary_add.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/drawable/ic_dictionary_delete.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/drawable/ic_dictionary_drag.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/drawable/ic_dictionary_update.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/drawable/ic_keyboard.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/drawable/ic_settings_back.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/layout/preference_widget_dictionary_source.xml": [
+    {
+      "component": "48302171",
+      "file": "1",
+      "file_hash": "0751c0d8004884637a05ae13c7b38cd4",
+      "file_url": " ",
+      "hits": 6,
+      "id": "snippet",
+      "latest": "1",
+      "licenses": [
+        {
+          "name": "CC-BY-SA-3.0",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/CC-BY-SA-3.0.html"
+        }
+      ],
+      "lines": "3-21",
+      "matched": "60%",
+      "oss_lines": "3-21",
+      "purl": [
+        "pkg:stackoverflow/48302171"
+      ],
+      "release_date": "2018-01-17",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "881eec6ba7870791777d6919801f5b52",
+      "status": "pending",
+      "url": "https://stackoverflow.com/revisions/48302171/1",
+      "url_hash": "0751c0d8004884637a05ae13c7b38cd4",
+      "vendor": "waldemar",
+      "version": "1"
+    }
+  ],
+  "app/src/main/res/layout/preference_widget_material_switch.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/layout/settings_page.xml": [
+    {
+      "component": "71469004",
+      "file": "2",
+      "file_hash": "4ce89a0c1b17483d2b5190f46289a95f",
+      "file_url": " ",
+      "hits": 8,
+      "id": "snippet",
+      "latest": "2",
+      "licenses": [
+        {
+          "name": "CC-BY-SA-4.0",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/CC-BY-SA-4.0.html"
+        }
+      ],
+      "lines": "3-45",
+      "matched": "67%",
+      "oss_lines": "107-149",
+      "purl": [
+        "pkg:stackoverflow/71469004"
+      ],
+      "release_date": "2022-03-14",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "9dac8e164885cbf6ab8a187cc930b0a2",
+      "status": "pending",
+      "url": "https://stackoverflow.com/revisions/71469004/2",
+      "url_hash": "4ce89a0c1b17483d2b5190f46289a95f",
+      "vendor": "Jojo",
+      "version": "2"
+    }
+  ],
+  "app/src/main/res/values-v27/settings_theme.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values-w360dp/settings_dimensions.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values-w720dp/settings_dimensions.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/candidate_status_ids.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/dictionary_build.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/dictionary_strings.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/ids.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/ime_dictionary_strings.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/registration_strings.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/settings_dimensions.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/settings_navigation_strings.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/settings_theme.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/values/strings.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/main/res/xml/data_extraction_rules.xml": [
+    {
+      "component": "ausweisapp",
+      "file": "resources/packaging/android/data_extraction_rules.xml",
+      "file_hash": "d12dc0849207839d8be8444636cc42aa",
+      "file_url": " ",
+      "id": "file",
+      "latest": "2.5.4",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/MIT.txt",
+          "copyleft": "no",
+          "name": "MIT",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "no",
+          "source": "license_file",
+          "url": "https://spdx.org/licenses/MIT.html"
+        }
+      ],
+      "lines": "all",
+      "matched": "100%",
+      "oss_lines": "all",
+      "purl": [
+        "pkg:github/governikus/ausweisapp",
+        "pkg:maven/com.governikus/ausweisapp"
+      ],
+      "release_date": "2023-07-25",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "d12dc0849207839d8be8444636cc42aa",
+      "status": "pending",
+      "url": "https://github.com/governikus/ausweisapp",
+      "url_hash": "e1a1208c528c9a55ff5ec7fe2db3be2c",
+      "vendor": "governikus",
+      "version": "1.26.5"
+    }
+  ],
+  "app/src/main/res/xml/input_method.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/AppEmacsSettingsActivityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/BasicSettingsActivityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CandidateLearningPersistenceServiceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CandidateStatusServiceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CandidateStatusViewTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CompleteBackupIoActivityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CompleteBackupServiceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CompleteDictionaryBackupActivityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CompletionServiceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/ConfigurationRestartIdentityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CursorAnchorAcceptanceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CursorAnchorMonitorTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/CustomizationServiceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/DictionaryImportFailureActivityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/DictionarySettingsActivityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/ImeSwitchServiceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/InitialDictionaryInstallerTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/InlineCandidateAnnotationPopupTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/KeyboardVisibilityServiceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/PhysicalInputPopupTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/QuoteNextServiceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/RedesignedCandidateViewTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/RegistrationEditorViewTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/ServiceConfigurationTest.kt": [
+    {
+      "component": "passbutler-android",
+      "file": "PassButler/src/main/kotlin/de/passbutler/app/autofill/StructureParser.kt",
+      "file_hash": "51bc2be46d9845d5de03e62a2cd4335c",
+      "file_url": " ",
+      "hits": 5,
+      "id": "snippet",
+      "latest": "1.2.0",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/AGPL-3.0-only.txt",
+          "copyleft": "yes",
+          "incompatible_with": "Apache-1.0, Apache-1.1, BSD-4-Clause, BSD-4-Clause-UC, BSD-4.3TAHOE, FTL, IJG, LicenseRef-scancode-bsla-no-advert, Minpack, OpenSSL, PHP-3.01, PSF-2.0, Python-2.0, zlib-acknowledgement",
+          "name": "AGPL-3.0-only",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "yes",
+          "source": "scancode",
+          "url": "https://spdx.org/licenses/AGPL-3.0-only.html"
+        }
+      ],
+      "lines": "6-26",
+      "matched": "50%",
+      "oss_lines": "5-25",
+      "purl": [
+        "pkg:github/passbutler/passbutler-android"
+      ],
+      "release_date": "2023-05-18",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "9896f7ae26fd221ed1e9f7ea5e68055e",
+      "status": "pending",
+      "url": "https://github.com/passbutler/passbutler-android",
+      "url_hash": "3b49b7198dbf1721a402589d32b0552c",
+      "vendor": "passbutler",
+      "version": "1.2.0"
+    }
+  ],
+  "app/src/test/java/se/haya/skk/SettingsActivityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/SystemInsetsTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/dictionary/BoundedSQLiteDictionaryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/dictionary/CandidateDeletionRepositoryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/dictionary/CompleteBackupManagerTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/dictionary/CompleteDictionaryRepositoryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/dictionary/DictionaryManagerDeletionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/dictionary/DictionaryManagerTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/dictionary/DictionarySuppressionManagerTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/dictionary/SQLiteDictionaryRepositoryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/dictionary/network/NetworkDictionaryDownloaderTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/AsyncPredictionDictionaryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/CandidateDeletionSessionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/CandidateLearningSessionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/CompletionRegistrationSessionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/CompletionSessionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/CompositionMarkerSessionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/ConfiguredKeyMapperTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/DeferredDictionarySessionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/EditorEditPortTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/EditorSessionEditingTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/EditorSessionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/HardwareCompletionCycleTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/HardwareKeyMapperTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/HardwareReadingRegressionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/InlineAnnotationSessionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/KeyPressLedgerTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/PredictionPrefixIntegrationTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/QuoteNextKeyTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/RegistrationSessionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/TouchKeyboardControllerTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/input/TouchKeyboardViewTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/settings/AppEmacsEditingStoreTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/settings/BasicSettingsStoreTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/settings/CustomizationActivityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/settings/CustomizationStoreTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "app/src/test/java/se/haya/skk/settings/KeyGestureTextTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "build.gradle.kts": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/build.gradle.kts": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/BasicSkkEngine.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/CandidateDeletion.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/Completion.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/EditableBuffer.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/InputConfiguration.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/Prediction.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/Registration.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/dictionary/CandidateSelection.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/dictionary/CompleteDictionaryBackupCodec.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/dictionary/CompleteDictionaryBackupModels.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/dictionary/CompositeSkkDictionary.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/dictionary/DeferredDictionaryReadException.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/dictionary/DictionaryReadScope.kt": [
+    {
+      "component": "Rokid-Nexus",
+      "file": "plugins/lens/src/main/java/com/anezium/rokidbus/plugin/lens/LiveOcrPipeline.kt",
+      "file_hash": "f4e6cf3ba8565e727ac7a4d5aa061512",
+      "file_url": " ",
+      "hits": 2,
+      "id": "snippet",
+      "latest": "assistant-v1.0.0",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/Apache-2.0.txt",
+          "copyleft": "no",
+          "name": "Apache-2.0",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "yes",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/Apache-2.0.html"
+        }
+      ],
+      "lines": "8-26",
+      "matched": "66%",
+      "oss_lines": "105-123",
+      "purl": [
+        "pkg:github/anezium/rokid-nexus"
+      ],
+      "release_date": "2026-08-03",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "0e49c88922d585ed1202dd469ed5d837",
+      "status": "pending",
+      "url": "https://github.com/anezium/rokid-nexus",
+      "url_hash": "2bf4c2d8a7fca56cc0e7bc47280f7586",
+      "vendor": "Anezium",
+      "version": "assistant-v1.0.0"
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/dictionary/DictionaryUnavailableException.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/dictionary/SkkDictionaryCodec.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/dictionary/SkkDictionaryModels.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/editing/Editing.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/keys/KeyBindings.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/numeric/NumericConversion.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/numeric/NumericSkkDictionary.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/romaji/AzikRules.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/romaji/KanaTransforms.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/romaji/RomanRuleSet.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/main/kotlin/se/haya/skk/core/romaji/Romanizer.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/BasicSkkCompletionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/BasicSkkEngineInvariantTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/BasicSkkEngineTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/BasicSkkInternalEditingTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/BasicSkkRegistrationTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/BasicSkkSemanticCommandTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/CandidateDeletionInvariantTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/CandidateDeletionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/CandidateLearningTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/CompletionBoundaryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/CompletionInvariantTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/DeferredDictionaryEngineTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/DictionaryAvailabilityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/EditableBufferTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/GraphemeConformanceTest.kt": [
+    {
+      "component": "woo-todo",
+      "file": "android/app/src/test/java/com/wootodo/sync/SyncJsonCodecTest.kt",
+      "file_hash": "13028024e113af0c0f9db6de2dac5d67",
+      "file_url": " ",
+      "hits": 3,
+      "id": "snippet",
+      "latest": "v0.1.20",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/MIT.txt",
+          "copyleft": "no",
+          "name": "MIT",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "no",
+          "source": "license_file",
+          "url": "https://spdx.org/licenses/MIT.html"
+        }
+      ],
+      "lines": "5-11",
+      "matched": "18%",
+      "oss_lines": "6-12",
+      "purl": [
+        "pkg:github/stophemo/woo-todo"
+      ],
+      "release_date": "2026-08-04",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "24c59620ef8b30adac9b3447bb8403cb",
+      "status": "pending",
+      "url": "https://github.com/stophemo/woo-todo",
+      "url_hash": "3ae20132d15b9b4bd095374d4665261a",
+      "vendor": "stophemo",
+      "version": "v0.1.20"
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/InputConfigurationTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/RegistrationInvariantTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/StandardSpecialRomajiTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/TouchCandidateSemanticsTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/UppercaseVowelOkuriTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/dictionary/CompleteDictionaryBackupCodecTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/dictionary/CompletionDictionaryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/dictionary/CompositeSkkDictionaryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/dictionary/CompositeSuppressionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/dictionary/PredictionDictionaryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/dictionary/SkkDictionaryCodecTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/editing/EditingTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/keys/KeyBindingsTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/numeric/NumericConversionTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/numeric/NumericSkkDictionaryTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/romaji/AzikRulesTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/romaji/KanaTransformsTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/romaji/RomanRuleSetTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "core/src/test/kotlin/se/haya/skk/core/romaji/RomanizerTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "docs/audit/release-license-audit.init.gradle": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "gradlew": [
+    {
+      "component": "MagicLib",
+      "file": "gradlew",
+      "file_hash": "f092910dfa8e47c5a37a452c3f6baf8a",
+      "file_url": " ",
+      "id": "file",
+      "latest": "dev/0.8.675",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/LGPL-3.0-only.txt",
+          "copyleft": "yes",
+          "incompatible_with": "Apache-1.0, Apache-1.1, Artistic-2.0, BSD-4-Clause, BSD-4-Clause-UC, BSD-4.3TAHOE, FTL, IJG, LicenseRef-scancode-bsla-no-advert, Minpack, OpenSSL, PHP-3.01, PSF-2.0, Python-2.0, zlib-acknowledgement",
+          "name": "LGPL-3.0-only",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "yes",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/LGPL-3.0-only.html"
+        }
+      ],
+      "lines": "all",
+      "matched": "100%",
+      "oss_lines": "all",
+      "purl": [
+        "pkg:github/hendrix-shen/magiclib",
+        "pkg:maven/top.hendrixshen.magiclib/magiclib-minecraft-api-1.15.2-fabric",
+        "pkg:golang/github.com/hendrix-shen/magiclib"
+      ],
+      "release_date": "2024-04-22",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "f092910dfa8e47c5a37a452c3f6baf8a",
+      "status": "pending",
+      "url": "https://github.com/hendrix-shen/magiclib",
+      "url_hash": "ec15e45e5ae1d89249016d2f828f7fee",
+      "vendor": "Hendrix-Shen",
+      "version": "0.8"
+    }
+  ],
+  "gradlew.bat": [
+    {
+      "component": "XposedPhotosFIX",
+      "file": "gradlew.bat",
+      "file_hash": "32becf2399ca457d739600b1917397c3",
+      "file_url": " ",
+      "id": "file",
+      "latest": "main",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/GPL-3.0-only.txt",
+          "copyleft": "yes",
+          "incompatible_with": "Apache-1.0, Apache-1.1, BSD-4-Clause, BSD-4-Clause-UC, BSD-4.3TAHOE, FTL, IJG, LicenseRef-scancode-bsla-no-advert, Minpack, OpenSSL, PHP-3.01, PSF-2.0, Python-2.0, zlib-acknowledgement",
+          "name": "GPL-3.0-only",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "yes",
+          "source": "license_file",
+          "url": "https://spdx.org/licenses/GPL-3.0-only.html"
+        }
+      ],
+      "lines": "all",
+      "matched": "100%",
+      "oss_lines": "all",
+      "purl": [
+        "pkg:github/revealedsouleven/xposedphotosfix"
+      ],
+      "release_date": "2023-02-11",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "7be26de1fd6e5461efac65d3a4cd272f",
+      "status": "pending",
+      "url": "https://github.com/RevealedSoulEven/XposedPhotosFIX",
+      "url_hash": "b13d8b213d0a22aecf0eb1404c84c54f",
+      "vendor": "RevealedSoulEven",
+      "version": "main"
+    }
+  ],
+  "scripts/measure-device.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/measure-dictionary-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/review/androidskk-core.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/review/browser-core-probes.test.ts": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test-complete-backup-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test-customization-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test-dictionary-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test-dictionary-settings-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test-display-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test-saf-dictionary-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test-upgrade-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test-view-emulator.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test_customization_emulator_test.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test_display_emulator_test.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test_emulator_runner_test.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/test_upgrade_emulator_runner_test.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "scripts/verify-local.py": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "settings.gradle.kts": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/build.gradle.kts": [
+    {
+      "component": "stasis",
+      "file": "client-android/app/build.gradle.kts",
+      "file_hash": "043e33671f00f940fd7061df267d81e3",
+      "file_url": " ",
+      "hits": 4,
+      "id": "snippet",
+      "latest": "v1.1.0",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/Apache-2.0.txt",
+          "copyleft": "no",
+          "name": "Apache-2.0",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "yes",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/Apache-2.0.html"
+        }
+      ],
+      "lines": "15-29",
+      "matched": "48%",
+      "oss_lines": "75-89",
+      "purl": [
+        "pkg:github/sndnv/stasis"
+      ],
+      "release_date": "2024-08-28",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "87e62f6484c8e06c9cf6c882aafc651c",
+      "status": "pending",
+      "url": "https://github.com/sndnv/stasis",
+      "url_hash": "63f72771bd3830c5fc3ebfeee57c1cb9",
+      "vendor": "sndnv",
+      "version": "v1.1.0"
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/CandidateDisplayE2eTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/CoreUnicodeTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/CustomizationE2eTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/KeyboardVisibilityTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/PerformanceTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/PhysicalInputTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/PhysicalPopupLifecycleTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/SafDictionaryE2eTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/SettingsLayoutTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/SettingsTestUi.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/TouchInputTest.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/androidTest/java/se/haya/skk/testeditor/WebEditorAssertions.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/main/AndroidManifest.xml": [
+    {
+      "component": "70072211",
+      "file": "1",
+      "file_hash": "fb297d61e64dbfd08f36c55ed2d3c319",
+      "file_url": " ",
+      "hits": 4,
+      "id": "snippet",
+      "latest": "1",
+      "licenses": [
+        {
+          "name": "CC-BY-SA-4.0",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/CC-BY-SA-4.0.html"
+        }
+      ],
+      "lines": "2-17",
+      "matched": "88%",
+      "oss_lines": "8-23",
+      "purl": [
+        "pkg:stackoverflow/70072211"
+      ],
+      "release_date": "2021-11-22",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "563d1495ccb3deb7484dd50b81842d3b",
+      "status": "pending",
+      "url": "https://stackoverflow.com/revisions/70072211/1",
+      "url_hash": "fb297d61e64dbfd08f36c55ed2d3c319",
+      "vendor": "Karim Cherimo Aoulad",
+      "version": "1"
+    }
+  ],
+  "test-editor/src/main/java/se/haya/skk/testeditor/InputTestActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/main/java/se/haya/skk/testeditor/StableEditorActivity.kt": [
+    {
+      "component": "beastlocator",
+      "file": "app/src/main/java/jp/linkserver/beastlocator/SettingsActivity.kt",
+      "file_hash": "41d0a54b4f8d08f0de761fdde3e0a0dd",
+      "file_url": " ",
+      "hits": 2,
+      "id": "snippet",
+      "latest": "v0.9.2-Beta",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/MIT.txt",
+          "copyleft": "no",
+          "name": "MIT",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "no",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/MIT.html"
+        }
+      ],
+      "lines": "6-16",
+      "matched": "47%",
+      "oss_lines": "6-16",
+      "purl": [
+        "pkg:github/link2011-act2/beastlocator"
+      ],
+      "release_date": "2026-03-24",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "88a1d00eb46b0963c5ac6cbeeeb68b7b",
+      "status": "pending",
+      "url": "https://github.com/link2011-act2/beastlocator",
+      "url_hash": "d3ceb3340cbf80704b717005be66920b",
+      "vendor": "link2011-act2",
+      "version": "v0.9.2-Beta"
+    }
+  ],
+  "test-editor/src/main/java/se/haya/skk/testeditor/SystemInsets.kt": [
+    {
+      "component": "communication-ui-library-android",
+      "file": "azure-communication-ui/calling/src/main/java/com/azure/android/communication/ui/calling/presentation/CallCompositeActivity.kt",
+      "file_hash": "8e9c70f0bc57d32d77d281945299a642",
+      "file_url": " ",
+      "hits": 6,
+      "id": "snippet",
+      "latest": "calling-v1.15.1",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/MIT.txt",
+          "copyleft": "no",
+          "name": "MIT",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "no",
+          "source": "component_declared",
+          "url": "https://spdx.org/licenses/MIT.html"
+        }
+      ],
+      "lines": "11-18",
+      "matched": "25%",
+      "oss_lines": "563-570",
+      "purl": [
+        "pkg:github/azure/communication-ui-library-android",
+        "pkg:maven/com.azure.android/azure-communication-ui-calling"
+      ],
+      "release_date": "2026-01-08",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "d040a782c2505ea27551aec34b1cc8a5",
+      "status": "pending",
+      "url": "https://github.com/azure/communication-ui-library-android",
+      "url_hash": "9b3a74eba18c439204d4543b8cdb03b2",
+      "vendor": "azure",
+      "version": "calling-v1.15.0"
+    }
+  ],
+  "test-editor/src/main/java/se/haya/skk/testeditor/TypeNullFullscreenActivity.kt": [
+    {
+      "component": "yanami",
+      "file": "app/src/main/java/com/sekusarisu/yanami/ui/screen/terminal/TerminalInputCapture.kt",
+      "file_hash": "030eedaa4974e6c3ac9261fb7856e86d",
+      "file_url": " ",
+      "hits": 5,
+      "id": "snippet",
+      "latest": "v1.0.0",
+      "licenses": [
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/MIT.txt",
+          "copyleft": "no",
+          "name": "MIT",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "no",
+          "source": "license_file",
+          "url": "https://spdx.org/licenses/MIT.html"
+        },
+        {
+          "checklist_url": "https://www.osadl.org/fileadmin/checklists/unreflicenses/Apache-2.0.txt",
+          "copyleft": "no",
+          "name": "Apache-2.0",
+          "osadl_updated": "2026-02-12T16:31:00+0000",
+          "patent_hints": "yes",
+          "source": "license_file",
+          "url": "https://spdx.org/licenses/Apache-2.0.html"
+        }
+      ],
+      "lines": "6-33",
+      "matched": "65%",
+      "oss_lines": "5-32",
+      "purl": [
+        "pkg:github/icylian/yanami"
+      ],
+      "release_date": "2026-03-06",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      },
+      "source_hash": "e81ced7cd6eee9266a2697eeccd52413",
+      "status": "pending",
+      "url": "https://github.com/icylian/yanami",
+      "url_hash": "0a61e46f31c3c5b81d58f3368d9a3219",
+      "vendor": "icylian",
+      "version": "v1.0.0"
+    }
+  ],
+  "test-editor/src/main/java/se/haya/skk/testeditor/WebInputTestActivity.kt": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ],
+  "test-editor/src/main/res/values/strings.xml": [
+    {
+      "id": "none",
+      "server": {
+        "kb_version": {
+          "daily": "26.09.21",
+          "monthly": "26.08"
+        },
+        "version": "5.4.25"
+      }
+    }
+  ]
+}

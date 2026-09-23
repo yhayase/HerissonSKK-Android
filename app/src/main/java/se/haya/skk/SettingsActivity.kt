@@ -69,6 +69,7 @@ class SettingsIndexFragment : PreferenceFragmentCompat() {
         row(dictionaries, "学習と補完") { basic("learning") }
         row(dictionaries, "バックアップと復元") { startActivity(Intent(context, CompleteDictionaryBackupActivity::class.java)) }
         val other = category("その他")
+        row(other, "ライセンス") { startActivity(Intent(context, LicensesActivity::class.java)) }
         row(other, "初期設定") { startActivity(Intent(context, SetupActivity::class.java)) }
     }
 }

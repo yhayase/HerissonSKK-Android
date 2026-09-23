@@ -349,7 +349,7 @@ class TouchInputTest {
                         it.viewIdResourceName == "android:id/select_dialog_listview" && it.isVisibleToUser
                     } ?: return@any false
                     val nodes = accessibilityDescendants(list).toList()
-                    nodes.any { it.text?.toString() == "SKK（開発版）" && it.isVisibleToUser } &&
+                    nodes.any { it.text?.toString() == "HerissonSKK (for Android)" && it.isVisibleToUser } &&
                         nodes.any { it.isCheckable && it.isVisibleToUser }
                 }
             }

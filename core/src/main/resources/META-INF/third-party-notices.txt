@@ -1,44 +1,184 @@
-このアプリの実行時依存関係
+第三者ソフトウェアに関する表示
+
+この一覧は、2026年9月23日にリリース用APKの実行時クラスパスから確認した
+68件の依存モジュールと、下記の同梱アイコンを対象としています。
+
+Apache License 2.0 のライセンス本文:
+META-INF/Apache-2.0.txt
+
+各AAR/JARおよび対応する公開POMを確認した結果、以下のApache License 2.0対象物には、
+配布物へ転載する追加のNOTICE文書は含まれていませんでした。
+
+----------------------------------------------------------------------
+AndroidX（58モジュール）
+----------------------------------------------------------------------
+
+提供元: Android Open Source Project
+ライセンス: Apache License 2.0
+ライセンス情報の根拠: 各モジュールの公開POM
+プロジェクト: https://android.googlesource.com/platform/frameworks/support/
+
+androidx.activity:activity:1.8.0
+androidx.activity:activity-ktx:1.8.0
+androidx.annotation:annotation-experimental:1.4.0
+androidx.annotation:annotation-jvm:1.6.0
+androidx.appcompat:appcompat:1.6.1
+androidx.appcompat:appcompat-resources:1.6.1
+androidx.arch.core:core-common:2.2.0
+androidx.arch.core:core-runtime:2.2.0
+androidx.cardview:cardview:1.0.0
+androidx.collection:collection:1.1.0
+androidx.collection:collection-ktx:1.1.0
+androidx.concurrent:concurrent-futures:1.1.0
+androidx.constraintlayout:constraintlayout:2.0.1
+androidx.constraintlayout:constraintlayout-solver:2.0.1
+androidx.coordinatorlayout:coordinatorlayout:1.1.0
+androidx.core:core:1.13.0
+androidx.core:core-ktx:1.13.0
+androidx.cursoradapter:cursoradapter:1.0.0
+androidx.customview:customview:1.1.0
+androidx.customview:customview-poolingcontainer:1.0.0
+androidx.documentfile:documentfile:1.0.0
+androidx.drawerlayout:drawerlayout:1.1.1
+androidx.dynamicanimation:dynamicanimation:1.0.0
+androidx.emoji2:emoji2:1.2.0
+androidx.emoji2:emoji2-views-helper:1.2.0
+androidx.fragment:fragment:1.3.6
+androidx.fragment:fragment-ktx:1.3.6
+androidx.interpolator:interpolator:1.0.0
+androidx.legacy:legacy-support-core-utils:1.0.0
+androidx.lifecycle:lifecycle-common:2.6.2
+androidx.lifecycle:lifecycle-livedata:2.6.2
+androidx.lifecycle:lifecycle-livedata-core:2.6.2
+androidx.lifecycle:lifecycle-livedata-core-ktx:2.6.2
+androidx.lifecycle:lifecycle-process:2.6.2
+androidx.lifecycle:lifecycle-runtime:2.6.2
+androidx.lifecycle:lifecycle-runtime-ktx:2.6.2
+androidx.lifecycle:lifecycle-viewmodel:2.6.2
+androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2
+androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2
+androidx.loader:loader:1.0.0
+androidx.localbroadcastmanager:localbroadcastmanager:1.0.0
+androidx.preference:preference:1.2.1
+androidx.print:print:1.0.0
+androidx.profileinstaller:profileinstaller:1.3.0
+androidx.recyclerview:recyclerview:1.3.2
+androidx.resourceinspection:resourceinspection-annotation:1.0.1
+androidx.savedstate:savedstate:1.2.1
+androidx.savedstate:savedstate-ktx:1.2.1
+androidx.slidingpanelayout:slidingpanelayout:1.2.0
+androidx.startup:startup-runtime:1.1.1
+androidx.tracing:tracing:1.0.0
+androidx.transition:transition:1.5.0
+androidx.vectordrawable:vectordrawable:1.1.0
+androidx.vectordrawable:vectordrawable-animated:1.1.0
+androidx.versionedparcelable:versionedparcelable:1.1.1
+androidx.viewpager:viewpager:1.0.0
+androidx.viewpager2:viewpager2:1.1.0-beta02
+androidx.window:window:1.0.0
+
+----------------------------------------------------------------------
+Material Components for Android
+----------------------------------------------------------------------
+
+com.google.android.material:material:1.12.0
+提供元: Google / Android Open Source Project
+ライセンス: Apache License 2.0
+ライセンス情報の根拠: 公開POM
+プロジェクト: https://github.com/material-components/material-components-android
+
+----------------------------------------------------------------------
+Error Prone Annotations
+----------------------------------------------------------------------
+
+com.google.errorprone:error_prone_annotations:2.15.0
+提供元: Google
+ライセンス: Apache License 2.0
+ライセンス情報の根拠: 公開POM
+プロジェクト: https://github.com/google/error-prone
+
+----------------------------------------------------------------------
+Guava ListenableFuture
+----------------------------------------------------------------------
+
+com.google.guava:listenablefuture:1.0
+提供元: Google
+ライセンス: Apache License 2.0
+ライセンス情報の根拠: 公開POMが継承するguava-parent:26.0-android
+プロジェクト: https://github.com/google/guava
+
+----------------------------------------------------------------------
+Kotlin Standard Library
+----------------------------------------------------------------------
 
 org.jetbrains.kotlin:kotlin-stdlib:2.1.20
+org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22
+org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22
+提供元: Kotlin Team / JetBrains
+ライセンス: Apache License 2.0
+ライセンス情報の根拠: 各モジュールの公開POM
+プロジェクト: https://github.com/JetBrains/kotlin
+
+----------------------------------------------------------------------
+kotlinx.coroutines
+----------------------------------------------------------------------
+
+org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4
+org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.6.4
 提供元: JetBrains
-公開 POM が指定するライセンス: Apache License, Version 2.0
-https://github.com/JetBrains/kotlin
-ライセンス本文: META-INF/Apache-2.0.txt
+ライセンス: Apache License 2.0
+ライセンス情報の根拠: 各モジュールの公開POM
+プロジェクト: https://github.com/Kotlin/kotlinx.coroutines
+
+----------------------------------------------------------------------
+JetBrains Annotations
+----------------------------------------------------------------------
 
 org.jetbrains:annotations:13.0
 提供元: JetBrains
-公開 POM が指定するライセンス: Apache License, Version 2.0
-https://github.com/JetBrains/java-annotations
-ライセンス本文: META-INF/Apache-2.0.txt
+ライセンス: Apache License 2.0
+ライセンス情報の根拠: 公開POM
+プロジェクト: https://github.com/JetBrains/java-annotations
+
+----------------------------------------------------------------------
+Material Icons
+----------------------------------------------------------------------
+
+提供元: Google
+ライセンス: Apache License 2.0
+ライセンス情報の根拠: 配布元リポジトリのLICENSE
+プロジェクト: https://github.com/google/material-design-icons
+
+次のアイコンをAndroid Vector Drawable形式に変換し、表示色をテーマのtintで
+指定しています。
+
+ic_dictionary_add.xml（Content / add）
+https://github.com/google/material-design-icons/blob/master/src/content/add/materialicons/24px.svg
+
+ic_dictionary_delete.xml（Action / delete_outline）
+https://github.com/google/material-design-icons/blob/master/src/action/delete_outline/materialicons/24px.svg
+
+ic_settings_back.xml（Navigation / arrow_back）
+https://github.com/google/material-design-icons/blob/master/src/navigation/arrow_back/materialicons/24px.svg
+
+----------------------------------------------------------------------
+ICU4J
+----------------------------------------------------------------------
 
 com.ibm.icu:icu4j:77.1
 提供元: Unicode Consortium / ICU Project
-https://unicode-org.github.io/icu/
-ライセンスと第三者通知の原文: META-INF/icu-LICENSE.txt
+ライセンス: Unicode License v3（SPDX: Unicode-3.0）
+ライセンス情報の根拠: 公開POMおよびICU 77.1の原文
+プロジェクト: https://github.com/unicode-org/icu
+著作権表示、許諾条件、第三者ソフトウェアの通知:
+META-INF/icu-LICENSE.txt
 
-DDSKK と AndroidSKK は挙動調査の参考です。これらの実装コードは APK に同梱していません。
-同梱 SKK 辞書はこのプロジェクトで作成した限定的な試験用データです。
-利用者が追加する外部辞書は、この一覧の実行時依存関係には含まれません。
+----------------------------------------------------------------------
+同梱していない参考資料と辞書
+----------------------------------------------------------------------
 
-AndroidX Preference 1.2.1 と設定画面の実行時依存関係
-提供元: Android Open Source Project
-androidx.preference、androidx.activity、androidx.appcompat、androidx.core、
-androidx.fragment、androidx.lifecycle、androidx.recyclerview、androidx.savedstate、
-androidx.slidingpanelayout、および上記に含まれるAndroidXの補助ライブラリ
-公開POMが指定するライセンス: Apache License, Version 2.0
-https://android.googlesource.com/platform/frameworks/support/
-ライセンス本文: META-INF/Apache-2.0.txt
+DDSKKおよびAndroidSKKは挙動調査の参考資料です。これらの実装コードは、
+リリース用APKには同梱していません。
 
-org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.6.1
-org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.1
-提供元: JetBrains
-公開POMが指定するライセンス: Apache License, Version 2.0
-https://github.com/Kotlin/kotlinx.coroutines
-ライセンス本文: META-INF/Apache-2.0.txt
-
-com.google.android.material:material:1.12.0
-提供元: Google / Material Components for Android
-公開POMが指定するライセンス: Apache License, Version 2.0
-https://github.com/material-components/material-components-android
-ライセンス本文: META-INF/Apache-2.0.txt
+リリース用APKにはSKK辞書データを同梱していません。初回に取得するS辞書や、
+利用者が追加する辞書は、この一覧の実行時依存関係には含まれません。
