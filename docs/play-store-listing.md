@@ -11,7 +11,7 @@
 - 配布地域: 制限なし。Google Play で配布可能な全地域（決定済み）
 - カテゴリ案: ツール
 - 公開問い合わせ先: herisson@haya.se（決定済み）
-- プライバシーポリシー: [https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html](https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html)。公開ページは [ローカル HTML](site/privacy-policy.html) と一致することを2026-09-23に確認しました。
+- プライバシーポリシー: https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html 。2026-09-23に公開ページの応答と当時のローカル HTML との一致を確認しました。その後に本文を更新したため、最新本文の公開反映は再確認が必要です。
 
 ## 短い説明
 
@@ -29,12 +29,12 @@ Emacs風の編集キー、ローマ字の入力規則、句読点や候補表示
 
 初回はアプリを開き、初期設定でキーボードを有効にして入力方法として選択してください。基本辞書の初回取得にはインターネット接続が必要です。取得できない場合は、辞書ファイルからの導入も利用できます。
 
-本体は MIT ライセンスで公開するオープンソースソフトウェアです。アプリアイコンは HerissonSKK のブランド識別として扱い、公式アプリの配布・紹介で使用できます。別製品への再利用には個別の許可が必要で、原則として認めません。詳細と問い合わせ先は[アイコン使用条件](../core/src/main/resources/META-INF/icon-usage.txt)を参照してください。外部辞書と第三者ライブラリには、それぞれのライセンスが適用されます。
+本体は MIT ライセンスで公開するオープンソースソフトウェアです。アプリアイコンは HerissonSKK のブランド識別として扱い、公式アプリの配布・紹介で使用できます。別製品への再利用には個別の許可が必要で、原則として認めません。詳細と問い合わせ先は https://github.com/yhayase/HerissonSKK-Android/blob/main/core/src/main/resources/META-INF/icon-usage.txt を参照してください。外部辞書と第三者ライブラリには、それぞれのライセンスが適用されます。
 
 https://github.com/yhayase/HerissonSKK-Android
 
 ## 掲載素材と審査準備
 
-[Google の素材要件](https://support.google.com/googleplay/android-developer/answer/9866151?hl=en)に従い、指定アイコンを公式アプリの掲載素材として使用し、512×512のストアアイコン、1024×500のフィーチャーグラフィック、実際の入力画面のスクリーンショットを用意します。画像は未作成です。短い説明は80文字以内です。
+[Google の素材要件](https://support.google.com/googleplay/android-developer/answer/9866151?hl=en)に従い、指定アイコンを公式アプリの掲載素材として使用します。ストアアイコン [app-icon-512.png](../assets/store/app-icon-512.png)（512×512）とフィーチャーグラフィック [feature-graphic-1024x500.png](../assets/store/feature-graphic-1024x500.png)（1024×500）は作成済みです。スクリーンショット [入力画面](../assets/store/screenshots/01-input-keyboard-candidates.png) と [辞書管理](../assets/store/screenshots/02-dictionary-management.png) も作成し、内容レビューを完了しました。[素材記録](store-assets.md)と[スクリーンショット記録](store-screenshots.md)。短い説明は80文字以内です。
 
-画面写真では物理候補、画面キーボード、辞書管理を見せます。試験用の架空の文章を使い、個人のメッセージや連絡先を含めません。審査案内には、初期設定、OSでのIME有効化・選択、辞書導入、変換の操作手順を記載します。アプリにログイン機能があると仮定した案内は作りません。
+画面写真では画面キーボードの変換候補と辞書管理を見せます。設定検索欄に架空の読み「にほん」を入力し、候補欄に「日本」を表示しています。個人のメッセージや連絡先は含めません。審査案内には、初期設定、OSでのIME有効化・選択、辞書導入、変換の操作手順を記載します。アプリにログイン機能があると仮定した案内は作りません。Console での素材登録・受け付け確認は未実施です。
