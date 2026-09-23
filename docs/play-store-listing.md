@@ -11,7 +11,7 @@
 - 配布地域: 制限なし。Google Play で配布可能な全地域（決定済み）
 - カテゴリ案: ツール
 - 公開問い合わせ先: herisson@haya.se（決定済み）
-- プライバシーポリシー: このリポジトリの GitHub Pages で公開します。本文は [ローカル HTML](site/privacy-policy.html) に準備しました。Pages 設定・公開と実際の URL の到達確認は未実施です。
+- プライバシーポリシー: [https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html](https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html)。公開ページは [ローカル HTML](site/privacy-policy.html) と一致することを2026-09-23に確認しました。
 
 ## 短い説明
 

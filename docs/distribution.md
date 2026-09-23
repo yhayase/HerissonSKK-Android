@@ -6,7 +6,7 @@
 
 Google Play ストアへの公開準備を開始しました。所有者から開発者アカウント登録手続きの完了報告を受けています。[公開準備計画](play-release-plan.md)に現行要件、作業順序、所有者との分担を記録します。API 36 対応と release AAB の作成・検査は完了しました。本番署名、ストア掲載画像、Console の申告、クローズドテスト、公開用成果物の最終検査と公開判断が残ります。
 
-価格は無料、配布地域は制限せず Google Play で配布可能な全地域とします。公開問い合わせ先は `herisson@haya.se`、プライバシーポリシーはこのリポジトリの GitHub Pages に掲載します。[掲載文案](play-store-listing.md)と[ポリシー HTML](site/privacy-policy.html)を準備しました。設定の「その他」から、利用者の操作で固定 HTTPS のポリシー URL を外部ブラウザーへ開けます。リポジトリの Public 化と Pages の設定・公開は、コミット・push と最終確認の後に行う予定であり、現時点では未実施です。
+価格は無料、配布地域は制限せず Google Play で配布可能な全地域とします。公開問い合わせ先は `herisson@haya.se` です。[プライバシーポリシー](https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html)は GitHub Pages で公開済みで、2026-09-23に HTTP 200 とローカル HTML とのバイト一致を確認しました。[掲載文案](play-store-listing.md)と[ポリシー HTML](site/privacy-policy.html)を参照してください。設定の「その他」から利用者の操作で固定 HTTPS のポリシー URL を外部ブラウザーへ開けます。GitHub リポジトリも Public です。Google Play での配布は未開始で、本番署名、掲載画像、Console の申告、クローズドテスト、公開用成果物の最終検査と公開判断が残ります。
 
 本体の独自コード・独自文書に MIT を採用し、[LICENSE](../LICENSE) とアプリ内表示を追加しました。指定アプリアイコンは HerissonSKK のブランド識別として扱い、MIT の対象ではありません。公式アプリの配布・紹介で使用でき、別製品への再利用には個別の許可が必要で、原則として認めません。[アイコン使用条件](../core/src/main/resources/META-INF/icon-usage.txt)と[調査・適用範囲](licenses.md)に従い、第三者コード・Material Icons・外部辞書の条件を分けて表示します。
 

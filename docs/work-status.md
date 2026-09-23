@@ -2,9 +2,11 @@
 
 ## 2026-09-23 の API 36 検証完了と公開用サイト
 
+リポジトリ `yhayase/HerissonSKK-Android` は Public になり、GitHub Pages も公開済みです。Pages は GitHub Actions の workflow build で配信し、HTTPS を強制しています。Pages のデプロイ run [`35850480659`](https://github.com/yhayase/HerissonSKK-Android/actions/runs/35850480659) は、公開後の main コミット `6b170b4d6ce47c0663a2a7c3f3ec0575f02eddca` を正常に配信しました。未認証の確認でトップページと[プライバシーポリシー](https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html)はいずれも HTTP 200 となり、最終 URL は要求 URL と同一、配信バイト列はそれぞれ `docs/site/index.html` と `docs/site/privacy-policy.html` に一致しました。時刻・SHA-256 を `build/reports/pages-publication-20260923/http.json` に記録しています。この公開は Google Play での配布開始を意味しません。Play 公開には本番署名、掲載素材、Console 申告、クローズドテスト、最終判断が残ります。
+
 API 36 の Back 処理とセッション準備前の座標監視を修正し、設定から入力までの試験の接続準備待ちを整備しました。最終ローカルゲートはコア324件・Android単体1,133実行・ホスト31件、lint・APK3構成・AAB と通知8件の照合が成功しました。同じ製品 APK で API 26・35・36 の設定・入力各2件と物理窓各6件が成功し、API 36 のタブレット幅の縦横設定各4件も確認しました。[原因と最終結果](reviews/api36-20260923.md)に、途中の失敗・独立検証・未署名という制約を記録します。
 
-プライバシーポリシーを公開する Pages ワークフローと、設定画面から公開 URL を開く導線を実装しました。公開内容と権限を独立レビュー済みです。ワークフローは Public 化後の main のみから `docs/site/` を配信します。この記録時点では公開操作前です。
+プライバシーポリシーを公開する Pages ワークフローと、設定画面から公開 URL を開く導線を実装しました。公開内容と権限を独立レビュー済みです。ワークフローは main の `docs/site/` を配信します。後続の公開記録にある通り、Public 化と初回配信を完了しました。
 
 ## 2026-09-23 のアプリアイコン使用条件
 

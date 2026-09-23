@@ -34,14 +34,12 @@
 
 ## 今回の確認範囲
 
-API 36 対応、Android 16 の Back 修正、署名前 AAB の作成と同梱通知検査を進めました。[掲載文案](play-store-listing.md)、[データフロー監査](reviews/play-data-flows-20260923.md)、[プライバシーポリシー本文](site/privacy-policy.html)を準備しました。無料・地域制限なし・公開問い合わせ先 herisson@haya.se・GitHub Pages 掲載を決定済みです。設定画面に公開予定 URL への導線を実装しました。署名鍵生成、掲載画像、Pages 公開、申告確定、Console 操作は未実施です。
+API 36 対応、Android 16 の Back 修正、署名前 AAB の作成と同梱通知検査を完了しました。[掲載文案](play-store-listing.md)、[データフロー監査](reviews/play-data-flows-20260923.md)、[プライバシーポリシー本文](site/privacy-policy.html)を整備しました。無料・地域制限なし・公開問い合わせ先 herisson@haya.se を決定済みです。リポジトリは Public、GitHub Pages でのポリシー公開も完了し、[公開 URL](https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html)へのアプリ内導線を実装しました。残る作業は本番署名、掲載画像、Console の申告・操作、クローズドテスト、公開用成果物の最終検査と公開判断です。
 
 API 36 対応の検証を完了しました。API 26・35・36 の設定・入力各2件と物理窓各6件、API 36 のタブレット幅の設定画面を縦横各4件確認しました。[実装・原因・最終結果](reviews/api36-20260923.md)に記録します。
 
-## Pages の公開前確認
+## リポジトリと Pages の公開結果
 
-リポジトリを Public にし、このリポジトリの GitHub Pages から公開する方針を決定しました。ただし、公開前に不要ファイルとディレクトリ構成を整理します。現在は Private のままです。
+`yhayase/HerissonSKK-Android` は Public へ変更済みです。GitHub Pages は GitHub Actions の workflow build で配信し、HTTPS を強制しています。デプロイ run [35850480659](https://github.com/yhayase/HerissonSKK-Android/actions/runs/35850480659) は、公開後の main コミット `6b170b4d6ce47c0663a2a7c3f3ec0575f02eddca` で成功しました。未認証の HTTP 確認では、[トップページ](https://yhayase.github.io/HerissonSKK-Android/) と[プライバシーポリシー](https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html)がともに 200 を返し、リダイレクトはなく、公開バイト列がそれぞれ `docs/site/index.html` と `docs/site/privacy-policy.html` に一致しました。時刻と SHA-256 は `build/reports/pages-publication-20260923/http.json` に保存しています。初回の private 時点の push では Pages workflow が skip されましたが、公開後に手動起動した上記 run で配信を確認しています。
 
-公開前に、追跡対象と未追跡ファイルを分類し、生成物・一時ファイルの除外、文書の入口と参照先、公開される Git 履歴内の秘密情報・個人データを確認します。試験・ライセンス監査の証拠を単なる古いファイルとして削除しません。履歴の書換えが必要な場合は、通常のファイル整理と分けて扱います。整理と検証の結果を記録してから、Public 化と Pages 公開へ進みます。
-
-[公開前整理の記録](reviews/public-repository-cleanup-20260923.md)に、実施内容・履歴の調査範囲・残件を記録します。
+公開前の構成・履歴確認とその調査範囲は[公開前整理の記録](reviews/public-repository-cleanup-20260923.md)を参照してください。同記録の「未実施」は作成時点の状態です。現在の Play 残件は、本番署名、ストア掲載素材、Console の申告とアプリ登録、内部・クローズドテスト、公開用成果物の最終検査と公開判断です。リポジトリとポリシーサイトの公開完了を Google Play でのリリースと混同しません。

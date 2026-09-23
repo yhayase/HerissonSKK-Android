@@ -12,7 +12,7 @@ HerissonSKK (for Android) は Yasuhiro Hayase が制作・公開するプロジ�
 
 ## 名称・ライセンス・配布方針
 
-名称と[アイコン原本](HerissonSKK-icon-refined.png)をアプリの表示名・ランチャーアイコンへ反映しました。本体の独自コード・独自文書は [MIT ライセンス](LICENSE)です。指定のハリネズミのアプリアイコンは HerissonSKK のブランド識別として扱い、本体の MIT ライセンスの対象ではありません。公式アプリの配布・紹介での使用は認めますが、別製品への再利用には個別の許可が必要で、原則として認めません。[アイコン使用条件](core/src/main/resources/META-INF/icon-usage.txt)、[適用範囲](core/src/main/resources/META-INF/license-scope.txt)と[調査・整備記録](docs/licenses.md)を参照してください。第三者部分と外部辞書にはそれぞれの条件が適用されます。Google Play での無料配布に向けて[公開準備](docs/play-release-plan.md)を進めています。一般公開はまだ行っていません。
+名称と[アイコン原本](HerissonSKK-icon-refined.png)をアプリの表示名・ランチャーアイコンへ反映しました。本体の独自コード・独自文書は [MIT ライセンス](LICENSE)です。指定のハリネズミのアプリアイコンは HerissonSKK のブランド識別として扱い、本体の MIT ライセンスの対象ではありません。公式アプリの配布・紹介での使用は認めますが、別製品への再利用には個別の許可が必要で、原則として認めません。[アイコン使用条件](core/src/main/resources/META-INF/icon-usage.txt)、[適用範囲](core/src/main/resources/META-INF/license-scope.txt)と[調査・整備記録](docs/licenses.md)を参照してください。第三者部分と外部辞書にはそれぞれの条件が適用されます。ソースコードと[プライバシーポリシー](https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html)を一般公開しています。Google Play での無料配布に向けた[公開準備](docs/play-release-plan.md)は継続中で、Play での配布はまだ始めていません。
 
 - [ドキュメント案内](docs/README.md)：各文書の役割と正本
 - [利用手順](docs/usage.md)：導入、キー操作、辞書・設定
