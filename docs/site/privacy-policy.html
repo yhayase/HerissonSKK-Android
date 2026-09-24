@@ -3,35 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f8f4ed">
+  <link rel="icon" type="image/png" href="assets/app-icon-512.png">
+  <link rel="stylesheet" href="style.css">
   <title>プライバシーポリシー | HerissonSKK (for Android)</title>
-  <style>
-    :root {
-      color-scheme: light dark;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      line-height: 1.75;
-      background: Canvas;
-      color: CanvasText;
-    }
-    body { margin: 0; }
-    header, main, footer { width: min(100% - 2rem, 46rem); margin-inline: auto; }
-    header { padding-block: 2.5rem 1rem; }
-    main { padding-block: 0 2rem; }
-    footer { padding-block: 1rem 2.5rem; border-top: 1px solid color-mix(in srgb, CanvasText 24%, transparent); }
-    h1 { font-size: clamp(1.75rem, 7vw, 2.5rem); line-height: 1.25; }
-    h2 { margin-top: 2rem; font-size: 1.3rem; line-height: 1.4; }
-    a { color: LinkText; text-underline-offset: 0.18em; }
-    a:focus-visible { outline: 3px solid Highlight; outline-offset: 3px; }
-    .meta { color: GrayText; }
-  </style>
 </head>
 <body>
-  <header>
-    <p><a href="./">HerissonSKK (for Android)</a></p>
-    <h1>プライバシーポリシー</h1>
-    <p class="meta">制定・最終更新日: 2026-09-23</p>
-  </header>
-  <main>
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header"><div class="shell header-inner">
+    <a class="brand" href="./" aria-label="HerissonSKK トップページ"><img src="assets/app-icon-512.png" width="48" height="48" alt=""><span>Herisson<span class="accent">SKK</span></span></a>
+    <nav aria-label="サイトナビゲーション"><ul><li><a href="./#features">特長</a></li><li><a href="./#start">使い始める</a></li><li><a href="./#contribute">開発に参加</a></li><li><a href="privacy-policy.html" aria-current="page">プライバシー</a></li></ul></nav>
+  </div></header>
+  <div class="shell policy-header"><p class="section-kicker">データの扱い</p><h1>プライバシーポリシー</h1><p class="meta">制定・最終更新日: 2026-09-23</p></div>
+  <main id="main" class="policy-main">
     <p>Yasuhiro Hayase（以下「作者」）は、日本語入力アプリ HerissonSKK (for Android)（以下「本アプリ」）を提供します。本ポリシーは、本アプリとこの案内サイトにおける情報の取扱いを説明します。</p>
 
     <h2>入力内容と学習データ</h2>
@@ -64,8 +48,6 @@
     <h2>問い合わせ</h2>
     <p>本ポリシーと情報の取扱いに関する問い合わせ先: <a href="mailto:herisson@haya.se">herisson@haya.se</a></p>
   </main>
-  <footer>
-    <p><a href="./">トップページへ戻る</a></p>
-  </footer>
+  <footer class="policy-footer"><div class="shell"><a href="./">トップページへ戻る</a></div></footer>
 </body>
 </html>
