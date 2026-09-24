@@ -1,6 +1,6 @@
 # Google Play 掲載情報案
 
-更新日: 2026-09-23。Console への登録は未実施です。
+**草稿・未提出。** 対象候補は `se.haya.skk` の `0.1.0` です。Console に入力する際は、公開 AAB、実際の掲載画面、プライバシーポリシーと照合します。
 
 ## 登録内容
 
@@ -11,7 +11,7 @@
 - 配布地域: 制限なし。Google Play で配布可能な全地域（決定済み）
 - カテゴリ案: ツール
 - 公開問い合わせ先: herisson@haya.se（決定済み）
-- プライバシーポリシー: https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html 。2026-09-23に公開ページの応答と当時のローカル HTML との一致を確認しました。その後に本文を更新したため、最新本文の公開反映は再確認が必要です。
+- プライバシーポリシー: https://yhayase.github.io/HerissonSKK-Android/privacy-policy.html
 
 ## 短い説明
 
@@ -33,8 +33,6 @@ Emacs風の編集キー、ローマ字の入力規則、句読点や候補表示
 
 https://github.com/yhayase/HerissonSKK-Android
 
-## 掲載素材と審査準備
+## 掲載時の確認
 
-[Google の素材要件](https://support.google.com/googleplay/android-developer/answer/9866151?hl=en)に従い、指定アイコンを公式アプリの掲載素材として使用します。ストアアイコン [app-icon-512.png](../assets/store/app-icon-512.png)（512×512）とフィーチャーグラフィック [feature-graphic-1024x500.png](../assets/store/feature-graphic-1024x500.png)（1024×500）は作成済みです。スクリーンショット [入力画面](../assets/store/screenshots/01-input-keyboard-candidates.png) と [辞書管理](../assets/store/screenshots/02-dictionary-management.png) も作成し、内容レビューを完了しました。[素材記録](store-assets.md)と[スクリーンショット記録](store-screenshots.md)。短い説明は80文字以内です。
-
-画面写真では画面キーボードの変換候補と辞書管理を見せます。設定検索欄に架空の読み「にほん」を入力し、候補欄に「日本」を表示しています。個人のメッセージや連絡先は含めません。審査案内には、初期設定、OSでのIME有効化・選択、辞書導入、変換の操作手順を記載します。アプリにログイン機能があると仮定した案内は作りません。Console での素材登録・受け付け確認は未実施です。
+掲載アイコン、フィーチャーグラフィック、画面写真の原本と作成方法は[掲載素材](store-assets.md)で管理します。素材に実際のアプリ画面を用い、個人のメッセージや連絡先を含めません。Console で受け付けられる形式・寸法と掲載文の文字数を提出時に確認します。審査担当者向けの IME 有効化手順は[Console 申告案](play-console-declarations.md)で管理します。

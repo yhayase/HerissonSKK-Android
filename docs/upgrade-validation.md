@@ -18,7 +18,7 @@
 ```console
 python3 scripts/test-upgrade-emulator.py \
   --serial emulator-5554 \
-  --baseline-apk /tmp/skk-upgrade-baseline-17a5cf0/app/build/outputs/apk/debug/app-debug.apk
+  --baseline-apk /path/to/baseline/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ## 事前検査と端末保護
@@ -59,8 +59,6 @@ baseline 導入を試みた後は、試験の成否にかかわらず現行 app 
 結果は `app/build/reports/upgrade-persistence/<serial>/<UTC日時>/` に保存します。`preflight.json` と `metadata.json` には APK のパス・SHA-256・package・version・署名証明書 SHA-256、ソース commit と dirty 状態、端末 API・fingerprint、runner と導入オプション、IME 復元条件、完了 phase、復旧結果を記録します。各導入処理と instrumentation の生出力も同じディレクトリへ保存します。
 
 instrumentation の成功判定は、一件の test について開始・成功 status が厳密に一組あり、`OK (1 test)` と正常終了 code がある場合だけ成功とします。スキップ、途中終了、複数 test、失敗 status は成功として扱いません。
-
-2026-09-16 の専用エミュレーター実行では API 26 `20260916T065655000139Z`、API 30 `20260916T065226018685Z`、API 35 `20260916T065743946027Z` がそれぞれ 1 件成功しました。旧 APK は `17a5cf0` で、正確な APK SHA-256、証明書、端末 fingerprint、ソース状態は各履歴の `preflight.json` と `metadata.json` で確認します。これは独立 fixture の保持と移行の証拠であり、実利用の既定 DB や設定ファイルを旧版で開いた結果ではありません。
 
 ## パッケージ名変更との区別
 

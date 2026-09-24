@@ -1,15 +1,15 @@
-# 監査資料
+# 出典・ライセンスの監査資料
 
-ライセンス・出典の判断を再確認できるよう、調査結果と取得時点の情報を保存します。生成物であっても、以下は監査の証拠として Git 管理します。ビルド成果物や一時ログは `build/` に保存します。
+ここには、対象版と限界を明示した出典・許諾判断の原資料だけを置きます。通常の実装レビュー、日々の試験結果、公開準備の進捗は保存しません。現行の適用条件は[ライセンスの説明](../licenses.md)、アプリ同梱の[第三者通知](../../core/src/main/resources/META-INF/third-party-notices.txt)と[外部辞書通知](../../core/src/main/resources/META-INF/external-dictionaries.txt)を参照してください。
 
-| 資料 | 内容 |
+| 資料 | 対象と限界 |
 | --- | --- |
-| [ライセンス方針](../licenses.md) | 現行の採用判断と第三者部分の条件 |
-| [SCANOSS 調査](scanoss-20260923.md)・[追加調査](scanoss-20260923-followup.md) | 一致報告の評価と未確認範囲 |
-| `scanoss-20260923-*.json` | 送信対象、照合結果、実行状態、追加調査の根拠 |
-| `release-license-inventory-20260923.json` | 調査時点のリリース依存関係とライセンス一覧 |
-| `release-license-audit.init.gradle` | 依存関係の調査用 Gradle スクリプト |
-| `branding-licenses-20260923.json` | 名称・アイコン・通知の確認結果 |
-| `dictionary-sources-20260923.json` | 辞書の配布元、取得時点のハッシュと条件 |
+| [辞書の出典](dictionary-sources.md)・`dictionary-sources-20260923.json` | 取得時点の 5 辞書、ヘッダー、条件、ハッシュ。将来の URL 内容は保証しない |
+| `release-license-inventory-20260923.json` | 調査時点の依存物、POM、成果物ハッシュ。後の依存変更は対象外 |
+| [SCANOSS 照合](scanoss-20260923.md)・[追加確認](scanoss-20260923-followup.md) | 指定コミットのコード・設定だけを対象とした類似性調査。入力、応答、判断の原資料は `scanoss-20260923-*.json` |
+| [データ経路](play-data-flows.md) | 指定時点の本番ソースに対する静的確認。Play 申告や公開版の実通信の証明ではない |
+| `branding-licenses-20260923.json` | 当時の APK・素材・通知の識別資料。現行のアイコン条件や公開候補の証拠にはしない |
 
-ファイル名の日付は調査時点を表します。監査時点の入力・結果は、後のコードや依存関係を自動的に保証するものではありません。
+依存物の一覧を再取得するスクリプトは [`scripts/audit/release-license-audit.init.gradle`](../../scripts/audit/release-license-audit.init.gradle)です。`./gradlew -I scripts/audit/release-license-audit.init.gradle auditReleaseLicenses --offline` は `/tmp/skk-release-artifacts.json` へ一覧を出します。依存グラフの辺や DEX に残るクラスの使用解析は出力しません。取得した版・条件と最終配布物は別途照合します。
+
+原資料のハッシュと内容の対応は維持します。日付は資料の対象時点であり、現行版の合格報告ではありません。

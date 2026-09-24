@@ -10,7 +10,7 @@ SQLite永続化、辞書読込の実行スケジューリング、Android入力�
 
 編集単位は ICU4J `77.1` の character break、Unicode `16.0` に固定します。OS内蔵のUnicode版に依存して端末ごとに挙動が変わることを避けます。削除による隣接クラスタの結合も再評価し、カーソルは同じ位置以降の最初の境界へ置きます。不正なUTF-16は変更前に拒否します。
 
-独自の境界規則ではHangul結合、CRLF、かなとZWJ、絵文字タグ、インド文字で不具合が再現したため、ICUへ置き換えました。ICU4JのJARは14,663,227バイトです。ライセンスを含めて `app` と `test-editor` の APK に同梱し、API 26／30／35 の専用エミュレーターで `CoreUnicodeTest` を実行しました。これは対象 API での ICU 読み込みと代表的な削除操作の証拠ですが、全端末・全 Unicode 入力方式での互換性や APK 容量の受入判定を示すものではありません。
+独自の境界規則ではHangul結合、CRLF、かなとZWJ、絵文字タグ、インド文字で不具合が再現したため、ICUへ置き換えました。ICU4J のライセンスを配布物へ同梱します。境界の互換性は公式データと独自の編集試験で確認します。
 
 - [ICU 77の説明](https://unicode-org.github.io/icu/download/77.html)
 - ライセンス原文: `src/main/resources/META-INF/icu-LICENSE.txt`。配布物にも同梱します。
@@ -25,4 +25,4 @@ SQLite永続化、辞書読込の実行スケジューリング、Android入力�
 ./gradlew :core:test
 ```
 
-試験件数・APKごとの結果は [継続記録](../docs/work-status.md) に集約します。コア試験の成功だけで実機や全アプリの互換性が保証されるわけではありません。
+コア試験は Android の入力接続や全端末の互換性まで保証しません。対応する結合試験は [試験対応表](../docs/test-coverage.md) を参照します。
