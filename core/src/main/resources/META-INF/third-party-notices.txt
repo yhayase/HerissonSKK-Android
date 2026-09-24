@@ -1,7 +1,7 @@
 第三者ソフトウェアに関する表示
 
-この一覧は、2026年9月23日にリリース用APKの実行時クラスパスから確認した
-68件の依存モジュールと、下記の同梱アイコンを対象としています。
+この一覧は、2026年9月24日にリリース用実行時クラスパスから確認した
+71件の外部依存モジュールを対象としています。
 
 Apache License 2.0 のライセンス本文:
 META-INF/Apache-2.0.txt
@@ -88,6 +88,23 @@ com.google.android.material:material:1.12.0
 プロジェクト: https://github.com/material-components/material-components-android
 
 ----------------------------------------------------------------------
+Android-Iconics と Google Material Typeface
+----------------------------------------------------------------------
+
+提供元: Mike Penz / Google
+ライセンス: Apache License 2.0
+ライセンス情報の根拠: 各モジュールの公開POM
+プロジェクト: https://github.com/mikepenz/Android-Iconics
+
+com.mikepenz:iconics-core:5.4.0
+com.mikepenz:iconics-typeface-api:5.4.0
+com.mikepenz:google-material-typeface:4.0.0.3-kotlin
+
+Google Material Typeface は、設定画面で使用する Google Material アイコンフォントを
+提供します。使用する識別子は gmd_add、gmd_delete_outline、gmd_drag_indicator、
+gmd_refresh、gmd_arrow_back です。
+
+----------------------------------------------------------------------
 Error Prone Annotations
 ----------------------------------------------------------------------
 
@@ -139,27 +156,6 @@ org.jetbrains:annotations:13.0
 ライセンス: Apache License 2.0
 ライセンス情報の根拠: 公開POM
 プロジェクト: https://github.com/JetBrains/java-annotations
-
-----------------------------------------------------------------------
-Material Icons
-----------------------------------------------------------------------
-
-提供元: Google
-ライセンス: Apache License 2.0
-ライセンス情報の根拠: 配布元リポジトリのLICENSE
-プロジェクト: https://github.com/google/material-design-icons
-
-次のアイコンをAndroid Vector Drawable形式に変換し、表示色をテーマのtintで
-指定しています。
-
-ic_dictionary_add.xml（Content / add）
-https://github.com/google/material-design-icons/blob/master/src/content/add/materialicons/24px.svg
-
-ic_dictionary_delete.xml（Action / delete_outline）
-https://github.com/google/material-design-icons/blob/master/src/action/delete_outline/materialicons/24px.svg
-
-ic_settings_back.xml（Navigation / arrow_back）
-https://github.com/google/material-design-icons/blob/master/src/navigation/arrow_back/materialicons/24px.svg
 
 ----------------------------------------------------------------------
 ICU4J

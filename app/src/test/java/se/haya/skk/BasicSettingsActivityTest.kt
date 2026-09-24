@@ -12,6 +12,8 @@ import androidx.preference.Preference
 import androidx.preference.SwitchPreferenceCompat
 import org.junit.After
 import org.junit.Assert.*
+import com.mikepenz.iconics.IconicsDrawable
+import com.mikepenz.iconics.typeface.library.googlematerial.GoogleMaterial
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,6 +23,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import android.os.Looper
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowDialog
 import se.haya.skk.settings.BasicSetting
 import se.haya.skk.settings.BasicSettingsStore
@@ -134,6 +137,37 @@ class BasicSettingsActivityTest {
         )
         assertNotEquals(unchecked, checked)
         controller.pause().stop().destroy()
+    }
+
+    @Test @Config(sdk = [35]) @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `設定画面のMaterialアイコンは実際に描画される`() {
+        val controller = activity().setup()
+        val page = controller.get()
+        val toolbarIcon = page.findViewById<MaterialToolbar>(R.id.settings_top_bar)
+            .navigationIcon as IconicsDrawable
+        assertIconDraws(toolbarIcon, GoogleMaterial.Icon.gmd_arrow_back)
+        assertNotNull(toolbarIcon.colorList)
+        assertTrue(toolbarIcon.autoMirroredCompat)
+
+        listOf(GoogleMaterial.Icon.gmd_add, GoogleMaterial.Icon.gmd_delete_outline,
+            GoogleMaterial.Icon.gmd_drag_indicator, GoogleMaterial.Icon.gmd_refresh).forEach { icon ->
+            val drawable = if (icon == GoogleMaterial.Icon.gmd_drag_indicator) {
+                settingsMaterialIcon(page, icon, settingsThemeColor(page, androidx.appcompat.R.attr.colorControlNormal))
+            } else {
+                settingsMaterialIcon(page, icon)
+            }
+            if (icon == GoogleMaterial.Icon.gmd_drag_indicator) assertNotNull(drawable.colorList)
+            assertIconDraws(drawable, icon)
+        }
+        controller.pause().stop().destroy()
+    }
+
+    private fun assertIconDraws(drawable: IconicsDrawable, expected: GoogleMaterial.Icon) {
+        assertEquals(expected, drawable.icon)
+        val bitmap = drawable.toBitmap()
+        assertTrue("$expected が空の画像として描画されました", (0 until bitmap.width).any { x ->
+            (0 until bitmap.height).any { y -> bitmap.getPixel(x, y) ushr 24 != 0 }
+        })
     }
 
     private fun activity() = Robolectric.buildActivity(BasicSettingsActivity::class.java,

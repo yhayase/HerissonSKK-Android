@@ -12,6 +12,7 @@ import androidx.fragment.app.Fragment
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.mikepenz.iconics.typeface.library.googlematerial.GoogleMaterial
 
 /** 設定本文だけをスクロールさせ、画面名・戻る・保存操作を常に表示します。 */
 abstract class SettingsPageActivity : AppCompatActivity() {
@@ -48,6 +49,11 @@ abstract class SettingsPageActivity : AppCompatActivity() {
         setContentView(R.layout.settings_page)
         findViewById<MaterialToolbar>(R.id.settings_top_bar).apply {
             title = pageTitle
+            navigationIcon = settingsMaterialIcon(
+                this@SettingsPageActivity,
+                GoogleMaterial.Icon.gmd_arrow_back,
+                settingsThemeColor(this@SettingsPageActivity, android.R.attr.textColorPrimary),
+            ).apply { autoMirroredCompat = true }
             setNavigationOnClickListener { requestPageClose() }
         }
         body = findViewById(R.id.settings_content)

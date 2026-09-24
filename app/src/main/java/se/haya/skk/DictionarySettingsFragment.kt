@@ -9,7 +9,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageButton
-import androidx.appcompat.content.res.AppCompatResources
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
@@ -20,6 +19,7 @@ import androidx.preference.PreferenceViewHolder
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.mikepenz.iconics.typeface.library.googlematerial.GoogleMaterial
 import se.haya.skk.core.dictionary.SkkDictionaryEncoding
 import se.haya.skk.dictionary.DictionarySourceInfo
 
@@ -45,7 +45,7 @@ class DictionarySettingsFragment : PreferenceFragmentCompat() {
         return FrameLayout(requireContext()).apply {
             addView(preferences, FrameLayout.LayoutParams(-1, -1))
             addView(FloatingActionButton(context).apply {
-                setImageResource(R.drawable.ic_dictionary_add)
+                setImageDrawable(settingsMaterialIcon(context, GoogleMaterial.Icon.gmd_add))
                 contentDescription = "辞書を追加"
                 isEnabled = !host.isPageBusy()
                 setOnClickListener { host.showAddSourceDialog() }
@@ -341,7 +341,11 @@ class DictionarySettingsFragment : PreferenceFragmentCompat() {
             title = host.sourceDisplayName(source)
             summary = "優先順位 ${initialIndex + 1}　${host.visibleSourceStatus(source.id)}\n" +
                 host.sourceUpdateSummary(source)
-            icon = AppCompatResources.getDrawable(context, R.drawable.ic_dictionary_drag)
+            icon = settingsMaterialIcon(
+                context,
+                GoogleMaterial.Icon.gmd_drag_indicator,
+                settingsThemeColor(context, androidx.appcompat.R.attr.colorControlNormal),
+            )
             widgetLayoutResource = R.layout.preference_widget_dictionary_source
             isIconSpaceReserved = true
             isPersistent = false
@@ -371,11 +375,13 @@ class DictionarySettingsFragment : PreferenceFragmentCompat() {
                 }
             }
             (holder.findViewById(R.id.dictionary_source_update) as ImageButton).apply {
+                setImageDrawable(settingsMaterialIcon(context, GoogleMaterial.Icon.gmd_refresh))
                 contentDescription = "${title}を更新"
                 isEnabled = host.canUpdateSource(source) && !host.isPageBusy()
                 setOnClickListener { host.updateSource(source) }
             }
             (holder.findViewById(R.id.dictionary_source_delete) as ImageButton).apply {
+                setImageDrawable(settingsMaterialIcon(context, GoogleMaterial.Icon.gmd_delete_outline))
                 contentDescription = "${title}を削除"
                 isEnabled = !host.isPageBusy()
                 setOnClickListener { host.confirmRemove(source) }

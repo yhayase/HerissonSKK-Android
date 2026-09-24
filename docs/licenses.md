@@ -4,7 +4,7 @@
 
 ## 結論
 
-確認した Android 版の実行時依存関係について、本体の独自コードを MIT で公開することを妨げる条件は見つかっていません。本体を MIT とし、第三者ライブラリ・辞書の既存ライセンスを維持する構成が可能と判断します。第三者通知は解決済みの68依存モジュールに合わせて更新しました。設定の「その他」→「ライセンス」から、本体・適用範囲・第三者通知・Apache・ICU の本文をオフラインで参照できます。最終の公開版でも、実際の依存物と表示の一致を確認します。
+2026-09-23 時点で確認した Android 版の実行時依存関係について、本体の独自コードを MIT で公開することを妨げる条件は見つかっていません。本体を MIT とし、第三者ライブラリ・辞書の既存ライセンスを維持する構成が可能と判断します。2026-09-24 のアイコンライブラリ移行で外部依存が71モジュールとなり、[第三者通知](../core/src/main/resources/META-INF/third-party-notices.txt)を更新しました。9月23日の調査データは当日の記録として保持しています。設定の「その他」→「ライセンス」から、本体・適用範囲・第三者通知・Apache・ICU の本文をオフラインで参照できます。最終の公開版でも、実際の依存物と表示の一致を確認します。
 
 この判断は今回確認した依存グラフ・配布物・由来記録に基づくものです。出典の記載がない複製の不存在や、画像の権利関係を保証するものではありません。
 
@@ -32,9 +32,9 @@ Guava の許諾は POM のライセンス欄が空という理由だけで不明
 
 ## 第三者通知の整備
 
-`core/src/main/resources/META-INF/third-party-notices.txt` を調査対象68モジュールの正確な座標・版へ更新しました。coroutines は1.6.4に訂正し、Guava listenablefuture、Error Prone、Kotlin の互換成果物、AndroidX の推移的依存も列挙しています。調査一覧との照合で不足・余分な座標はありません。
+2026-09-23 時点の第三者通知は、調査対象68モジュールの正確な座標・版へ更新しました。coroutines は1.6.4に訂正し、Guava listenablefuture、Error Prone、Kotlin の互換成果物、AndroidX の推移的依存も列挙しています。9月24日に追加した Iconics 3モジュールを加え、現行一覧は71モジュールです。9月23日の調査一覧はその時点の記録として保持しています。
 
-確認した AAR/JAR 内には追加の NOTICE 文書がなく、Apache 本文と ICU 77.1 の既存本文を保持しています。3件の Material Icons の出典・適用条件も追加しました。公式辞書を release APK に同梱しているように読めた旧説明を訂正し、初回取得の S 辞書と利用者が追加する辞書を別条件のデータとして明記しました。
+2026-09-23 時点で確認した AAR/JAR 内には追加の NOTICE 文書がなく、Apache 本文と ICU 77.1 の既存本文を保持しています。同日の通知には3件の Material Icons の出典・適用条件も記録しました。公式辞書を release APK に同梱しているように読めた旧説明を訂正し、初回取得の S 辞書と利用者が追加する辞書を別条件のデータとして明記しました。
 
 本体 MIT と適用範囲も APK に収録します。`scripts/verify-local.py` は、ルート LICENSE と APK 用 MIT 本文の一致、および各ライセンスリソースの収録・バイト一致を検査します。
 
@@ -44,7 +44,7 @@ DDSKK・AndroidSKK は挙動の参照先であり、由来記録ではコード�
 
 独立監査では、`Romanizer.kt` の z 記号対応と `AzikRules.kt` の特殊な対応について、参照元の記録と独立実装を宣言するコメントだけでは作成過程を完全には確認できない点を指摘しました。機能上の入出力対応が一致することだけを GPL コードの複製とは判断しません。確認した範囲で複製の証拠はありませんが、公開時の由来記録には規則・文章・実装コードを区別して残します。
 
-辞書の追加・削除・戻るボタンの3ベクターは、公式 Material Icons と形状が一致することを独立に照合し、Google Material Icons / Apache-2.0 の出典表示を追加しました。単に似ている他の2ベクターへ出典を拡大していません。[アイコンの由来記録](icon-provenance.md)を参照します。
+2026-09-24 に設定画面アイコンを Android-Iconics と Google Material Typeface の Apache-2.0 依存へ移行しました。追加・削除・並べ替え・更新・戻るの5識別子と表示条件は[アイコンの由来記録](icon-provenance.md)に記載しています。
 
 リポジトリ公開には APK 以外の第三者部分もあります。`core/src/test/resources/unicode/16.0.0/GraphemeBreakTest.txt` は Unicode の公式試験データで、ヘッダーと利用条件を維持します。Gradle wrapper のスクリプト・JAR もビルド用の第三者部分として Apache-2.0 の表示を保持します。自作の試験コードと一括して MIT と表示しません。
 
@@ -54,7 +54,7 @@ DDSKK・AndroidSKK は挙動の参照先であり、由来記録ではコード�
 
 現在のカタログの S・L・人名・地名には GPL-2.0-or-later、郵便番号辞書には public domain の指定があります。郵便番号辞書の生成プログラムは GPL ですが、生成された辞書の指定とは区別します。[辞書配布元の説明](https://github.com/skk-dev/dict/blob/master/committers.md)
 
-採用する名称は **HerissonSKK (for Android)**、アプリアイコンは所有者指定の `HerissonSKK-icon-refined.png` です。表示名と adaptive launcher icon に反映しました。アプリアイコンは本体 MIT の対象に含めず、公式アプリの配布・紹介での使用を認めます。別製品への再利用には個別の許可が必要で、原則として認めません。詳細と問い合わせ先は[アイコン使用条件](../core/src/main/resources/META-INF/icon-usage.txt)に定めます。第三者由来の Material Icons は Apache-2.0 のままです。[アイコンの由来記録](icon-provenance.md)に原本ハッシュと適用範囲を記録します。
+採用する名称は **HerissonSKK (for Android)**、アプリアイコンは所有者指定の `HerissonSKK-icon-refined.png` です。表示名と adaptive launcher icon に反映しました。アプリアイコンは本体 MIT の対象に含めず、公式アプリの配布・紹介での使用を認めます。別製品への再利用には個別の許可が必要で、原則として認めません。詳細と問い合わせ先は[アイコン使用条件](../core/src/main/resources/META-INF/icon-usage.txt)に定めます。設定画面の Google Material アイコンは Apache-2.0 の第三者依存として通知に記載しています。[アイコンの由来記録](icon-provenance.md)を参照します。
 
 ## 公開時に維持・確認する事項
 
