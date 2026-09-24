@@ -6,7 +6,7 @@
 
 アプリ ID は `se.haya.skk` です。Google Play では Play App Signing に Google 生成のアプリ署名鍵を使用し、別のアップロード鍵で AAB を署名して提出します。外部配布する場合は Play Console から取得した Google 署名済み APK を使用し、Play 配布版と同じ署名にそろえる方針です。アップロード鍵をアプリ署名鍵として提出しません。[鍵の保管・復元と AAB 署名](upload-signing.md)に具体的な手順があります。
 
-開発署名 APK と Google 署名済み APK は署名が異なります。同じアプリ ID でも上書き更新はできないため、既存の辞書と設定を退避し、別アプリ ID の旧試用版 `jp.hayase.skk` からの移行と同様に、[移行手順](package-migration.md)と[更新検証](upgrade-validation.md)で確認します。署名が一致する版間の更新確認では `adb install -r` を使用し、アンインストールや `pm clear` によってデータ保持の確認を回避しません。パッケージ名、versionCode、署名証明書の一致を確認します。
+開発署名 APK と Google 署名済み APK は署名が異なります。同じアプリ ID でも上書き更新はできないため、[辞書の退避・復元](signing-switch.md)を行います。署名が一致する版間の更新確認では `adb install -r` を使用し、アンインストールや `pm clear` によってデータ保持の確認を回避しません。パッケージ名、versionCode、署名証明書の一致を確認します。[更新検証](upgrade-validation.md)を参照してください。
 
 価格は無料、配布地域は Google Play で配布可能な全地域、公開問い合わせ先は `herisson@haya.se` とします。初回の対象年齢は 13–15 歳、16–17 歳、18 歳以上です。13 歳未満を後から含める場合は、Families、Data Safety、IARC、プライバシー説明を再評価します。これらは申告草稿の前提であり、最終的な Console の選択内容と一致させます。
 

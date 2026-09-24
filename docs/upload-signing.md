@@ -54,4 +54,4 @@ sha256sum "$UNSIGNED_AAB" "$SIGNED_AAB"
 jarsigner -verify -verbose -certs "$SIGNED_AAB"
 ```
 
-公開 AAB と掲載情報に同じ名称・版を使用し、更新では versionCode を増やします。Console に同じアプリ ID・versionCode が未登録であることを提出前に確認します。提出後は Console の **アップロード証明書**を現行の公開証明書と照合します。**アプリ署名証明書**は別の値になることが正常です。Play 経由で導入した版と Console から取得した配布 APK の署名を確認します。開発署名 APK から本番署名 APK への上書き更新はできないため、辞書・設定の退避と復元は[移行手順](package-migration.md)で扱います。
+公開 AAB と掲載情報に同じ名称・版を使用し、更新では versionCode を増やします。Console に同じアプリ ID・versionCode が未登録であることを提出前に確認します。提出後は Console の **アップロード証明書**を現行の公開証明書と照合します。**アプリ署名証明書**は別の値になることが正常です。Play 経由で導入した版と Console から取得した配布 APK の署名を確認します。開発署名 APK から本番署名 APK への上書き更新はできないため、辞書の退避と復元は[署名が異なる APK 間での移行](signing-switch.md)に従います。入力設定などは移行先で設定し直します。

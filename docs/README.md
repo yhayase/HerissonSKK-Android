@@ -2,7 +2,7 @@
 
 | 読者の目的 | 文書 |
 | --- | --- |
-| 導入・入力・辞書・設定 | [利用手順](usage.md)、[アプリ間の辞書移行](package-migration.md) |
+| 導入・入力・辞書・設定 | [利用手順](usage.md)、[署名が異なる APK 間でのデータ移行](signing-switch.md) |
 | 機能・操作の契約 | [製品要件](requirements.md)、[互換性仕様](compatibility.md) |
 | 内部設計 | [コア](core-design.md)、[辞書](dictionary-design.md)、[入力 UI](input-ui-design.md) と各分野の設計文書 |
 | 開発と変更時の検証 | [開発ガイド](development.md)、[検証手順](validation-plan.md)、[要件と試験の対応](test-coverage.md) |
