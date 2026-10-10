@@ -12,6 +12,8 @@ import java.util.UUID
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import se.haya.skk.core.dictionary.SkkDictionaryImportPolicy
+import se.haya.skk.core.dictionary.SkkDictionaryWarningReason
 import se.haya.skk.core.dictionary.SkkDictionaryCodec
 import se.haya.skk.core.dictionary.SkkDictionaryDocument
 import se.haya.skk.core.dictionary.SkkDictionaryEncoding
@@ -312,7 +314,7 @@ class DictionarySettingsActivity : SettingsPageActivity() {
                 val bytes = contentResolver.openInputStream(uri)?.use {
                     readBounded(it, SkkDictionaryCodec.MAX_FILE_BYTES)
                 } ?: throw IllegalStateException()
-                name to SkkDictionaryCodec.parse(bytes, request.encoding)
+                name to SkkDictionaryCodec.parse(bytes, request.encoding, SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED)
             }
             runOnUiThread {
                 if (!active) return@runOnUiThread
@@ -348,6 +350,21 @@ class DictionarySettingsActivity : SettingsPageActivity() {
             append(getString(R.string.dictionary_preview_candidates, candidateCount)).append('\n')
             append(getString(R.string.dictionary_preview_duplicates, diagnostics.duplicateCandidateCount)).append('\n')
             append(getString(R.string.dictionary_preview_conflicts, diagnostics.annotationConflictCount))
+            val warnings = diagnostics.warnings
+            if (warnings.count > 0) {
+                append("\n\n").append(getString(R.string.dictionary_preview_warning))
+                append('\n').append(getString(R.string.dictionary_preview_skipped_candidates, warnings.skippedCandidateCount))
+                append('\n').append(getString(R.string.dictionary_preview_skipped_entries, warnings.skippedEntryCount))
+                warnings.counts.forEach { (reason, count) ->
+                    append('\n').append(getString(R.string.dictionary_preview_warning_count, warningReasonLabel(reason), count))
+                }
+                warnings.samples.forEach { warning ->
+                    append('\n').append(getString(R.string.dictionary_preview_warning_line, warning.lineNumber, warningReasonLabel(warning.reason)))
+                }
+                if (warnings.count > warnings.samples.size) {
+                    append('\n').append(getString(R.string.dictionary_preview_warning_samples, warnings.samples.size, warnings.count))
+                }
+            }
             if (request.kind == ImportKind.REPLACE_PERSONAL) {
                 append("\n\n").append(getString(R.string.dictionary_replace_warning))
             }
@@ -360,6 +377,12 @@ class DictionarySettingsActivity : SettingsPageActivity() {
             .setOnCancelListener { cancelPreview() }
             .show()
     }
+
+    private fun warningReasonLabel(reason: SkkDictionaryWarningReason): String = getString(when (reason) {
+        SkkDictionaryWarningReason.UNSUPPORTED_DATE_EXPRESSION -> R.string.dictionary_warning_date
+        SkkDictionaryWarningReason.UNSUPPORTED_SUPPRESSION_EXPRESSION -> R.string.dictionary_warning_suppression
+        SkkDictionaryWarningReason.EMPTY_HEADWORD -> R.string.dictionary_warning_empty_headword
+    })
 
     private fun applyImport(name: String, request: ImportRequest, document: SkkDictionaryDocument) {
         val current = draft ?: run { setBusy(false); setStatus(R.string.dictionary_apply_failed); return }
@@ -686,6 +709,7 @@ class DictionarySettingsActivity : SettingsPageActivity() {
     private fun encodingLabel(encoding: SkkDictionaryEncoding): String = when (encoding) {
         SkkDictionaryEncoding.UTF8 -> getString(R.string.dictionary_encoding_utf8)
         SkkDictionaryEncoding.EUC_JP -> getString(R.string.dictionary_encoding_eucjp)
+        SkkDictionaryEncoding.EUC_JIS_2004 -> getString(R.string.dictionary_encoding_eucjis2004)
         SkkDictionaryEncoding.AUTO -> getString(R.string.dictionary_encoding_auto)
     }
 
@@ -752,7 +776,7 @@ class DictionarySettingsActivity : SettingsPageActivity() {
             val loaded = runCatching {
                 val download = networkDownloadForTest?.invoke(url, cancellation)
                     ?: NetworkDictionaryDownloader().download(url, cancellation)
-                download.finalUrl to SkkDictionaryCodec.parse(download.bytes, SkkDictionaryEncoding.AUTO)
+                download.finalUrl to SkkDictionaryCodec.parse(download.bytes, SkkDictionaryEncoding.AUTO, SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED)
             }
             val uiExecutor = networkUiExecutorForTest ?: Executor(::runOnUiThread)
             uiExecutor.execute {

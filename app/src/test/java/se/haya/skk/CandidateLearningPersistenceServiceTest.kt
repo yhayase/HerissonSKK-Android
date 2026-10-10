@@ -9,6 +9,7 @@ import java.io.File
 import java.util.concurrent.Executor
 import se.haya.skk.core.BasicSkkAction
 import se.haya.skk.core.DictionaryQuery
+import se.haya.skk.core.dictionary.*
 import se.haya.skk.dictionary.BuiltinDictionary
 import se.haya.skk.dictionary.DictionaryManager
 import se.haya.skk.dictionary.SQLiteDictionaryRepository
@@ -73,6 +74,30 @@ class CandidateLearningPersistenceServiceTest {
         service.onFinishInput()
     }
 
+    @Test fun `確定と学習は改行 個人注釈と宣言した区分を保持する`() {
+        val source = SkkDictionarySource("preservation-service", 0, listOf(SkkDictionaryEntry(
+            "にほん", listOf(SkkDictionaryCandidate("独立確定一行目\n独立確定二行目", "独立確定注釈\r追記", annotationIsPersonal = true)),
+            SkkDictionarySection.OKURI_ARI,
+        )))
+        withService(listOf(source)) { service, manager, name ->
+            val session = start(service)
+            session.handle(BasicSkkAction.Text("Nihon "))
+            session.handle(BasicSkkAction.Enter)
+            assertNull(session.notice)
+            val connection: BaseInputConnection = ReflectionHelpers.getField(service, "mInputConnection")
+            assertEquals("独立確定一行目\n独立確定二行目", connection.editable.toString())
+            service.onFinishInput()
+            manager.close()
+            SQLiteDictionaryRepository(RuntimeEnvironment.getApplication(), name).use { repository ->
+                val entry = SkkDictionaryCodec.parse(repository.exportPersonal()).entries.single()
+                assertEquals(SkkDictionarySection.OKURI_ARI, entry.section)
+                assertEquals("独立確定一行目\n独立確定二行目", entry.candidates.single().text)
+                assertEquals("独立確定注釈\r追記", entry.candidates.single().annotation)
+                assertTrue(entry.candidates.single().annotationIsPersonal)
+            }
+        }
+    }
+
     private fun selectSecondAndCommit(session: EditorSession) {
         session.handle(BasicSkkAction.Text("Nihon  "))
         assertEquals("二本", session.view.candidate?.selected?.text)
@@ -95,16 +120,16 @@ class CandidateLearningPersistenceServiceTest {
         return ReflectionHelpers.getField(service, "session")
     }
 
-    private fun manager(name: String): DictionaryManager {
+    private fun manager(name: String, systems: List<SkkDictionarySource> = listOf(BuiltinDictionary.source)): DictionaryManager {
         val direct = Executor { it.run() }
         return DictionaryManager(SQLiteDictionaryRepository(RuntimeEnvironment.getApplication(), name),
-            direct, direct, fallbackSystems = listOf(BuiltinDictionary.source), deferReads = false).also { it.loadAsync() }
+            direct, direct, fallbackSystems = systems, deferReads = false).also { it.loadAsync() }
     }
 
-    private fun withService(test: (SkkInputMethodService, DictionaryManager, String) -> Unit) {
+    private fun withService(systems: List<SkkDictionarySource> = listOf(BuiltinDictionary.source), test: (SkkInputMethodService, DictionaryManager, String) -> Unit) {
         val context = RuntimeEnvironment.getApplication()
         val name = "learning-persistence-${System.nanoTime()}.db"
-        val manager = manager(name)
+        val manager = manager(name, systems)
         val path = File(context.cacheDir, "$name.json")
         val direct = Executor { it.run() }
         val custom = CustomizationStore(path, direct, direct).also { it.loadAsync() }

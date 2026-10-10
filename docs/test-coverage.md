@@ -22,7 +22,7 @@
 | F06 | 再帰登録、本文分離、内側完了、失敗・遅延完了と登録内編集のコア・接続試験、SAF E2E の代表登録 | 複数アプリの接続切断・切替は代表 E2E の外です |
 | F07 | SQLite 個人候補、学習順位、削除・抑止・解除、故障時 rollback、SAF E2E の再読込、同署名旧 APK からの独立 fixture 更新を扱う | 独立 fixture は実利用データの更新を保証しません |
 | F08 | `DictionarySettingsActivityTest` と repository の追加・更新・削除・有効状態・順序、完全バックアップ E2E | 合成辞書は実辞書の分布と容量を代表しません |
-| F09 | `SkkDictionaryCodecTest` の UTF-8／EUC-JP・注釈・送り・順序、SAF E2E、別プロセスの実 provider が正常本文後に返す読取障害を扱う | 出力先 close 障害の実 provider 経路と機種別 SAF を確認します。出力 close は単体の障害注入のみです |
+| F09 | `SkkDictionaryCodecTest` の UTF-8／EUC-JP／EUC-JIS-2004・注釈・送り・順序、SAF E2E、別プロセスの実 provider が正常本文後に返す読取障害を扱う | 出力先 close 障害の実 provider 経路と機種別 SAF を確認します。出力 close は単体の障害注入のみです |
 | F10 | 保護欄の SKK 迂回、学習禁止欄の変換継続、保存許可の受付時・書込直前検査をコア・接続・入力 E2E で確認 | 実アプリの入力種別・OS 診断経路は単体試験の外です |
 | F11 | 通常／動的補完の受諾・取消・未受諾分離、数値八形式のコア・接続・SAF E2E | 実辞書の負荷と対象アプリの挙動は別に評価します |
 | F12 | `CustomizationStoreTest`、`CustomizationActivityTest`、キー衝突と AZIK のコア試験、入力設定 E2E、表示境界の端末試験 | 対象実機・物理配列は単体試験の外です |

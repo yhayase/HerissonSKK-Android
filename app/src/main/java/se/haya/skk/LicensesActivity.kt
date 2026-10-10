@@ -77,7 +77,8 @@ internal enum class LicenseItem(
     LICENSE_SCOPE("license-scope", "ライセンスの適用範囲", "同梱する本文と対象ファイル", "META-INF/license-scope.txt"),
     THIRD_PARTY_NOTICES("third-party-notices", "第三者ライセンス通知", "同梱ライブラリの通知", "META-INF/third-party-notices.txt"),
     APACHE_2_0("apache-2.0", "Apache License 2.0", "Apache-2.0", "META-INF/Apache-2.0.txt"),
-    ICU("icu", "ICU License", "Unicode と ICU のライセンス", "META-INF/icu-LICENSE.txt");
+    ICU("icu", "ICU License", "Unicode と ICU のライセンス", "META-INF/icu-LICENSE.txt"),
+    PROJECT_X0213("project-x0213", "Project X0213 の文字コード対応表", "自由な利用・変更・配布の許諾と著作権表示", "META-INF/Project-X0213.txt");
 
     companion object {
         fun fromId(id: String): LicenseItem? = entries.firstOrNull { it.id == id }

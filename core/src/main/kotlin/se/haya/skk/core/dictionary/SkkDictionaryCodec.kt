@@ -11,31 +11,56 @@ object SkkDictionaryCodec {
     const val MAX_FILE_BYTES: Int = 64 * 1024 * 1024
     const val MAX_TEXT_CHARS: Int = 64 * 1024 * 1024
     const val MAX_LINE_CHARS: Int = 1024 * 1024
+    const val MAX_WARNING_SAMPLES: Int = 100
 
     fun parse(
         bytes: ByteArray,
         encoding: SkkDictionaryEncoding = SkkDictionaryEncoding.AUTO,
+        policy: SkkDictionaryImportPolicy = SkkDictionaryImportPolicy.STRICT,
     ): SkkDictionaryDocument {
         if (bytes.size > MAX_FILE_BYTES) fail(1, SkkDictionaryError.FILE_TOO_LARGE)
         val decoded = decode(bytes, encoding)
-        return parseText(decoded.text, decoded.encoding)
+        return parseText(decoded.text, decoded.encoding, policy)
     }
 
     fun parseText(
         text: String,
         encoding: SkkDictionaryEncoding = SkkDictionaryEncoding.UTF8,
+        policy: SkkDictionaryImportPolicy = SkkDictionaryImportPolicy.STRICT,
     ): SkkDictionaryDocument {
         require(encoding != SkkDictionaryEncoding.AUTO)
         if (text.length > MAX_TEXT_CHARS) fail(1, SkkDictionaryError.FILE_TOO_LARGE)
         validateTextUnicode(text)
         val merged = LinkedHashMap<String, LinkedHashMap<CandidateIdentity, SkkDictionaryCandidate>>()
+        val sections = LinkedHashMap<String, SkkDictionarySection>()
+        var currentSection: SkkDictionarySection? = null
         var duplicates = 0
         var annotationConflicts = 0
+        val warnings = WarningCollector()
         forEachLine(text) { lineNumber, line ->
             if (line.length > MAX_LINE_CHARS) fail(lineNumber, SkkDictionaryError.LINE_TOO_LONG)
             val trimmed = line.trim()
+            when (trimmed) {
+                ";; okuri-ari entries." -> currentSection = SkkDictionarySection.OKURI_ARI
+                ";; okuri-nasi entries." -> currentSection = SkkDictionarySection.OKURI_NASI
+            }
             if (trimmed.isNotEmpty() && !trimmed.startsWith(";;")) {
-                val entry = parseLine(trimmed, lineNumber)
+                val separator = trimmed.indexOfFirst { it.isWhitespace() }
+                val hasHeadword = separator > 0 && trimmed.substring(separator).trimStart().startsWith('/')
+                val emptyHeadword = line.firstOrNull()?.isWhitespace() == true && trimmed.startsWith('/') && !hasHeadword
+                if (emptyHeadword && policy == SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED) {
+                    // 空見出しでも候補列全体を検証し、破損した行を隠しません。
+                    val entry = parseLine("__empty_headword__ $trimmed", lineNumber, policy, warnings)
+                    warnings.add(lineNumber, SkkDictionaryWarningReason.EMPTY_HEADWORD, entry.candidates.size)
+                    warnings.skippedEntryCount++
+                    return@forEachLine
+                }
+                val entry = parseLine(trimmed, lineNumber, policy, warnings)
+                if (entry.candidates.isEmpty()) {
+                    warnings.skippedEntryCount++
+                    return@forEachLine
+                }
+                sections.putIfAbsent(entry.key, currentSection ?: entry.section)
                 val candidates = merged.getOrPut(entry.key) { LinkedHashMap() }
                 for (candidate in entry.candidates) {
                     val identity = CandidateIdentity(candidate.text, candidate.okuriCondition)
@@ -46,34 +71,38 @@ object SkkDictionaryCodec {
                     }
                     duplicates++
                     if (existing.annotation == null && candidate.annotation != null) {
-                        candidates[identity] = existing.copy(annotation = candidate.annotation)
+                        candidates[identity] = existing.copy(annotation = candidate.annotation, annotationIsPersonal = candidate.annotationIsPersonal)
                     } else if (
                         existing.annotation != null &&
                         candidate.annotation != null &&
-                        existing.annotation != candidate.annotation
+                        (existing.annotation != candidate.annotation || existing.annotationIsPersonal != candidate.annotationIsPersonal)
                     ) {
                         annotationConflicts++
                     }
                 }
             }
         }
+        if (merged.isEmpty() && warnings.count > 0) fail(1, SkkDictionaryError.NO_SUPPORTED_ENTRIES)
         return SkkDictionaryDocument(
-            entries = merged.map { (key, candidates) -> SkkDictionaryEntry(key, candidates.values.toList()) },
+            entries = merged.map { (key, candidates) -> SkkDictionaryEntry(key, candidates.values.toList(), sections.getValue(key)) },
             encoding = encoding,
-            diagnostics = SkkDictionaryDiagnostics(duplicates, annotationConflicts),
+            diagnostics = SkkDictionaryDiagnostics(duplicates, annotationConflicts, warnings.snapshot()),
         )
+    }
+
+    /** 書き出し用の文字列を作らず、公開モデルの辞書値を検証します。 */
+    fun validate(document: SkkDictionaryDocument) = validateEntries(document.entries)
+
+    private fun validateEntries(entries: List<SkkDictionaryEntry>) {
+        entries.forEachIndexed { index, entry -> validateEntry(entry, index + 1) }
     }
 
     fun format(document: SkkDictionaryDocument): String = format(document.entries)
 
     fun format(entries: List<SkkDictionaryEntry>): String {
-        val validated = entries.mapIndexed { index, entry ->
-            validateEntry(entry, index + 1)
-            entry
-        }
-        val comparator = Comparator<SkkDictionaryEntry> { left, right -> compareCodePoints(left.key, right.key) }
-        val okuriAri = validated.filter { isOkuriAriKey(it.key) }.sortedWith(comparator)
-        val okuriNasi = validated.filterNot { isOkuriAriKey(it.key) }.sortedWith(comparator)
+        validateEntries(entries)
+        val okuriAri = entries.filter { it.section == SkkDictionarySection.OKURI_ARI }
+        val okuriNasi = entries.filter { it.section == SkkDictionarySection.OKURI_NASI }
         return buildString {
             append(";; -*- coding: utf-8 -*-\n")
             append(";; okuri-ari entries.\n")
@@ -92,14 +121,21 @@ object SkkDictionaryCodec {
         text: String,
         annotation: String?,
         okuriCondition: String?,
+        annotationIsPersonal: Boolean = false,
     ) {
         validateKey(entryKey, 1)
-        validateValue(text, 1)
-        annotation?.let { validateValue(it, 1) }
-        okuriCondition?.let { validateOkuriCondition(entryKey, it, 1) }
+        validateValue(text, 1, allowLineBreaks = true)
+        annotation?.let { validateValue(it, 1, allowLineBreaks = true) }
+        if (annotationIsPersonal && annotation.isNullOrEmpty()) fail(1, SkkDictionaryError.INVALID_VALUE)
+        okuriCondition?.let { validateOkuriCondition(it, 1) }
     }
 
-    private fun parseLine(line: String, lineNumber: Int): SkkDictionaryEntry {
+    private fun parseLine(
+        line: String,
+        lineNumber: Int,
+        policy: SkkDictionaryImportPolicy,
+        warnings: WarningCollector,
+    ): SkkDictionaryEntry {
         val separator = line.indexOfFirst { it.isWhitespace() }
         if (separator <= 0) fail(lineNumber, SkkDictionaryError.INVALID_ENTRY)
         val key = line.substring(0, separator)
@@ -116,31 +152,31 @@ object SkkDictionaryCodec {
             val token = tokens[tokenIndex]
             if (token.isEmpty()) fail(lineNumber, SkkDictionaryError.INVALID_CANDIDATE_LIST)
             if (token.startsWith("[")) {
-                if (!isOkuriAriKey(key)) fail(lineNumber, SkkDictionaryError.INVALID_OKURI_BLOCK)
                 val condition = token.substring(1)
-                validateOkuriCondition(key, condition, lineNumber)
+                validateOkuriCondition(condition, lineNumber)
                 tokenIndex++
                 val block = mutableListOf<SkkDictionaryCandidate>()
+                var blockTokenCount = 0
                 while (tokenIndex < tokens.size && tokens[tokenIndex] != "]") {
                     val value = tokens[tokenIndex]
                     if (value.isEmpty() || value.startsWith("[")) {
                         fail(lineNumber, SkkDictionaryError.INVALID_OKURI_BLOCK)
                     }
-                    block += parseCandidate(value, condition, lineNumber)
+                    parseImportCandidate(value, condition, lineNumber, policy, warnings)?.let(block::add)
+                    blockTokenCount++
                     tokenIndex++
                 }
-                if (block.isEmpty() || tokenIndex >= tokens.size) {
+                if (blockTokenCount == 0 || tokenIndex >= tokens.size) {
                     fail(lineNumber, SkkDictionaryError.INVALID_OKURI_BLOCK)
                 }
                 candidates += block
                 tokenIndex++
             } else {
                 if (token == "]") fail(lineNumber, SkkDictionaryError.INVALID_OKURI_BLOCK)
-                candidates += parseCandidate(token, null, lineNumber)
+                parseImportCandidate(token, null, lineNumber, policy, warnings)?.let(candidates::add)
                 tokenIndex++
             }
         }
-        if (candidates.isEmpty()) fail(lineNumber, SkkDictionaryError.INVALID_CANDIDATE_LIST)
         return SkkDictionaryEntry(key, candidates)
     }
 
@@ -185,24 +221,171 @@ object SkkDictionaryCodec {
         return tokens
     }
 
-    private fun parseCandidate(
+    private fun parseImportCandidate(
         token: String,
         okuriCondition: String?,
         lineNumber: Int,
-    ): SkkDictionaryCandidate {
+        policy: SkkDictionaryImportPolicy,
+        warnings: WarningCollector,
+    ): SkkDictionaryCandidate? {
         val semicolon = findTopLevelSemicolon(token, lineNumber)
         val textAtom = if (semicolon < 0) token else token.substring(0, semicolon)
         var annotationAtom = if (semicolon < 0) null else token.substring(semicolon + 1)
         if (textAtom.isEmpty()) fail(lineNumber, SkkDictionaryError.INVALID_VALUE)
-        val value = decodeAtom(textAtom, lineNumber, annotation = false)
-        if (annotationAtom?.startsWith("*") == true) annotationAtom = annotationAtom.substring(1)
-        val annotation = annotationAtom
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { decodeAtom(it, lineNumber, annotation = true) }
-            ?.takeIf { it.isNotEmpty() }
-        validateValue(value, lineNumber)
-        annotation?.let { validateValue(it, lineNumber) }
-        return SkkDictionaryCandidate(value, annotation, okuriCondition)
+        val annotationIsPersonal = annotationAtom?.startsWith("*") == true
+        if (annotationIsPersonal) annotationAtom = annotationAtom!!.substring(1)
+        var reason: SkkDictionaryWarningReason? = null
+        fun atomValue(atom: String, annotation: Boolean): String? {
+            validateValue(atom, lineNumber)
+            val known = if (policy == SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED) knownExpression(atom) else null
+            if (known != null) {
+                if (reason == null) reason = known
+                return null
+            }
+            if (policy == SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED && hasKnownOperatorPrefix(atom)) {
+                fail(lineNumber, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
+            }
+            return decodeAtom(atom, lineNumber, annotation).also { if (!annotation || it.isNotEmpty()) validateValue(it, lineNumber, allowLineBreaks = true) }
+        }
+        val value = atomValue(textAtom, false)
+        val annotation = annotationAtom?.takeIf { it.isNotEmpty() }?.let { atomValue(it, true) }
+        reason?.let {
+            warnings.add(lineNumber, it, 1)
+            return null
+        }
+        val nonemptyAnnotation = annotation?.takeIf { it.isNotEmpty() }
+        return SkkDictionaryCandidate(requireNotNull(value), nonemptyAnnotation, okuriCondition, annotationIsPersonal && nonemptyAnnotation != null)
+    }
+
+    // DDSKK の既知の形式だけを識別します。式は評価せず、未知の式や壊れた concat は従来どおり拒否します。
+    private fun hasKnownOperatorPrefix(atom: String): Boolean =
+        listOf("skk-current-date", "skk-ignore-dic-word").any { operator ->
+            val prefix = "($operator"
+            atom.startsWith(prefix) && (atom.length == prefix.length || atom.getOrNull(prefix.length) in listOf(' ', ')'))
+        }
+
+    private fun knownExpression(atom: String): SkkDictionaryWarningReason? {
+        if (!hasKnownOperatorPrefix(atom)) return null
+        val date = atom.startsWith("(skk-current-date")
+        val reader = KnownExpressionReader(atom, if (date) "skk-current-date" else "skk-ignore-dic-word")
+        if (!reader.readArguments(date)) return null
+        return if (date) SkkDictionaryWarningReason.UNSUPPORTED_DATE_EXPRESSION
+        else SkkDictionaryWarningReason.UNSUPPORTED_SUPPRESSION_EXPRESSION
+    }
+
+    /** 既知の式の構造だけを確認します。値の評価や元の引数の保持は行いません。 */
+    private class KnownExpressionReader(private val text: String, operator: String) {
+        private var index = operator.length + 1
+        private var nodes = 0
+
+        fun readArguments(date: Boolean): Boolean {
+            var arguments = 0
+            while (index < text.length && text[index] != ')') {
+                if (text[index] != ' ') return false
+                skipSpaces()
+                if (text.getOrNull(index) == ')') break
+                if (date) {
+                    if (arguments >= 3) return false
+                    val valid = when (arguments) {
+                        0 -> readFunctionArgument()
+                        1 -> if (text.getOrNull(index) == '"') readString() >= 0 else readSymbol() == "nil"
+                        else -> readSymbol() in listOf("nil", "t")
+                    }
+                    if (!valid) return false
+                } else {
+                    if (readString() <= 0) return false
+                }
+                arguments++
+            }
+            return index == text.lastIndex && text.getOrNull(index) == ')' && (date || arguments > 0)
+        }
+
+        private fun readFunctionArgument(): Boolean = when {
+            text.startsWith("#'", index) -> { index += 2; readFunctionDatum() }
+            text.getOrNull(index) == '\'' -> { index++; readDatum(0) }
+            text.getOrNull(index) == '(' -> readLambda()
+            else -> readSymbol() == "nil"
+        }
+
+        private fun readFunctionDatum(): Boolean =
+            if (text.getOrNull(index) == '(') readLambda() else readSymbol() != null
+
+        private fun readLambda(): Boolean {
+            if (!text.startsWith("(lambda ", index)) return false
+            index += "(lambda".length
+            skipSpaces()
+            if (text.getOrNull(index) == '(') {
+                if (!readDatum(0)) return false
+            } else if (readSymbol() != "nil") return false
+            var bodies = 0
+            while (index < text.length && text[index] != ')') {
+                skipSpaces()
+                if (text.getOrNull(index) == ')') break
+                if (!readDatum(0)) return false
+                bodies++
+            }
+            if (bodies == 0 || text.getOrNull(index) != ')') return false
+            index++
+            return true
+        }
+
+        private fun readDatum(depth: Int): Boolean {
+            if (depth > 64 || ++nodes > 4096) return false
+            return when (text.getOrNull(index)) {
+                '(' -> {
+                    index++
+                    skipSpaces()
+                    while (index < text.length && text[index] != ')') {
+                        if (!readDatum(depth + 1)) return false
+                        skipSpaces()
+                    }
+                    if (text.getOrNull(index) != ')') return false
+                    index++
+                    true
+                }
+                '\'' -> { index++; readDatum(depth + 1) }
+                '"' -> readString() >= 0
+                '#' -> {
+                    if (!text.startsWith("#'", index)) return false
+                    index += 2
+                    readDatum(depth + 1)
+                }
+                else -> readSymbol() != null
+            }
+        }
+
+        private fun readSymbol(): String? {
+            val start = index
+            while (index < text.length && text[index] !in " ()\"'\\#`,;[]") index++
+            if (index == start) return null
+            return text.substring(start, index).takeIf { it != "." }
+        }
+
+        private fun readString(): Int {
+            if (text.getOrNull(index) != '"') return -1
+            index++
+            var characters = 0
+            while (index < text.length) {
+                val char = text[index++]
+                if (char == '"') return characters
+                if (char == '\\') {
+                    when (text.getOrNull(index)) {
+                        '"', '\\', 'n', 'r' -> index++
+                        '0' -> {
+                            if (index + 3 > text.length || text.substring(index, index + 3) !in listOf("057", "073")) return -1
+                            index += 3
+                        }
+                        else -> return -1
+                    }
+                }
+                characters++
+            }
+            return -1
+        }
+
+        private fun skipSpaces() {
+            while (text.getOrNull(index) == ' ') index++
+        }
     }
 
     private fun findTopLevelSemicolon(token: String, lineNumber: Int): Int {
@@ -271,6 +454,14 @@ object SkkDictionaryCodec {
             }
             if (index >= atom.length) fail(lineNumber, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
             when (atom[index]) {
+                'n' -> {
+                    result.append('\n')
+                    index++
+                }
+                'r' -> {
+                    result.append('\r')
+                    index++
+                }
                 '\\' -> {
                     result.append('\\')
                     index++
@@ -285,6 +476,8 @@ object SkkDictionaryCodec {
                     when (escape) {
                         "057" -> result.append('/')
                         "073" -> result.append(';')
+                        "012" -> result.append('\n')
+                        "015" -> result.append('\r')
                         else -> fail(lineNumber, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
                     }
                     index += 3
@@ -299,9 +492,10 @@ object SkkDictionaryCodec {
         validateKey(entry.key, lineNumber)
         if (entry.candidates.isEmpty()) fail(lineNumber, SkkDictionaryError.INVALID_CANDIDATE_LIST)
         entry.candidates.forEach { candidate ->
-            validateValue(candidate.text, lineNumber)
-            candidate.annotation?.let { validateValue(it, lineNumber) }
-            candidate.okuriCondition?.let { validateOkuriCondition(entry.key, it, lineNumber) }
+            validateValue(candidate.text, lineNumber, allowLineBreaks = true)
+            candidate.annotation?.takeIf { it.isNotEmpty() }?.let { validateValue(it, lineNumber, allowLineBreaks = true) }
+            if (candidate.annotationIsPersonal && candidate.annotation.isNullOrEmpty()) fail(lineNumber, SkkDictionaryError.INVALID_VALUE)
+            candidate.okuriCondition?.let { validateOkuriCondition(it, lineNumber) }
         }
     }
 
@@ -312,7 +506,7 @@ object SkkDictionaryCodec {
         validateValue(key, lineNumber)
     }
 
-    private fun validateValue(value: String, lineNumber: Int) {
+    private fun validateValue(value: String, lineNumber: Int, allowLineBreaks: Boolean = false) {
         if (value.isEmpty()) fail(lineNumber, SkkDictionaryError.INVALID_VALUE)
         var index = 0
         while (index < value.length) {
@@ -324,7 +518,7 @@ object SkkDictionaryCodec {
                 index += 2
                 continue
             }
-            if (char.isLowSurrogate() || char.code in 0x00..0x1f || char.code == 0x7f) {
+            if (char.isLowSurrogate() || (char.code in 0x00..0x1f && !(allowLineBreaks && char in "\n\r")) || char.code == 0x7f) {
                 fail(lineNumber, SkkDictionaryError.INVALID_VALUE)
             }
             index++
@@ -358,52 +552,13 @@ object SkkDictionaryCodec {
         }
     }
 
-    private fun validateOkuriCondition(key: String, condition: String, lineNumber: Int) {
-        if (condition.isEmpty() || !isOkuriAriKey(key)) {
+    private fun validateOkuriCondition(condition: String, lineNumber: Int) {
+        // 送り条件は DDSKK のブロック照合と同様に文字列として保持します。
+        // 区切りや引用と衝突する文字は、このブロック構文では往復できません。
+        if (condition.isEmpty() || condition.any { it == '/' || it == '[' || it == ']' || it == '"' }) {
             fail(lineNumber, SkkDictionaryError.INVALID_OKURI_BLOCK)
         }
-        var index = 0
-        while (index < condition.length) {
-            val codePoint = condition.codePointAt(index)
-            if (codePoint !in 0x3041..0x3096 && codePoint != 0x30fc) {
-                fail(lineNumber, SkkDictionaryError.INVALID_OKURI_BLOCK)
-            }
-            index += Character.charCount(codePoint)
-        }
-        if (okuriAlphabet(condition) != key.last()) {
-            fail(lineNumber, SkkDictionaryError.INVALID_OKURI_BLOCK)
-        }
-    }
-
-    private fun okuriAlphabet(condition: String): Char? {
-        var index = 0
-        while (index < condition.length && condition.codePointAt(index) == 'っ'.code) {
-            index += Character.charCount(condition.codePointAt(index))
-        }
-        if (index >= condition.length) return null
-        return when (condition.codePointAt(index).toChar()) {
-        'あ' -> 'a'
-        'い' -> 'i'
-        'う' -> 'u'
-        'え' -> 'e'
-        'お' -> 'o'
-        in "かきくけこ" -> 'k'
-        in "がぎぐげご" -> 'g'
-        in "さしすせそ" -> 's'
-        in "ざじずぜぞ" -> 'z'
-        in "たちつてと" -> 't'
-        in "だぢづでど" -> 'd'
-        in "なにぬねのん" -> 'n'
-        in "はひふへほ" -> 'h'
-        in "ばびぶべぼ" -> 'b'
-        in "ぱぴぷぺぽ" -> 'p'
-        in "まみむめも" -> 'm'
-        in "やゆよ" -> 'y'
-        in "らりるれろ" -> 'r'
-        in "わゐゑを" -> 'w'
-        'ゔ' -> 'v'
-        else -> null
-        }
+        validateValue(condition, lineNumber)
     }
 
     private fun StringBuilder.appendEntry(entry: SkkDictionaryEntry) {
@@ -434,20 +589,22 @@ object SkkDictionaryCodec {
         val text = encodeAtom(candidate.text, annotation = false)
         val annotation = candidate.annotation ?: return text
         if (annotation.isEmpty()) return text
-        return "$text;${encodeAtom(annotation, annotation = true)}"
+        return "$text;${if (candidate.annotationIsPersonal) "*" else ""}${encodeAtom(annotation, annotation = true)}"
     }
 
     private fun encodeAtom(value: String, annotation: Boolean): String {
-        val requiresExpression = value.any { it == '/' || it == '\\' || it == '"' } ||
+        val requiresExpression = value.any { it == '/' || it == '\\' || it == '"' || it == '\n' || it == '\r' } ||
             (!annotation && (value.contains(';') || value.startsWith("[") || value == "]")) ||
             (annotation && value.startsWith("*")) ||
-            value.startsWith("(concat") ||
+            value.startsWith("(concat") || hasKnownOperatorPrefix(value) ||
             (value.startsWith("(") && value.endsWith(")") && value.length > 1 && value[1].code <= 0x7f)
         if (!requiresExpression) return value
         return buildString {
             append("(concat \"")
             for (char in value) {
                 when (char) {
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
                     '/' -> append("\\057")
                     ';' -> append("\\073")
                     '\\' -> append("\\\\")
@@ -459,30 +616,20 @@ object SkkDictionaryCodec {
         }
     }
 
-    private fun isOkuriAriKey(key: String): Boolean = key.length > 1 && key.lastOrNull() in 'a'..'z'
-
-    private fun compareCodePoints(left: String, right: String): Int {
-        var leftIndex = 0
-        var rightIndex = 0
-        while (leftIndex < left.length && rightIndex < right.length) {
-            val leftCodePoint = left.codePointAt(leftIndex)
-            val rightCodePoint = right.codePointAt(rightIndex)
-            if (leftCodePoint != rightCodePoint) return leftCodePoint.compareTo(rightCodePoint)
-            leftIndex += Character.charCount(leftCodePoint)
-            rightIndex += Character.charCount(rightCodePoint)
-        }
-        return (left.length - leftIndex).compareTo(right.length - rightIndex)
-    }
-
     private fun decode(bytes: ByteArray, requested: SkkDictionaryEncoding): Decoded {
         return when (requested) {
             SkkDictionaryEncoding.UTF8 -> Decoded(decodeStrict(stripUtf8Bom(bytes), StandardCharsets.UTF_8), requested)
             SkkDictionaryEncoding.EUC_JP -> Decoded(decodeStrict(bytes, Charset.forName("EUC-JP")), requested)
+            SkkDictionaryEncoding.EUC_JIS_2004 -> Decoded(decodeEucJis2004(bytes), requested)
             SkkDictionaryEncoding.AUTO -> {
                 try {
                     Decoded(decodeStrict(stripUtf8Bom(bytes), StandardCharsets.UTF_8), SkkDictionaryEncoding.UTF8)
                 } catch (_: SkkDictionaryFormatException) {
-                    Decoded(decodeStrict(bytes, Charset.forName("EUC-JP")), SkkDictionaryEncoding.EUC_JP)
+                    try {
+                        Decoded(decodeStrict(bytes, Charset.forName("EUC-JP")), SkkDictionaryEncoding.EUC_JP)
+                    } catch (_: SkkDictionaryFormatException) {
+                        Decoded(decodeEucJis2004(bytes), SkkDictionaryEncoding.EUC_JIS_2004)
+                    }
                 }
             }
         }
@@ -497,6 +644,12 @@ object SkkDictionaryCodec {
         } catch (_: CharacterCodingException) {
             fail(1, SkkDictionaryError.DECODING_FAILED)
         }
+    }
+
+    private fun decodeEucJis2004(bytes: ByteArray): String = try {
+        EucJis2004Decoder.decode(bytes)
+    } catch (_: CharacterCodingException) {
+        fail(1, SkkDictionaryError.DECODING_FAILED)
     }
 
     private fun stripUtf8Bom(bytes: ByteArray): ByteArray =
@@ -528,6 +681,22 @@ object SkkDictionaryCodec {
 
     private fun fail(lineNumber: Int, error: SkkDictionaryError): Nothing =
         throw SkkDictionaryFormatException(lineNumber, error)
+
+    private class WarningCollector {
+        var skippedCandidateCount = 0
+        var skippedEntryCount = 0
+        val counts = java.util.EnumMap<SkkDictionaryWarningReason, Int>(SkkDictionaryWarningReason::class.java)
+        val samples = ArrayList<SkkDictionaryWarning>()
+        val count: Int get() = counts.values.sum()
+
+        fun add(lineNumber: Int, reason: SkkDictionaryWarningReason, candidateCount: Int) {
+            skippedCandidateCount += candidateCount
+            counts[reason] = (counts[reason] ?: 0) + 1
+            if (samples.size < MAX_WARNING_SAMPLES) samples += SkkDictionaryWarning(lineNumber, reason)
+        }
+
+        fun snapshot() = SkkDictionaryWarnings(skippedCandidateCount, skippedEntryCount, counts, samples)
+    }
 
     private data class Decoded(val text: String, val encoding: SkkDictionaryEncoding)
     private data class CandidateIdentity(val text: String, val okuriCondition: String?)

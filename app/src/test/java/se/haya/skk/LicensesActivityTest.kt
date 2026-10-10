@@ -38,7 +38,7 @@ class LicensesActivityTest {
         val rows = preferences(activity)
 
         assertEquals(
-            listOf(activity.getString(R.string.app_name), "アプリアイコンの利用条件", "外部辞書について", "GNU General Public License v2.0", "ライセンスの適用範囲", "第三者ライセンス通知", "Apache License 2.0", "ICU License"),
+            listOf(activity.getString(R.string.app_name), "アプリアイコンの利用条件", "外部辞書について", "GNU General Public License v2.0", "ライセンスの適用範囲", "第三者ライセンス通知", "Apache License 2.0", "ICU License", "Project X0213 の文字コード対応表"),
             rows.map { it.title.toString() },
         )
         rows.first { it.key == "third-party-notices" }.performClick()

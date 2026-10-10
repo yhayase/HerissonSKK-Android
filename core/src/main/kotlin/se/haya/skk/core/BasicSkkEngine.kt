@@ -8,6 +8,7 @@ import se.haya.skk.core.dictionary.DeferredDictionaryReadException
 import se.haya.skk.core.dictionary.DictionaryUnavailableException
 import se.haya.skk.core.dictionary.DictionaryUnavailableReason
 import se.haya.skk.core.dictionary.CandidateSelection
+import se.haya.skk.core.dictionary.SkkDictionarySection
 import se.haya.skk.core.editing.EditCommand
 import se.haya.skk.core.editing.EditResult
 import se.haya.skk.core.editing.EditSnapshot
@@ -33,6 +34,8 @@ data class DictionaryCandidate(
     val okuriCondition: String? = null,
     val learningTarget: NumericLearningTarget? = null,
     val selection: CandidateSelection? = null,
+    val annotationIsPersonal: Boolean = false,
+    val entrySection: SkkDictionarySection? = null,
 )
 
 /** 数値展開後の表示候補を、永続化用の元辞書候補へ結びます。 */
@@ -41,6 +44,8 @@ data class NumericLearningTarget(
     val templateText: String,
     val annotation: String?,
     val okuriCondition: String?,
+    val annotationIsPersonal: Boolean = false,
+    val entrySection: SkkDictionarySection? = null,
 )
 
 /** 登録本文を永続化する前に固定した、入力先へ確定する語幹です。 */
@@ -1551,6 +1556,8 @@ class BasicSkkEngine(
             val learnedCandidate = DictionaryCandidate(
                 text = item.historyTarget.templateText,
                 annotation = item.candidate.annotation,
+                annotationIsPersonal = item.candidate.annotationIsPersonal,
+                entrySection = item.candidate.entrySection,
                 okuriCondition = item.historyTarget.okuriCondition,
                 selection = item.candidate.selection,
             )
@@ -1807,7 +1814,7 @@ class BasicSkkEngine(
         val output = committed + conversionSuffix
         val selectedQuery = candidate.learningTarget?.query ?: checkNotNull(selectionQuery)
         val learnedCandidate = candidate.learningTarget?.let {
-            DictionaryCandidate(it.templateText, it.annotation, it.okuriCondition)
+            DictionaryCandidate(it.templateText, it.annotation, it.okuriCondition, annotationIsPersonal = it.annotationIsPersonal, entrySection = it.entrySection)
         } ?: candidate
         val effects = if (learningEnabled && registrationPolicy.savingAllowed && registrations.isEmpty()) {
             listOf(BasicSkkEffect.LearnCandidate(CandidateCommitRequest(

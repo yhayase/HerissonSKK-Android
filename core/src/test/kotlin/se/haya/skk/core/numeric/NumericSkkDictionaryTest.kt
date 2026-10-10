@@ -19,6 +19,24 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class NumericSkkDictionaryTest {
+    @Test fun `数値候補の個人注釈由来を展開と予測学習で保持する`() {
+        val dictionary = facade(mapOf("だい#" to listOf(DictionaryCandidate("独自第#0", "独自数値注", annotationIsPersonal = true))))
+        val expanded = dictionary.lookup(DictionaryQuery("だい12")).single()
+        assertTrue(expanded.annotationIsPersonal)
+        assertTrue(expanded.learningTarget!!.annotationIsPersonal)
+        val engine = BasicSkkEngine(dictionary, RegistrationPolicy(sessionGeneration = 3), learningEnabled = true)
+        engine.dispatch(BasicSkkAction.SetTouchPrediction(true))
+        engine.dispatch(BasicSkkAction.Text("Dai12", interpretCommands = false))
+        val committed = engine.dispatch(BasicSkkAction.CommitPrediction())
+        val request = (committed.effects.single() as BasicSkkEffect.LearnCandidate).request
+        assertEquals("独自第#0", request.candidate.text)
+        assertTrue(request.candidate.annotationIsPersonal)
+        val normal = BasicSkkEngine(dictionary, RegistrationPolicy(sessionGeneration = 3), learningEnabled = true)
+        normal.dispatch(BasicSkkAction.Text("Dai12 "))
+        val normalCommit = normal.dispatch(BasicSkkAction.Enter)
+        assertTrue((normalCommit.effects.single() as BasicSkkEffect.LearnCandidate).request.candidate.annotationIsPersonal)
+    }
+
     @Test fun `八形式を正規化キーから展開し元テンプレートを学習対象にする`() {
         val dictionary = facade(mapOf("だい#" to listOf(DictionaryCandidate("第#0"), DictionaryCandidate("第#1"), DictionaryCandidate("第#2"), DictionaryCandidate("第#3"), DictionaryCandidate("第#5"), DictionaryCandidate("第#8"), DictionaryCandidate("第#9"))))
         val result = dictionary.lookup(DictionaryQuery("だい12"))

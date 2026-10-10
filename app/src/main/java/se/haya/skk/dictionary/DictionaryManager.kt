@@ -22,6 +22,7 @@ import se.haya.skk.core.dictionary.DictionaryUnavailableReason
 import se.haya.skk.core.dictionary.SkkDictionaryDocument
 import se.haya.skk.core.dictionary.SkkDictionarySource
 import se.haya.skk.core.dictionary.SkkDictionaryCandidate
+import se.haya.skk.core.dictionary.SkkDictionarySection
 import se.haya.skk.core.dictionary.CandidateSelection
 import se.haya.skk.core.numeric.NumericSkkDictionary
 import se.haya.skk.core.PredictionHistoryTarget
@@ -211,7 +212,7 @@ class DictionaryManager(
         candidate: SkkDictionaryCandidate,
         originAllowsSaving: Boolean,
         callback: (PersonalWriteResult) -> Unit,
-    ) = savePersonalCandidate(key, candidate, originAllowsSaving, captureInputWriteContext(), null, callback)
+    ) = savePersonalCandidate(key, candidate, originAllowsSaving, captureInputWriteContext(), null, callback = callback)
 
     fun saveConfirmedCandidate(
         key: String,
@@ -220,7 +221,7 @@ class DictionaryManager(
         originAllowsSaving: Boolean,
         inputContext: DictionaryInputWriteContext,
         callback: (PersonalWriteResult) -> Unit,
-    ) = savePersonalCandidate(key, candidate, originAllowsSaving, inputContext, historyTarget, callback)
+    ) = savePersonalCandidate(key, candidate, originAllowsSaving, inputContext, historyTarget, callback = callback)
 
     /** 入力由来の登録・学習だけを対象に、受理時と実際の書込直前に方針を確認します。 */
     @Synchronized
@@ -230,6 +231,7 @@ class DictionaryManager(
         originAllowsSaving: Boolean,
         inputContext: DictionaryInputWriteContext,
         historyTarget: PredictionHistoryTarget? = null,
+        section: SkkDictionarySection? = null,
         callback: (PersonalWriteResult) -> Unit,
     ) {
         check(!closed) { "辞書管理器は閉じています" }
@@ -248,7 +250,7 @@ class DictionaryManager(
         serialExecutor.execute {
             val saved = runCatching {
                 requireInputWrite(inputContext)
-                repository.promotePersonalCandidate(key, candidate, historyTarget) {
+                repository.promotePersonalCandidate(key, candidate, historyTarget, section = section) {
                     requireInputWrite(inputContext)
                     personalDataPolicy.accepts(permit)
                 }

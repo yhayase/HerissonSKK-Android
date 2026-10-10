@@ -66,7 +66,7 @@ class ValidatedDictionaryBackup private constructor(
                     db.rawQuery("PRAGMA journal_mode=DELETE", null).use { check(it.moveToFirst()) }
                     db.setForeignKeyConstraintsEnabled(true)
                     db.execSQL("CREATE TABLE sources(id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, kind INTEGER NOT NULL, generation INTEGER NOT NULL, enabled INTEGER NOT NULL, priority INTEGER NOT NULL)")
-                    db.execSQL("CREATE TABLE candidates(source TEXT NOT NULL REFERENCES sources(id), entry TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, annotation TEXT, okuri TEXT NOT NULL, PRIMARY KEY(source,entry,ordinal), UNIQUE(source,entry,text,okuri))")
+                    db.execSQL("CREATE TABLE candidates(source TEXT NOT NULL REFERENCES sources(id), entry TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, annotation TEXT, okuri TEXT NOT NULL, section TEXT NOT NULL, entry_order INTEGER NOT NULL, annotation_is_personal INTEGER NOT NULL, PRIMARY KEY(source,entry,ordinal), UNIQUE(source,entry,text,okuri))")
                     db.execSQL("CREATE TABLE suppressions(source TEXT NOT NULL, entry TEXT NOT NULL, text TEXT NOT NULL, okuri TEXT NOT NULL, PRIMARY KEY(source,entry,text,okuri))")
                     db.execSQL("CREATE TABLE versions(source TEXT PRIMARY KEY NOT NULL, generation INTEGER NOT NULL)")
                     db.execSQL("CREATE TABLE usages(reading TEXT NOT NULL, template TEXT NOT NULL, okuri TEXT NOT NULL, committed TEXT NOT NULL, sequence INTEGER NOT NULL, PRIMARY KEY(reading,template,okuri,committed), UNIQUE(sequence))")
@@ -90,7 +90,7 @@ class ValidatedDictionaryBackup private constructor(
                                             record.originUrl,
                                         )
                                     }
-                                    is BackupRecord.Candidate -> db.execSQL("INSERT INTO candidates VALUES(?,?,?,?,?,?)", arrayOf<Any?>(record.sourceId, record.entryKey, record.ordinal, record.text, record.annotation, record.okuriCondition ?: ""))
+                                    is BackupRecord.Candidate -> db.execSQL("INSERT INTO candidates VALUES(?,?,?,?,?,?,?,?,?)", arrayOf<Any?>(record.sourceId, record.entryKey, record.ordinal, record.text, record.annotation, record.okuriCondition ?: "", record.section.serializedName, record.entryOrder, if (record.annotationIsPersonal) 1 else 0))
                                     is BackupRecord.Suppression -> db.execSQL("INSERT INTO suppressions VALUES(?,?,?,?)", arrayOf<Any?>(record.sourceId, record.entryKey, record.templateText, record.okuriCondition ?: ""))
                                     is BackupRecord.SourceVersion -> db.execSQL("INSERT INTO versions VALUES(?,?)", arrayOf<Any?>(record.sourceId, record.lastGeneration))
                                     is BackupRecord.Usage -> db.execSQL("INSERT INTO usages VALUES(?,?,?,?,?)", arrayOf<Any?>(record.readingKey, record.templateText, record.okuriCondition ?: "", record.committedText, record.lastUsedSequence))

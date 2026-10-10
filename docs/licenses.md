@@ -8,6 +8,10 @@ HerissonSKK 本体の独自コードと独自文書には [MIT ライセンス](
 
 特定の依存グラフと成果物に対する確認方法・結果・ハッシュは[ライセンス監査資料](audit/README.md)に残します。調査時点の一覧は、変更後の依存物や公開 AAB を自動的に保証しません。POM のライセンス欄だけで判断しにくい `com.google.guava:listenablefuture:1.0` は、親 POM と[公式ソースのヘッダー](https://raw.githubusercontent.com/google/guava/v26.0/android/guava/src/com/google/common/util/concurrent/ListenableFuture.java)も根拠にしています。ICU の原文にある GPL の記載は ICU4C 用ファイルに関するもので、ICU4J 全体を GPL とする記載ではありません。
 
+## 文字コード対応表
+
+EUC-JIS-2004 の復号には Project X0213 の[対応表](https://x0213.org/codetable/euc-jis-2004-std.txt)（2009 年 5 月 3 日版）を同梱しています。この表は自由な利用・変更・配布が許可されており、原表の著作権表示と許諾文を保持します。[原表](../core/src/main/resources/se/haya/skk/core/dictionary/euc-jis-2004-std.txt)は変更せず、取得元・SHA-256 と許諾原文を [Project X0213 の通知](../core/src/main/resources/META-INF/Project-X0213.txt)に記録します。独自の復号コードには本体の MIT ライセンスが適用されますが、表の許諾を MIT へ置き換えません。GPL の実装や対応表は同梱していません。
+
 ## 外部辞書
 
 公式カタログの S、L、人名、地名辞書には GPL-2.0-or-later、郵便番号辞書データには public domain の指定があります。郵便番号辞書を生成するプログラムの GPL と、生成後の辞書データの指定は区別します。[アプリ同梱の外部辞書説明](../core/src/main/resources/META-INF/external-dictionaries.txt)に取得元と表示を記載しています。取得時点のファイル、ヘッダー、ハッシュ、文字コードと条件の根拠は[辞書出典資料](audit/dictionary-sources.md)から確認できます。取得 URL が将来返すファイルは変わり得るため、その資料だけで端末ごとの取得版を保証しません。

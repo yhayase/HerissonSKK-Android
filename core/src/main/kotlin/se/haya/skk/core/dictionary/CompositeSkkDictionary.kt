@@ -23,7 +23,9 @@ class SkkDictionarySource(
     entries: List<SkkDictionaryEntry>,
     val enabled: Boolean = true,
 ) {
-    private val index = entries.associate { it.key to it.candidates }
+    private val retainedEntries = Collections.unmodifiableList(ArrayList(entries))
+    private val entryIndex = retainedEntries.associateBy { it.key }
+    private val index = entryIndex.mapValues { it.value.candidates }
     private val sortedKeys = index.keys.sortedWith(CODE_POINT_ORDER)
 
     init {
@@ -34,8 +36,10 @@ class SkkDictionarySource(
 
     fun candidates(key: String): List<SkkDictionaryCandidate> = index[key].orEmpty()
 
-    /** 完全バックアップ用に Unicode コードポイント順で列挙します。通常検索では使用しません。 */
-    fun entriesForBackup(): Sequence<SkkDictionaryEntry> = sortedKeys.asSequence().map { SkkDictionaryEntry(it, index.getValue(it)) }
+    fun section(key: String): SkkDictionarySection? = entryIndex[key]?.section
+
+    /** 辞書の区分と入力順を保持して列挙します。通常検索では使用しません。 */
+    fun entriesForBackup(): Sequence<SkkDictionaryEntry> = retainedEntries.asSequence()
 
     /** ソート済み索引の一致範囲だけを列挙し、辞書全件を通常経路で走査しません。 */
     fun completionKeys(prefix: String): Sequence<String> = sequence {
@@ -122,6 +126,10 @@ class CompositeSkkDictionary(
         DictionaryCandidate(
             text = resolved.candidate.text,
             annotation = resolved.candidate.annotation,
+            annotationIsPersonal = resolved.candidate.annotationIsPersonal,
+            entrySection = resolved.origins.firstOrNull()?.let { origin ->
+                sources.firstOrNull { it.first.id == origin.dictionaryId }?.first?.section(query.readingKey)
+            },
             okuriCondition = resolved.candidate.okuriCondition,
             selection = personalGeneration?.let { generation ->
                 CandidateSelection(
@@ -160,7 +168,7 @@ class CompositeSkkDictionary(
                     throw CompletionException(CompletionFailure.WORK_LIMIT)
                 }
                 if (key == query.prefix ||
-                    !query.abbrev && key.isOkuriAriKey() ||
+                    !query.abbrev && source.section(key) == SkkDictionarySection.OKURI_ARI ||
                     query.abbrev && !key.isAscii()
                 ) continue
                 val candidates = source.candidates(key)
@@ -238,12 +246,17 @@ class CompositeSkkDictionary(
                 if (totalChars > query.totalResultCharsLimit) {
                     return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
                 }
-                val okuri = if (!query.abbrev && key.lastOrNull() in 'a'..'z') {
+                val entrySection = value.origins.firstOrNull()?.let { origin ->
+                    sources.firstOrNull { it.first.id == origin.dictionaryId }?.first?.section(key)
+                }
+                val okuri = if (!query.abbrev && entrySection == SkkDictionarySection.OKURI_ARI) {
                     candidate.okuriCondition ?: return@forEachIndexed
                 } else ""
                 val displayed = DictionaryCandidate(
                     text = candidate.text,
                     annotation = candidate.annotation,
+                    annotationIsPersonal = candidate.annotationIsPersonal,
+                    entrySection = entrySection,
                     okuriCondition = candidate.okuriCondition,
                     selection = personalGeneration?.let { generation ->
                         CandidateSelection(generation, value.origins.map { origin ->
@@ -287,10 +300,8 @@ class CompositeSkkDictionary(
         }
         return byIdentity.values.map { origins ->
             val first = origins.first().candidate
-            val annotation = origins.firstNotNullOfOrNull {
-                it.candidate.annotation?.takeIf(String::isNotEmpty)
-            }
-            ResolvedDictionaryCandidate(first.copy(annotation = annotation), origins)
+            val annotated = origins.firstOrNull { !it.candidate.annotation.isNullOrEmpty() }?.candidate
+            ResolvedDictionaryCandidate(first.copy(annotation = annotated?.annotation, annotationIsPersonal = annotated?.annotationIsPersonal ?: false), origins)
         }
     }
 
@@ -317,8 +328,8 @@ class CompositeSkkDictionary(
         }
         return byText.values.map { origins ->
             val first = origins.first().candidate
-            val annotation = origins.firstNotNullOfOrNull { it.candidate.annotation?.takeIf(String::isNotEmpty) }
-            ResolvedDictionaryCandidate(first.copy(annotation = annotation), origins)
+            val annotated = origins.firstOrNull { !it.candidate.annotation.isNullOrEmpty() }?.candidate
+            ResolvedDictionaryCandidate(first.copy(annotation = annotated?.annotation, annotationIsPersonal = annotated?.annotationIsPersonal ?: false), origins)
         }
     }
 
@@ -332,8 +343,6 @@ class CompositeSkkDictionary(
     }
 
     private fun String.isAscii(): Boolean = all { it.code in 0x20..0x7e }
-
-    private fun String.isOkuriAriKey(): Boolean = lastOrNull() in 'a'..'z'
 
     private fun String.hasValidUtf16(): Boolean {
         var index = 0

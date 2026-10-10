@@ -88,8 +88,10 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
                         value.text,
                         value.annotation,
                         value.okuriCondition,
-                        NumericLearningTarget(normalized, template.text, template.annotation, template.okuriCondition),
+                        NumericLearningTarget(normalized, template.text, template.annotation, template.okuriCondition, template.annotationIsPersonal, template.entrySection),
                         selection,
+                        value.annotationIsPersonal,
+                        template.entrySection,
                     )
                 } else {
                     val previousCount = previous.selection?.origins?.size ?: 0
@@ -133,7 +135,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
         if (!it.isUsable) throw NumericLookupException(NumericLookupFailure.EXTRACTION)
     }
 
-    private fun DictionaryCandidate.asSkk() = SkkDictionaryCandidate(text, annotation, okuriCondition)
+    private fun DictionaryCandidate.asSkk() = SkkDictionaryCandidate(text, annotation, okuriCondition, annotationIsPersonal)
 
     private fun CandidateSelection.asNumericTemplate() = CandidateSelection(
         personalGeneration,

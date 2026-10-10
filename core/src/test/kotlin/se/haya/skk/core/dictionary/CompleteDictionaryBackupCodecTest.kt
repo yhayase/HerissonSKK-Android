@@ -41,6 +41,38 @@ class CompleteDictionaryBackupCodecTest {
     }
 
     @Test
+    fun `不透明な送り条件を候補と抑止記録で往復する`() {
+        val records = listOf(
+            BackupRecord.Header(COMPLETE_DICTIONARY_BACKUP_FORMAT, 1, "fixture"),
+            BackupRecord.Source("personal", "独立試験辞書", BackupSourceKind.PERSONAL, 0, true, 0),
+            BackupRecord.Candidate("personal", "zz-fixture-ddskk-backup", 0, "独立試験保存候補", "独立試験保存注釈", "にn-"),
+            BackupRecord.Suppression("personal", "zz-fixture-ddskk-backup-3", "独立試験抑止候補", "n-"),
+            BackupRecord.SourceVersion("personal", 0),
+            BackupRecord.End(1, 1, 1, 1),
+        )
+        val output = ByteArrayOutputStream()
+        codec.write(records.asSequence(), output)
+        val consumed = mutableListOf<BackupRecord>()
+        codec.validate(ByteArrayInputStream(output.toByteArray()), consumed::add)
+        assertEquals(records, consumed)
+    }
+
+    @Test
+    fun `送り条件の構文文字は完全バックアップでも拒否する`() {
+        for (condition in listOf("に/", "に[", "に]", "に\"")) {
+            val records = listOf(
+                BackupRecord.Header(COMPLETE_DICTIONARY_BACKUP_FORMAT, 1, "fixture"),
+                BackupRecord.Source("personal", "独立試験辞書", BackupSourceKind.PERSONAL, 0, true, 0),
+                BackupRecord.Candidate("personal", "zz-fixture-ddskk-backup-invalid", 0, "独立試験不正保存候補", null, condition),
+            )
+            val error = assertThrows(CompleteDictionaryBackupException::class.java) {
+                codec.write(records.asSequence(), ByteArrayOutputStream())
+            }
+            assertEquals(CompleteDictionaryBackupError.INVALID_VALUE, error.error)
+        }
+    }
+
+    @Test
     fun `source だけの空辞書を受理する`() {
         val records = listOf(
             BackupRecord.Header(COMPLETE_DICTIONARY_BACKUP_FORMAT, 1, "test"),
@@ -100,7 +132,7 @@ class CompleteDictionaryBackupCodecTest {
             "{\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":1,\"producerVersion\":\"x\",\"extra\":0}\n" to CompleteDictionaryBackupError.UNKNOWN_FIELD,
             "{\"type\":\"header\",\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":1,\"producerVersion\":\"x\"}\n" to CompleteDictionaryBackupError.DUPLICATE_FIELD,
             "{\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":1.0,\"producerVersion\":\"x\"}\n" to CompleteDictionaryBackupError.INVALID_JSON,
-            "{\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":4,\"producerVersion\":\"x\"}\n" to CompleteDictionaryBackupError.UNSUPPORTED_VERSION,
+            "{\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":5,\"producerVersion\":\"x\"}\n" to CompleteDictionaryBackupError.UNSUPPORTED_VERSION,
         )
 
         invalid.forEach { (text, expected) ->

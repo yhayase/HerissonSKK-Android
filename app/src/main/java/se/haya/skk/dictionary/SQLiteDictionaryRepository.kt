@@ -31,6 +31,7 @@ import se.haya.skk.core.dictionary.SkkDictionaryCodec
 import se.haya.skk.core.dictionary.SkkDictionaryDocument
 import se.haya.skk.core.dictionary.SkkDictionaryEncoding
 import se.haya.skk.core.dictionary.SkkDictionaryEntry
+import se.haya.skk.core.dictionary.SkkDictionarySection
 import se.haya.skk.core.dictionary.SkkDictionarySource
 import se.haya.skk.core.dictionary.SuppressedDictionaryCandidate
 
@@ -198,6 +199,7 @@ class SQLiteDictionaryRepository internal constructor(
         document: SkkDictionaryDocument,
         expectedGeneration: Long? = null,
     ): DictionarySourceInfo {
+        SkkDictionaryCodec.validate(document)
         val database = helper.writableDatabase
         return database.inTransaction {
             val current = requireSource(database, PERSONAL_SOURCE_ID)
@@ -217,20 +219,23 @@ class SQLiteDictionaryRepository internal constructor(
         key: String,
         candidate: SkkDictionaryCandidate,
         historyTarget: PredictionHistoryTarget? = null,
+        section: SkkDictionarySection? = null,
         mayWrite: () -> Boolean = { true },
     ): DictionarySourceInfo {
-        val incoming = SkkDictionaryEntry(key, listOf(candidate))
+        val incoming = SkkDictionaryEntry(key, listOf(candidate), section ?: SkkDictionarySection.infer(key))
         // 公開されたモデルを直接渡す経路でも、不正な辞書値を永続化しません。
-        SkkDictionaryCodec.encodeUtf8(SkkDictionaryDocument(listOf(incoming), SkkDictionaryEncoding.UTF8))
+        SkkDictionaryCodec.validate(SkkDictionaryDocument(listOf(incoming), SkkDictionaryEncoding.UTF8))
         val database = helper.writableDatabase
         return database.inTransaction {
             if (!mayWrite()) throw PersonalDataPolicyRejectedException()
             val current = requireSource(database, PERSONAL_SOURCE_ID)
             val previous = readEntries(database, PERSONAL_SOURCE_ID, key)
-            val merged = mergeEntries(listOf(incoming), previous)
+            val retainedSection = previous.firstOrNull()?.section ?: incoming.section
+            val merged = mergeEntries(listOf(SkkDictionaryEntry(key, listOf(candidate), retainedSection)), previous)
+            val rank = Math.addExact(maximumEntryRank(database, PERSONAL_SOURCE_ID), 1L)
             database.delete(TABLE_CANDIDATES,
                 "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ?", arrayOf(PERSONAL_SOURCE_ID, key))
-            insertRows(database, PERSONAL_SOURCE_ID, merged)
+            insertRows(database, PERSONAL_SOURCE_ID, merged, rank)
             historyTarget?.let { recordPredictionUsage(database, it) }
             failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
             val published = publishNextGeneration(database, current)
@@ -318,13 +323,14 @@ class SQLiteDictionaryRepository internal constructor(
                     if (previous.candidates.size - retained.size != removed.size) {
                         throw CandidateOriginMismatchException()
                     }
+                    val rank = entryRank(database, PERSONAL_SOURCE_ID, entryKey) ?: throw CandidateOriginMismatchException()
                     database.delete(
                         TABLE_CANDIDATES,
                         "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ?",
                         arrayOf(PERSONAL_SOURCE_ID, entryKey),
                     )
                     if (retained.isNotEmpty()) {
-                        insertRows(database, PERSONAL_SOURCE_ID, listOf(SkkDictionaryEntry(entryKey, retained)))
+                        insertRows(database, PERSONAL_SOURCE_ID, listOf(SkkDictionaryEntry(entryKey, retained, previous.section)), rank)
                     }
                 }
 
@@ -504,9 +510,9 @@ class SQLiteDictionaryRepository internal constructor(
             fun charge() {
                 if (++work > CompletionQuery.MAX_WORK_ITEMS) throw CompletionException(CompletionFailure.WORK_LIMIT)
             }
-            fun eligible(key: String): Boolean = key != query.prefix &&
+            fun eligible(key: String, section: SkkDictionarySection): Boolean = key != query.prefix &&
                 (query.abbrev && key.all { it.code in 0x20..0x7e } ||
-                    !query.abbrev && key.lastOrNull() !in 'a'..'z')
+                    !query.abbrev && section == SkkDictionarySection.OKURI_NASI)
             fun append(key: String) {
                 if (key.length > CompletionQuery.MAX_RESULT_CHARS) throw CompletionException(CompletionFailure.RESULT_LIMIT)
                 if (result.add(key)) {
@@ -523,15 +529,16 @@ class SQLiteDictionaryRepository internal constructor(
                     val args = mutableListOf(source.id, after ?: query.prefix)
                     val upperClause = if (upper == null) "" else " AND $COLUMN_ENTRY_KEY < ?".also { args += upper }
                     // 直前の見出しを越える索引 seek により、採用済み見出しの残り候補は走査しません。
-                    val key = database.rawQuery(
-                        "SELECT $COLUMN_ENTRY_KEY FROM $TABLE_CANDIDATES WHERE $COLUMN_SOURCE_ID=? " +
+                    val entry = database.rawQuery(
+                        "SELECT $COLUMN_ENTRY_KEY,$COLUMN_SECTION FROM $TABLE_CANDIDATES WHERE $COLUMN_SOURCE_ID=? " +
                             "AND $COLUMN_ENTRY_KEY ${if (after == null) ">=" else ">"} ?$upperClause " +
                             "ORDER BY $COLUMN_ENTRY_KEY LIMIT 1", args.toTypedArray(),
-                    ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: break
+                    ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) to readSection(cursor.getString(1)) else null } ?: break
+                    val key = entry.first
                     if (!key.startsWith(query.prefix)) break
                     after = key
                     charge()
-                    if (!eligible(key)) continue
+                    if (!eligible(key, entry.second)) continue
                     val visible = if (source.kind == DictionarySourceKind.PERSONAL) true else {
                         database.rawQuery(
                             """SELECT NOT EXISTS (SELECT 1 FROM $TABLE_SUPPRESSIONS x
@@ -562,7 +569,7 @@ class SQLiteDictionaryRepository internal constructor(
                     for (key in source.completionKeys(query.prefix)) {
                         if (result.size >= query.limit) return@inReadTransaction result.toList()
                         charge()
-                        if (!eligible(key)) continue
+                        if (!eligible(key, source.section(key) ?: SkkDictionarySection.infer(key))) continue
                         val suppressions = readSuppressions(database, key).map { it.key }.toSet()
                         val visible = source.candidates(key).any { candidate ->
                             charge()
@@ -607,7 +614,7 @@ class SQLiteDictionaryRepository internal constructor(
             database.rawQuery(
                 """
                 SELECT s.$COLUMN_ID,s.$COLUMN_GENERATION,s.$COLUMN_KIND,
-                       c.$COLUMN_ENTRY_KEY,c.$COLUMN_TEXT,c.$COLUMN_ANNOTATION,c.$COLUMN_OKURI
+                       c.$COLUMN_ENTRY_KEY,c.$COLUMN_TEXT,c.$COLUMN_ANNOTATION,c.$COLUMN_OKURI,c.$COLUMN_SECTION,c.$COLUMN_ANNOTATION_IS_PERSONAL
                   FROM $TABLE_SOURCES s JOIN $TABLE_CANDIDATES c ON c.$COLUMN_SOURCE_ID=s.$COLUMN_ID
                  WHERE s.$COLUMN_ENABLED=1 AND c.$COLUMN_ENTRY_KEY>=?$upperClause
                  ORDER BY c.$COLUMN_ENTRY_KEY,s.$COLUMN_KIND,s.$COLUMN_ORDER,c.$COLUMN_ORDINAL
@@ -627,8 +634,9 @@ class SQLiteDictionaryRepository internal constructor(
                         return@inReadTransaction PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
                     }
                     val id = cursor.getString(0)
+                    builders.getValue(id).sections.putIfAbsent(entryKey, readSection(cursor.getString(7)))
                     builders.getValue(id).entries.getOrPut(entryKey) { mutableListOf() } +=
-                        SkkDictionaryCandidate(text, annotation, okuri)
+                        SkkDictionaryCandidate(text, annotation, okuri, cursor.getInt(8) != 0)
                 }
             }
             val personal = builders.values.firstOrNull { it.personal }?.asSource()
@@ -787,19 +795,26 @@ class SQLiteDictionaryRepository internal constructor(
                     source.generation, source.enabled, source.order, source.originUrl)) }
                 var candidates = 0
                 stored.forEach { source ->
-                    database.rawQuery("SELECT entry_key,ordinal,candidate_text,annotation,okuri_condition FROM dictionary_candidates WHERE source_id=? ORDER BY entry_key,ordinal", arrayOf(source.id)).use { cursor ->
+                    val maximumRank = maximumEntryRank(database, source.id)
+                    database.rawQuery("SELECT entry_key,ordinal,candidate_text,annotation,okuri_condition,entry_section,entry_rank,annotation_is_personal FROM dictionary_candidates WHERE source_id=? ORDER BY entry_key,ordinal", arrayOf(source.id)).use { cursor ->
                         while (cursor.moveToNext()) {
-                            yield(BackupRecord.Candidate(source.id, cursor.getString(0), cursor.getInt(1), cursor.getString(2), cursor.nullableString(3), cursor.nullableString(4)))
+                            yield(BackupRecord.Candidate(source.id, cursor.getString(0), cursor.getInt(1), cursor.getString(2), cursor.nullableString(3), cursor.nullableString(4), readSection(cursor.getString(5)), maximumRank - cursor.getLong(6), cursor.getInt(7) != 0))
                             candidates = Math.addExact(candidates, 1)
                         }
                     }
                 }
-                fallback.forEach { source -> source.entriesForBackup().forEach { entry ->
-                    entry.candidates.forEachIndexed { ordinal, candidate ->
-                        yield(BackupRecord.Candidate(source.id, entry.key, ordinal, candidate.text, candidate.annotation?.takeIf(String::isNotEmpty), candidate.okuriCondition))
-                        candidates = Math.addExact(candidates, 1)
+                fallback.forEach { source ->
+                    val ordered = source.entriesForBackup().withIndex().toList().sortedWith(Comparator { left, right ->
+                        CODE_POINT_ORDER.compare(left.value.key, right.value.key)
+                    })
+                    ordered.forEach { indexed ->
+                        val entry = indexed.value
+                        entry.candidates.forEachIndexed { ordinal, candidate ->
+                            yield(BackupRecord.Candidate(source.id, entry.key, ordinal, candidate.text, candidate.annotation?.takeIf(String::isNotEmpty), candidate.okuriCondition, entry.section, indexed.index.toLong(), candidate.annotationIsPersonal))
+                            candidates = Math.addExact(candidates, 1)
+                        }
                     }
-                } }
+                }
                 var suppressions = 0
                 database.rawQuery("SELECT source_id,entry_key,candidate_text,okuri_condition FROM candidate_suppressions ORDER BY source_id,entry_key,candidate_text,okuri_condition", null).use { cursor ->
                     while (cursor.moveToNext()) {
@@ -863,13 +878,20 @@ class SQLiteDictionaryRepository internal constructor(
                 database.delete(TABLE_SUPPRESSIONS, null, null)
                 database.delete(TABLE_USAGE, null, null)
                 validated.sources.forEach { source -> insertSource(database, source.copy(generation = generations.getValue(source.id).generation)) }
-                staging.rawQuery("SELECT source,entry,ordinal,text,annotation,okuri FROM candidates ORDER BY source,entry,ordinal", null).use { cursor ->
+                val maximumOrders = linkedMapOf<String, Long>()
+                staging.rawQuery("SELECT source,MAX(entry_order) FROM candidates GROUP BY source", null).use { cursor ->
+                    while (cursor.moveToNext()) maximumOrders[cursor.getString(0)] = cursor.getLong(1)
+                }
+                staging.rawQuery("SELECT source,entry,ordinal,text,annotation,okuri,section,entry_order,annotation_is_personal FROM candidates ORDER BY source,entry,ordinal", null).use { cursor ->
                     while (cursor.moveToNext()) {
                         val values = ContentValues().apply {
                             put(COLUMN_SOURCE_ID, cursor.getString(0)); put(COLUMN_ENTRY_KEY, cursor.getString(1))
                             put(COLUMN_ORDINAL, cursor.getInt(2)); put(COLUMN_TEXT, cursor.getString(3))
                             putNullable(COLUMN_ANNOTATION, cursor.nullableString(4))
                             putNullable(COLUMN_OKURI, cursor.getString(5).takeIf(String::isNotEmpty))
+                            put(COLUMN_SECTION, cursor.getString(6))
+                            put(COLUMN_ENTRY_RANK, maximumOrders.getValue(cursor.getString(0)) - cursor.getLong(7))
+                            put(COLUMN_ANNOTATION_IS_PERSONAL, cursor.getInt(8))
                         }
                         database.insertOrThrow(TABLE_CANDIDATES, null, values)
                         failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
@@ -917,6 +939,7 @@ class SQLiteDictionaryRepository internal constructor(
         expectedGeneration: Long?,
         originUrl: String?,
     ): DictionarySourceInfo {
+        SkkDictionaryCodec.validate(document)
         val database = helper.writableDatabase
         return database.inTransaction {
             val existing = findSource(database, id)
@@ -946,8 +969,8 @@ class SQLiteDictionaryRepository internal constructor(
         insertRows(database, sourceId, entries)
     }
 
-    private fun insertRows(database: SQLiteDatabase, sourceId: String, entries: List<SkkDictionaryEntry>) {
-        entries.forEach { entry ->
+    private fun insertRows(database: SQLiteDatabase, sourceId: String, entries: List<SkkDictionaryEntry>, rank: Long? = null) {
+        entries.forEachIndexed { entryIndex, entry ->
             entry.candidates.forEachIndexed { ordinal, candidate ->
                 val values = ContentValues().apply {
                     put(COLUMN_SOURCE_ID, sourceId)
@@ -956,6 +979,9 @@ class SQLiteDictionaryRepository internal constructor(
                     put(COLUMN_TEXT, candidate.text)
                     putNullable(COLUMN_ANNOTATION, candidate.annotation?.takeIf(String::isNotEmpty))
                     putNullable(COLUMN_OKURI, candidate.okuriCondition)
+                    put(COLUMN_SECTION, entry.section.serializedName)
+                    put(COLUMN_ENTRY_RANK, rank ?: (entries.size - entryIndex).toLong())
+                    put(COLUMN_ANNOTATION_IS_PERSONAL, if (candidate.annotationIsPersonal) 1 else 0)
                 }
                 check(database.insertOrThrow(TABLE_CANDIDATES, null, values) != -1L)
             }
@@ -1098,48 +1124,63 @@ class SQLiteDictionaryRepository internal constructor(
         generation = allocateNextGeneration(database, source),
     ).also { updateSource(database, it) }
 
+    private fun maximumEntryRank(database: SQLiteDatabase, sourceId: String): Long =
+        database.rawQuery("SELECT COALESCE(MAX($COLUMN_ENTRY_RANK),0) FROM $TABLE_CANDIDATES WHERE $COLUMN_SOURCE_ID=?", arrayOf(sourceId)).use { cursor ->
+            check(cursor.moveToFirst())
+            cursor.getLong(0)
+        }
+
+    private fun entryRank(database: SQLiteDatabase, sourceId: String, key: String): Long? =
+        database.rawQuery("SELECT $COLUMN_ENTRY_RANK FROM $TABLE_CANDIDATES WHERE $COLUMN_SOURCE_ID=? AND $COLUMN_ENTRY_KEY=? LIMIT 1", arrayOf(sourceId, key)).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getLong(0) else null
+        }
+
+    private fun readSection(value: String): SkkDictionarySection =
+        SkkDictionarySection.entries.firstOrNull { it.serializedName == value }
+            ?: throw DictionaryDatabaseCorruptionException()
+
     private fun readEntries(database: SQLiteDatabase, sourceId: String, key: String? = null): List<SkkDictionaryEntry> {
         val entries = linkedMapOf<String, MutableList<SkkDictionaryCandidate>>()
+        val sections = linkedMapOf<String, SkkDictionarySection>()
         database.query(
             TABLE_CANDIDATES,
-            arrayOf(COLUMN_ENTRY_KEY, COLUMN_TEXT, COLUMN_ANNOTATION, COLUMN_OKURI),
+            arrayOf(COLUMN_ENTRY_KEY, COLUMN_TEXT, COLUMN_ANNOTATION, COLUMN_OKURI, COLUMN_SECTION, COLUMN_ANNOTATION_IS_PERSONAL),
             "$COLUMN_SOURCE_ID = ?" + if (key == null) "" else " AND $COLUMN_ENTRY_KEY = ?",
             if (key == null) arrayOf(sourceId) else arrayOf(sourceId, key),
             null,
             null,
-            "$COLUMN_ENTRY_KEY ASC, $COLUMN_ORDINAL ASC",
+            "$COLUMN_ENTRY_RANK DESC, $COLUMN_ENTRY_KEY ASC, $COLUMN_ORDINAL ASC",
         ).use { cursor ->
             while (cursor.moveToNext()) {
+                sections.putIfAbsent(cursor.getString(0), readSection(cursor.getString(4)))
                 entries.getOrPut(cursor.getString(0)) { mutableListOf() } += SkkDictionaryCandidate(
-                    cursor.getString(1), cursor.nullableString(2), cursor.nullableString(3),
+                    cursor.getString(1), cursor.nullableString(2), cursor.nullableString(3), cursor.getInt(5) != 0,
                 )
             }
         }
-        return entries.map { (key, candidates) -> SkkDictionaryEntry(key, candidates) }
+        return entries.map { (key, candidates) -> SkkDictionaryEntry(key, candidates, sections.getValue(key)) }
     }
 
     private fun mergeEntries(
         imported: List<SkkDictionaryEntry>,
         existing: List<SkkDictionaryEntry>,
     ): List<SkkDictionaryEntry> {
-        val byKey = linkedMapOf<String, LinkedHashMap<CandidateIdentity, SkkDictionaryCandidate>>()
-        existing.forEach { entry ->
-            byKey.getOrPut(entry.key) { linkedMapOf() }.apply {
-                entry.candidates.forEach { put(CandidateIdentity(it.text, it.okuriCondition), it) }
-            }
-        }
-        imported.forEach { entry ->
-            val old = byKey[entry.key].orEmpty()
+        val oldEntries = existing.associateBy { it.key }
+        val result = imported.map { entry ->
+            val old = oldEntries[entry.key]?.candidates.orEmpty().associateBy { CandidateIdentity(it.text, it.okuriCondition) }
             val merged = linkedMapOf<CandidateIdentity, SkkDictionaryCandidate>()
             entry.candidates.forEach { candidate ->
                 val identity = CandidateIdentity(candidate.text, candidate.okuriCondition)
-                val importedAnnotation = candidate.annotation?.takeIf(String::isNotEmpty)
-                merged[identity] = candidate.copy(annotation = importedAnnotation ?: old[identity]?.annotation)
+                val prior = old[identity]
+                merged[identity] = if (candidate.annotation.isNullOrEmpty() && !prior?.annotation.isNullOrEmpty()) {
+                    candidate.copy(annotation = prior?.annotation, annotationIsPersonal = prior?.annotationIsPersonal ?: false)
+                } else candidate
             }
             old.forEach { (identity, candidate) -> merged.putIfAbsent(identity, candidate) }
-            byKey[entry.key] = merged
+            SkkDictionaryEntry(entry.key, merged.values.toList(), entry.section)
         }
-        return byKey.map { (key, candidates) -> SkkDictionaryEntry(key, candidates.values.toList()) }
+        val importedKeys = imported.map { it.key }.toSet()
+        return result + existing.filterNot { it.key in importedKeys }
     }
 
     private fun readSnapshot(database: SQLiteDatabase, key: String?): DictionaryLookupSnapshot {
@@ -1154,12 +1195,12 @@ class SQLiteDictionaryRepository internal constructor(
             """
             SELECT s.$COLUMN_ID, s.$COLUMN_GENERATION, s.$COLUMN_KIND,
                    c.$COLUMN_ENTRY_KEY, c.$COLUMN_ORDINAL, c.$COLUMN_TEXT,
-                   c.$COLUMN_ANNOTATION, c.$COLUMN_OKURI
+                   c.$COLUMN_ANNOTATION, c.$COLUMN_OKURI, c.$COLUMN_SECTION, c.$COLUMN_ANNOTATION_IS_PERSONAL
               FROM $TABLE_SOURCES s
               $join $TABLE_CANDIDATES c ON c.$COLUMN_SOURCE_ID = s.$COLUMN_ID$keyClause
              WHERE s.$COLUMN_ENABLED = 1
              ORDER BY s.$COLUMN_KIND ASC, s.$COLUMN_ORDER ASC,
-                      c.$COLUMN_ENTRY_KEY ASC, c.$COLUMN_ORDINAL ASC
+                      c.$COLUMN_ENTRY_RANK DESC, c.$COLUMN_ENTRY_KEY ASC, c.$COLUMN_ORDINAL ASC
             """.trimIndent(),
             key?.let { arrayOf(it) },
         ).use { cursor ->
@@ -1173,10 +1214,12 @@ class SQLiteDictionaryRepository internal constructor(
                     )
                 }
                 if (!cursor.isNull(5)) {
+                    builder.sections.putIfAbsent(cursor.getString(3), readSection(cursor.getString(8)))
                     builder.entries.getOrPut(cursor.getString(3)) { mutableListOf() } += SkkDictionaryCandidate(
                         text = cursor.getString(5),
                         annotation = cursor.nullableString(6),
                         okuriCondition = cursor.nullableString(7),
+                        annotationIsPersonal = cursor.getInt(9) != 0,
                     )
                 }
             }
@@ -1187,7 +1230,7 @@ class SQLiteDictionaryRepository internal constructor(
             val snapshot = SkkDictionarySource(
                 source.id,
                 source.generation,
-                source.entries.map { (entryKey, candidates) -> SkkDictionaryEntry(entryKey, candidates) },
+                source.entries.map { (entryKey, candidates) -> SkkDictionaryEntry(entryKey, candidates, source.sections.getValue(entryKey)) },
             )
             if (source.personal) personal = snapshot else systems += snapshot
         }
@@ -1266,9 +1309,10 @@ class SQLiteDictionaryRepository internal constructor(
         val generation: Long,
         val personal: Boolean,
         val entries: LinkedHashMap<String, MutableList<SkkDictionaryCandidate>> = linkedMapOf(),
+        val sections: LinkedHashMap<String, SkkDictionarySection> = linkedMapOf(),
     ) {
         fun asSource() = SkkDictionarySource(
-            id, generation, entries.map { (key, candidates) -> SkkDictionaryEntry(key, candidates) },
+            id, generation, entries.map { (key, candidates) -> SkkDictionaryEntry(key, candidates, sections.getValue(key)) },
         )
     }
 
@@ -1315,6 +1359,9 @@ class SQLiteDictionaryRepository internal constructor(
                     $COLUMN_TEXT TEXT NOT NULL,
                     $COLUMN_ANNOTATION TEXT,
                     $COLUMN_OKURI TEXT,
+                    $COLUMN_SECTION TEXT NOT NULL,
+                    $COLUMN_ENTRY_RANK INTEGER NOT NULL CHECK($COLUMN_ENTRY_RANK>=0),
+                    $COLUMN_ANNOTATION_IS_PERSONAL INTEGER NOT NULL CHECK($COLUMN_ANNOTATION_IS_PERSONAL IN (0,1)),
                     PRIMARY KEY ($COLUMN_SOURCE_ID, $COLUMN_ENTRY_KEY, $COLUMN_ORDINAL),
                     FOREIGN KEY ($COLUMN_SOURCE_ID) REFERENCES $TABLE_SOURCES($COLUMN_ID) ON DELETE CASCADE
                 )
@@ -1323,6 +1370,7 @@ class SQLiteDictionaryRepository internal constructor(
             database.execSQL(
                 "CREATE INDEX candidates_key_lookup ON $TABLE_CANDIDATES($COLUMN_ENTRY_KEY, $COLUMN_SOURCE_ID, $COLUMN_ORDINAL)",
             )
+            createEntryRankIndex(database)
             createVersion2Tables(database)
             createVersion3Tables(database)
             createVersion5Tables(database)
@@ -1343,7 +1391,7 @@ class SQLiteDictionaryRepository internal constructor(
         }
 
         override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            require(oldVersion in 1..4 && newVersion == 5)
+            require(oldVersion in 1..5 && newVersion == 6)
             if (oldVersion == 1) {
                 createVersion2Tables(database)
                 database.execSQL("INSERT INTO $TABLE_SOURCE_VERSIONS SELECT $COLUMN_ID, $COLUMN_GENERATION FROM $TABLE_SOURCES")
@@ -1351,6 +1399,32 @@ class SQLiteDictionaryRepository internal constructor(
             if (oldVersion < 3) createVersion3Tables(database)
             if (oldVersion < 4) database.execSQL("ALTER TABLE $TABLE_SOURCES ADD COLUMN $COLUMN_ORIGIN_URL TEXT")
             if (oldVersion < 5) createVersion5Tables(database)
+            migrateVersion6(database)
+        }
+
+        private fun migrateVersion6(database: SQLiteDatabase) {
+            database.execSQL("ALTER TABLE $TABLE_CANDIDATES ADD COLUMN $COLUMN_SECTION TEXT NOT NULL DEFAULT 'okuri-nasi'")
+            database.execSQL("ALTER TABLE $TABLE_CANDIDATES ADD COLUMN $COLUMN_ENTRY_RANK INTEGER NOT NULL DEFAULT 0 CHECK($COLUMN_ENTRY_RANK>=0)")
+            database.execSQL("ALTER TABLE $TABLE_CANDIDATES ADD COLUMN $COLUMN_ANNOTATION_IS_PERSONAL INTEGER NOT NULL DEFAULT 0 CHECK($COLUMN_ANNOTATION_IS_PERSONAL IN (0,1))")
+            // 旧版には元の見出し順がないため、従来の辞書順を決定的に再現します。
+            var previousSource: String? = null
+            var rank = 0L
+            database.rawQuery("SELECT DISTINCT $COLUMN_SOURCE_ID,$COLUMN_ENTRY_KEY FROM $TABLE_CANDIDATES ORDER BY $COLUMN_SOURCE_ID,$COLUMN_ENTRY_KEY DESC", null).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val sourceId = cursor.getString(0)
+                    val key = cursor.getString(1)
+                    if (sourceId != previousSource) rank = 0
+                    rank = Math.addExact(rank, 1L)
+                    previousSource = sourceId
+                    database.execSQL("UPDATE $TABLE_CANDIDATES SET $COLUMN_SECTION=?,$COLUMN_ENTRY_RANK=? WHERE $COLUMN_SOURCE_ID=? AND $COLUMN_ENTRY_KEY=?",
+                        arrayOf(SkkDictionarySection.infer(key).serializedName, rank, sourceId, key))
+                }
+            }
+            createEntryRankIndex(database)
+        }
+
+        private fun createEntryRankIndex(database: SQLiteDatabase) {
+            database.execSQL("CREATE INDEX candidates_entry_order ON $TABLE_CANDIDATES($COLUMN_SOURCE_ID,$COLUMN_ENTRY_RANK DESC,$COLUMN_ENTRY_KEY,$COLUMN_ORDINAL)")
         }
 
         private fun createVersion3Tables(database: SQLiteDatabase) {
@@ -1417,7 +1491,7 @@ class SQLiteDictionaryRepository internal constructor(
         const val PERSONAL_SOURCE_ID = "personal"
         private const val PERSONAL_SOURCE_NAME = "個人辞書"
         private const val DEFAULT_DATABASE_NAME = "skk-dictionaries.db"
-        private const val DATABASE_VERSION = 5
+        private const val DATABASE_VERSION = 6
         private const val MISSING_GENERATION = -1L
         private const val KIND_PERSONAL = 0
         private const val KIND_SYSTEM = 1
@@ -1439,6 +1513,9 @@ class SQLiteDictionaryRepository internal constructor(
         private const val COLUMN_ORDINAL = "ordinal"
         private const val COLUMN_TEXT = "candidate_text"
         private const val COLUMN_ANNOTATION = "annotation"
+        private const val COLUMN_SECTION = "entry_section"
+        private const val COLUMN_ENTRY_RANK = "entry_rank"
+        private const val COLUMN_ANNOTATION_IS_PERSONAL = "annotation_is_personal"
         private const val COLUMN_OKURI = "okuri_condition"
         private const val COLUMN_LAST_GENERATION = "last_generation"
         private const val COLUMN_TEMPLATE_TEXT = "template_text"

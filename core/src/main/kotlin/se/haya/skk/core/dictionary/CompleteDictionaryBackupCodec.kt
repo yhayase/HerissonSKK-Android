@@ -48,6 +48,9 @@ class CompleteDictionaryBackupCodec(
         val line = ByteArrayOutputStream(minOf(limits.maxLineBytes, 8192))
         var totalBytes = 0L
         var version: Int? = null
+        var legacySource: String? = null
+        var legacyKey: String? = null
+        var legacyEntryOrder = -1L
         while (true) {
             val next = buffered.read()
             if (next < 0) {
@@ -60,12 +63,19 @@ class CompleteDictionaryBackupCodec(
             }
             if (next == '\r'.code) fail(validator.nextRecordNumber, CompleteDictionaryBackupError.INVALID_JSON)
             if (next == '\n'.code) {
-                val record = decodeRecord(
+                var record = decodeRecord(
                     decodeUtf8(line.toByteArray(), validator.nextRecordNumber),
                     validator.nextRecordNumber,
                     version,
                 )
                 if (record is BackupRecord.Header) version = record.version
+                if (record is BackupRecord.Candidate && (version ?: 0) < 4) {
+                    if (record.sourceId != legacySource) legacyEntryOrder = -1
+                    if (record.sourceId != legacySource || record.entryKey != legacyKey) legacyEntryOrder++
+                    legacySource = record.sourceId
+                    legacyKey = record.entryKey
+                    record = record.copy(entryOrder = legacyEntryOrder)
+                }
                 validator.accept(record)
                 recordConsumer(record)
                 line.reset()
@@ -123,7 +133,11 @@ class CompleteDictionaryBackupCodec(
                 )
             }
             "candidate" -> {
-                fields.requireExactly(recordNumber, "type", "sourceId", "entryKey", "ordinal", "text", "annotation", "okuriCondition")
+                if ((version ?: 0) >= 4) {
+                    fields.requireExactly(recordNumber, "type", "sourceId", "entryKey", "ordinal", "text", "annotation", "okuriCondition", "section", "entryOrder", "annotationIsPersonal")
+                } else {
+                    fields.requireExactly(recordNumber, "type", "sourceId", "entryKey", "ordinal", "text", "annotation", "okuriCondition")
+                }
                 BackupRecord.Candidate(
                     fields.string("sourceId", recordNumber),
                     fields.string("entryKey", recordNumber),
@@ -131,6 +145,13 @@ class CompleteDictionaryBackupCodec(
                     fields.string("text", recordNumber),
                     fields.nullableString("annotation", recordNumber),
                     fields.nullableString("okuriCondition", recordNumber),
+                    if ((version ?: 0) >= 4) {
+                        val name = fields.string("section", recordNumber)
+                        SkkDictionarySection.entries.firstOrNull { it.serializedName == name }
+                            ?: fail(recordNumber, CompleteDictionaryBackupError.INVALID_VALUE)
+                    } else SkkDictionarySection.infer(fields.string("entryKey", recordNumber)),
+                    if ((version ?: 0) >= 4) fields.long("entryOrder", recordNumber) else 0L,
+                    if ((version ?: 0) >= 4) fields.boolean("annotationIsPersonal", recordNumber) else false,
                 )
             }
             "suppression" -> {
@@ -150,7 +171,7 @@ class CompleteDictionaryBackupCodec(
                 )
             }
             "usage" -> {
-                if (version != 3) fail(recordNumber, CompleteDictionaryBackupError.UNKNOWN_RECORD_TYPE)
+                if ((version ?: 0) < 3) fail(recordNumber, CompleteDictionaryBackupError.UNKNOWN_RECORD_TYPE)
                 fields.requireExactly(recordNumber, "type", "readingKey", "templateText", "okuriCondition", "committedText", "lastUsedSequence")
                 BackupRecord.Usage(
                     fields.string("readingKey", recordNumber),
@@ -161,14 +182,14 @@ class CompleteDictionaryBackupCodec(
                 )
             }
             "end" -> {
-                if (version == 3) fields.requireExactly(recordNumber, "type", "sourceCount", "candidateCount", "suppressionCount", "sourceVersionCount", "usageCount")
+                if ((version ?: 0) >= 3) fields.requireExactly(recordNumber, "type", "sourceCount", "candidateCount", "suppressionCount", "sourceVersionCount", "usageCount")
                 else fields.requireExactly(recordNumber, "type", "sourceCount", "candidateCount", "suppressionCount", "sourceVersionCount")
                 BackupRecord.End(
                     fields.int("sourceCount", recordNumber),
                     fields.int("candidateCount", recordNumber),
                     fields.int("suppressionCount", recordNumber),
                     fields.int("sourceVersionCount", recordNumber),
-                    if (version == 3) fields.int("usageCount", recordNumber) else 0,
+                    if ((version ?: 0) >= 3) fields.int("usageCount", recordNumber) else 0,
                 )
             }
             else -> fail(recordNumber, CompleteDictionaryBackupError.UNKNOWN_RECORD_TYPE)
@@ -189,6 +210,9 @@ class CompleteDictionaryBackupCodec(
             is BackupRecord.Candidate -> {
                 field("type", "candidate"); field("sourceId", record.sourceId); field("entryKey", record.entryKey); number("ordinal", record.ordinal)
                 field("text", record.text); nullableField("annotation", record.annotation); nullableField("okuriCondition", record.okuriCondition)
+                if ((version ?: 0) >= 4) {
+                    field("section", record.section.serializedName); number("entryOrder", record.entryOrder); bool("annotationIsPersonal", record.annotationIsPersonal)
+                }
             }
             is BackupRecord.Suppression -> {
                 field("type", "suppression"); field("sourceId", record.sourceId); field("entryKey", record.entryKey)
@@ -205,7 +229,7 @@ class CompleteDictionaryBackupCodec(
             is BackupRecord.End -> {
                 field("type", "end"); number("sourceCount", record.sourceCount); number("candidateCount", record.candidateCount)
                 number("suppressionCount", record.suppressionCount); number("sourceVersionCount", record.sourceVersionCount)
-                if (version == 3) number("usageCount", record.usageCount)
+                if ((version ?: 0) >= 3) number("usageCount", record.usageCount)
             }
         }
         append('}')
@@ -257,6 +281,8 @@ private class RecordValidator(private val limits: CompleteDictionaryBackupLimits
     private var previousCandidateSource = -1
     private var previousCandidateKey: String? = null
     private var nextOrdinal = 0
+    private var previousEntryMetadata: Pair<SkkDictionarySection, Long>? = null
+    private val entryOrders = HashSet<Long>()
     private var previousSuppression: List<String?>? = null
     private var previousVersionId: String? = null
     private var previousUsage: List<String?>? = null
@@ -311,7 +337,9 @@ private class RecordValidator(private val limits: CompleteDictionaryBackupLimits
     private fun acceptCandidate(record: BackupRecord.Candidate) {
         moveTo(Section.CANDIDATES)
         if (candidateCount >= limits.maxCandidateCount) limit()
-        validateDictionaryValue(record.entryKey, record.text, record.annotation, record.okuriCondition)
+        validateDictionaryValue(record.entryKey, record.text, record.annotation, record.okuriCondition, record.annotationIsPersonal)
+        if (record.entryOrder < 0) invalid()
+        if ((formatVersion ?: 0) < 4 && (record.annotationIsPersonal || record.section != SkkDictionarySection.infer(record.entryKey))) invalid()
         validateIdentifier(record.sourceId)
         val source = sources[record.sourceId] ?: invalid()
         val keyComparison = when {
@@ -323,8 +351,14 @@ private class RecordValidator(private val limits: CompleteDictionaryBackupLimits
         if (keyComparison < 0) order()
         if (source.index != previousCandidateSource || keyComparison > 0) {
             if (record.ordinal != 0) order()
+            if ((formatVersion ?: 0) >= 4) {
+                if (source.index != previousCandidateSource) entryOrders.clear()
+                if (!entryOrders.add(record.entryOrder)) fail(recordNumber, CompleteDictionaryBackupError.DUPLICATE_IDENTITY)
+                previousEntryMetadata = record.section to record.entryOrder
+            }
             nextOrdinal = 1
         } else {
+            if ((formatVersion ?: 0) >= 4 && previousEntryMetadata != (record.section to record.entryOrder)) invalid()
             if (record.ordinal != nextOrdinal) order()
             nextOrdinal++
         }
@@ -379,12 +413,12 @@ private class RecordValidator(private val limits: CompleteDictionaryBackupLimits
     }
 
     private fun acceptUsage(record: BackupRecord.Usage) {
-        if (formatVersion != 3) order()
+        if ((formatVersion ?: 0) < 3) order()
         moveTo(Section.USAGES)
         if (usageCount >= limits.maxUsageCount) limit()
         validateDictionaryValue(record.readingKey, record.templateText, null, record.okuriCondition)
         if (record.committedText.isEmpty() || record.committedText.length > limits.maxStringChars ||
-            !validUnicodeWithoutControls(record.committedText) || record.lastUsedSequence <= 0) invalid()
+            !validUnicodeWithoutControls(record.committedText, allowLineBreaks = true) || record.lastUsedSequence <= 0) invalid()
         val identity = listOf(record.readingKey, record.templateText, record.okuriCondition, record.committedText)
         previousUsage?.let {
             val comparison = compareNullableTuple(identity, it)
@@ -407,13 +441,13 @@ private class RecordValidator(private val limits: CompleteDictionaryBackupLimits
         if (value.isBlank() || !validUnicodeWithoutControls(value)) invalid()
     }
 
-    private fun validateDictionaryValue(key: String, text: String, annotation: String?, okuri: String?) {
+    private fun validateDictionaryValue(key: String, text: String, annotation: String?, okuri: String?, annotationIsPersonal: Boolean = false) {
         listOfNotNull(key, text, annotation, okuri).forEach {
             if (it.length > limits.maxStringChars) limit()
         }
         if (annotation == "" || okuri == "") invalid()
         try {
-            SkkDictionaryCodec.validateCandidateFields(key, text, annotation, okuri)
+            SkkDictionaryCodec.validateCandidateFields(key, text, annotation, okuri, annotationIsPersonal)
         } catch (_: SkkDictionaryFormatException) {
             invalid()
         }
@@ -437,8 +471,8 @@ private class JsonObjectParser(
     private val maxStringChars: Int,
 ) {
     private companion object {
-        const val MAX_FIELD_COUNT = 9
-        const val MAX_FIELD_NAME_CHARS = 18
+        const val MAX_FIELD_COUNT = 10
+        const val MAX_FIELD_NAME_CHARS = 20
     }
 
     private var index = 0
@@ -502,7 +536,7 @@ private class JsonObjectParser(
                 char == '"' -> {
                     if (result.length > maxStringChars) fail(recordNumber, CompleteDictionaryBackupError.LIMIT_EXCEEDED)
                     val value = result.toString()
-                    if (!validUnicodeWithoutControls(value)) fail(recordNumber, CompleteDictionaryBackupError.INVALID_VALUE)
+                    if (!validUnicodeWithoutControls(value, allowLineBreaks = true)) fail(recordNumber, CompleteDictionaryBackupError.INVALID_VALUE)
                     return value
                 }
                 char == '\\' -> appendEscape(result)
@@ -578,7 +612,7 @@ private fun Map<String, JsonValue>.int(name: String, recordNumber: Long): Int {
     return value.toInt()
 }
 
-private fun validUnicodeWithoutControls(value: String): Boolean {
+private fun validUnicodeWithoutControls(value: String, allowLineBreaks: Boolean = false): Boolean {
     var index = 0
     while (index < value.length) {
         val char = value[index]
@@ -587,7 +621,7 @@ private fun validUnicodeWithoutControls(value: String): Boolean {
             index += 2
             continue
         }
-        if (char.isLowSurrogate() || char.code in 0x00..0x1f || char.code == 0x7f) return false
+        if (char.isLowSurrogate() || (char.code in 0x00..0x1f && !(allowLineBreaks && char in "\n\r")) || char.code == 0x7f) return false
         index++
     }
     return true

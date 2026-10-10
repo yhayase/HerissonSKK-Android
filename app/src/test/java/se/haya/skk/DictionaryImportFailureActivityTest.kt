@@ -144,6 +144,22 @@ class DictionaryImportFailureActivityTest {
         controller.destroy()
     }
 
+    @Test fun `EUC-JIS-2004 を文字コード一覧から選び画面再作成後も保持する`() {
+        var controller = Robolectric.buildActivity(DictionarySettingsActivity::class.java).setup()
+        try {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val fragment = controller.get().supportFragmentManager.findFragmentById(R.id.settings_content) as DictionarySettingsFragment
+            val preference = checkNotNull(fragment.findPreference<androidx.preference.ListPreference>("dictionary_encoding"))
+            val index = preference.entryValues.indexOf(SkkDictionaryEncoding.EUC_JIS_2004.name)
+            assertTrue(index >= 0)
+            assertEquals("EUC-JIS-2004", preference.entries[index].toString())
+            assertTrue(preference.entries.first().contains("EUC-JIS-2004"))
+            assertTrue(preference.callChangeListener(SkkDictionaryEncoding.EUC_JIS_2004.name))
+            controller = controller.recreate()
+            assertEquals(SkkDictionaryEncoding.EUC_JIS_2004, controller.get().selectedEncoding())
+        } finally { controller.destroy() }
+    }
+
     @Test fun `ネットワーク取得失敗後は URL 追加を再試行できる`() {
         DictionarySettingsActivity.fileExecutorFactoryForTest = { Executor { it.run() } }
         DictionarySettingsActivity.networkUiExecutorForTest = Executor { it.run() }
@@ -291,6 +307,56 @@ class DictionaryImportFailureActivityTest {
             controller = controller.recreate()
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             assertTrue(status(controller.get()).contains("反映できません"))
+        } finally { controller.destroy() }
+    }
+
+    @Test fun `追加辞書のプレビューは除外警告を本文なしで表示し適用前は保存しない`() {
+        DictionarySettingsActivity.fileExecutorFactoryForTest = { Executor { it.run() } }
+        DictionarySettingsActivity.networkUiExecutorForTest = Executor { it.run() }
+        DictionarySettingsActivity.networkDownloadForTest = { url, _ ->
+            NetworkDictionaryDownload(("zz-fixture-warning-safe /独立警告正常候補/\n" +
+                "zz-fixture-warning-date /(skk-current-date nil nil t)/\n" +
+                " /独立警告空候補/").toByteArray(), url)
+        }
+        val controller = Robolectric.buildActivity(DictionarySettingsActivity::class.java).setup()
+        try {
+            controller.get().addFromUrl("https://example.com/dict")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val dialog = latestMaterialDialog()
+            val message = checkNotNull(dialog.findViewById<TextView>(android.R.id.message)).text.toString()
+            assertTrue(message.contains("除外した候補: 2 件"))
+            assertTrue(message.contains("除外した見出し行: 2 件"))
+            assertTrue(message.contains("非対応の日付式: 1 件"))
+            assertTrue(message.contains("空の見出し語: 1 件"))
+            assertTrue(message.contains("2 行目"))
+            assertTrue(message.contains("3 行目"))
+            assertTrue(message.contains("除外したデータは保存されません"))
+            assertFalse(message.contains("独立警告"))
+            assertTrue(dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled)
+            assertTrue(repository.listSources().none { it.kind.name == "SYSTEM" })
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            controller.get().findViewById<Button>(R.id.settings_save).performClick()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(listOf("独立警告正常候補"), manager.lookup(se.haya.skk.core.DictionaryQuery("zz-fixture-warning-safe")).map { it.text })
+            assertTrue(manager.lookup(se.haya.skk.core.DictionaryQuery("zz-fixture-warning-date")).isEmpty())
+        } finally { controller.destroy() }
+    }
+
+    @Test fun `除外対象しかない辞書は適用プレビューを出さない`() {
+        DictionarySettingsActivity.fileExecutorFactoryForTest = { Executor { it.run() } }
+        DictionarySettingsActivity.networkUiExecutorForTest = Executor { it.run() }
+        DictionarySettingsActivity.networkDownloadForTest = { url, _ ->
+            NetworkDictionaryDownload("zz-fixture-warning-date /(skk-current-date nil nil t)/".toByteArray(), url)
+        }
+        val controller = Robolectric.buildActivity(DictionarySettingsActivity::class.java).setup()
+        try {
+            controller.get().addFromUrl("https://example.com/dict")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val dialog = latestMaterialDialog()
+            val message = checkNotNull(dialog.findViewById<TextView>(android.R.id.message)).text.toString()
+            assertTrue(message.contains("取り込める候補がありません"))
+            assertTrue(repository.listSources().none { it.kind.name == "SYSTEM" })
         } finally { controller.destroy() }
     }
 

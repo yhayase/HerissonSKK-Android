@@ -390,9 +390,10 @@ class DictionarySettingsFragment : PreferenceFragmentCompat() {
     }
 
     private fun encodingLabel(value: SkkDictionaryEncoding) = when (value) {
-        SkkDictionaryEncoding.AUTO -> "自動判定（UTF-8、EUC-JP）"
-        SkkDictionaryEncoding.UTF8 -> "UTF-8"
-        SkkDictionaryEncoding.EUC_JP -> "EUC-JP"
+        SkkDictionaryEncoding.AUTO -> getString(R.string.dictionary_encoding_auto_description)
+        SkkDictionaryEncoding.UTF8 -> getString(R.string.dictionary_encoding_utf8)
+        SkkDictionaryEncoding.EUC_JP -> getString(R.string.dictionary_encoding_eucjp)
+        SkkDictionaryEncoding.EUC_JIS_2004 -> getString(R.string.dictionary_encoding_eucjis2004)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()

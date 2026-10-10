@@ -272,6 +272,7 @@ class CompleteDictionaryRepositoryTest {
             db.execSQL("UPDATE dictionary_source_versions SET last_generation=7 WHERE source_id='removed'")
             db.execSQL("DROP TABLE dictionary_metadata")
             rebuildLegacySources(db)
+            rebuildLegacyCandidates(db)
             db.version = 2
         }
     }
@@ -284,6 +285,7 @@ class CompleteDictionaryRepositoryTest {
             db.execSQL("DROP TABLE candidate_suppressions")
             db.execSQL("DROP TABLE dictionary_source_versions")
             rebuildLegacySources(db)
+            rebuildLegacyCandidates(db)
             db.version = 1
         }
         SQLiteDictionaryRepository(context, databaseName).use { repository ->
@@ -305,7 +307,20 @@ class CompleteDictionaryRepositoryTest {
         db.rawQuery("PRAGMA foreign_key_check", null).use { assertEquals(0, it.count) }
     }
 
-    @Test fun `v3完全バックアップは候補使用履歴を置換復元し旧履歴を残さない`() {
+    /** 候補も旧版の6列に戻し、移行対象に新しいメタデータを残しません。 */
+    private fun rebuildLegacyCandidates(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE legacy_candidates (source_id TEXT NOT NULL, entry_key TEXT NOT NULL, ordinal INTEGER NOT NULL, " +
+            "candidate_text TEXT NOT NULL, annotation TEXT, okuri_condition TEXT, PRIMARY KEY(source_id,entry_key,ordinal), " +
+            "FOREIGN KEY(source_id) REFERENCES dictionary_sources(source_id) ON DELETE CASCADE)")
+        db.execSQL("INSERT INTO legacy_candidates SELECT source_id,entry_key,ordinal,candidate_text,annotation,okuri_condition FROM dictionary_candidates")
+        db.execSQL("DROP TABLE dictionary_candidates")
+        db.execSQL("ALTER TABLE legacy_candidates RENAME TO dictionary_candidates")
+        db.execSQL("CREATE INDEX candidates_key_lookup ON dictionary_candidates(entry_key,source_id,ordinal)")
+        db.rawQuery("PRAGMA table_info(dictionary_candidates)", null).use { assertEquals(6, it.count) }
+        db.rawQuery("PRAGMA foreign_key_check", null).use { assertEquals(0, it.count) }
+    }
+
+    @Test fun `完全バックアップは候補使用履歴を置換復元し旧履歴を残さない`() {
         val restoredTarget = PredictionHistoryTarget("だい#", "第#0", null, "第12")
         val bytes = SQLiteDictionaryRepository(context, name()).use { source ->
             source.promotePersonalCandidate("だい#", SkkDictionaryCandidate("第#0"), restoredTarget)

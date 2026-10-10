@@ -5,13 +5,16 @@
     <string name="dictionary_settings_description">個人辞書と追加辞書を端末内で管理します。ファイルは内容を確認してから適用します。</string>
     <string name="dictionary_encoding_label">読み込む文字コード</string>
     <string-array name="dictionary_encoding_choices">
-        <item>自動判定（UTF-8、EUC-JP）</item>
+        <item>@string/dictionary_encoding_auto_description</item>
         <item>UTF-8</item>
         <item>EUC-JP</item>
+        <item>EUC-JIS-2004</item>
     </string-array>
     <string name="dictionary_encoding_auto">自動判定</string>
     <string name="dictionary_encoding_utf8">UTF-8</string>
     <string name="dictionary_encoding_eucjp">EUC-JP</string>
+    <string name="dictionary_encoding_eucjis2004">EUC-JIS-2004</string>
+    <string name="dictionary_encoding_auto_description">自動判定（UTF-8、EUC-JP、EUC-JIS-2004）</string>
     <string name="dictionary_add_system">追加辞書を読み込む</string>
     <string name="dictionary_merge_personal">個人辞書へ追加・更新する</string>
     <string name="dictionary_replace_personal">個人辞書をファイルの内容で置き換える</string>
@@ -38,11 +41,20 @@
     <string name="dictionary_preview_candidates">候補: %1$d 件</string>
     <string name="dictionary_preview_duplicates">まとめた重複候補: %1$d 件</string>
     <string name="dictionary_preview_conflicts">注釈の競合: %1$d 件</string>
+    <string name="dictionary_preview_warning">警告: 対応していないデータを除外しました。除外したデータは保存されません。</string>
+    <string name="dictionary_preview_skipped_candidates">除外した候補: %1$d 件</string>
+    <string name="dictionary_preview_skipped_entries">除外した見出し行: %1$d 件</string>
+    <string name="dictionary_preview_warning_count">%1$s: %2$d 件</string>
+    <string name="dictionary_preview_warning_line">%1$d 行目: %2$s</string>
+    <string name="dictionary_preview_warning_samples">行番号の表示は先頭 %1$d 件です（警告全体: %2$d 件）。</string>
+    <string name="dictionary_warning_date">非対応の日付式</string>
+    <string name="dictionary_warning_suppression">非対応の候補抑止式</string>
+    <string name="dictionary_warning_empty_headword">空の見出し語</string>
     <string name="dictionary_replace_warning">現在の個人辞書をこの内容で置き換えます。既存の登録・学習内容は残りません。</string>
     <string name="dictionary_apply">適用する</string>
     <string name="dictionary_import_failure_title">辞書を読み込めませんでした</string>
     <string name="dictionary_import_too_large">辞書ファイルが 64 MiB の上限を超えています。小さい辞書に分けて読み込んでください。</string>
-    <string name="dictionary_import_encoding_failed">文字コードを判別できませんでした。UTF-8 または EUC-JP の辞書を選び、文字コードの指定を確認してください。</string>
+    <string name="dictionary_import_encoding_failed">文字コードを判別できませんでした。UTF-8、EUC-JP、EUC-JIS-2004 の辞書を選び、文字コードの指定を確認してください。</string>
     <string name="dictionary_import_format_failed">%1$s ファイルの形式を確認してください。</string>
     <string name="dictionary_import_read_failed">辞書ファイルを開けませんでした。ファイルへのアクセスを確認し、もう一度選んでください。</string>
     <string name="dictionary_source_permission_failed">このファイルを更新元として保持できませんでした。別のファイル管理アプリから選び直してください。</string>

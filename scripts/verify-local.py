@@ -12,8 +12,9 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 
-REQUIRED_NOTICES = {"META-INF/HerissonSKK-MIT.txt", "META-INF/license-scope.txt", "META-INF/icon-usage.txt", "META-INF/icu-LICENSE.txt", "META-INF/Apache-2.0.txt", "META-INF/third-party-notices.txt", "META-INF/external-dictionaries.txt", "META-INF/GPL-2.0.txt"}
+REQUIRED_NOTICES = {"META-INF/HerissonSKK-MIT.txt", "META-INF/license-scope.txt", "META-INF/icon-usage.txt", "META-INF/icu-LICENSE.txt", "META-INF/Apache-2.0.txt", "META-INF/third-party-notices.txt", "META-INF/external-dictionaries.txt", "META-INF/GPL-2.0.txt", "META-INF/Project-X0213.txt"}
 
+REQUIRED_DATA = {"se/haya/skk/core/dictionary/euc-jis-2004-std.txt"}
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -74,13 +75,13 @@ def main():
         for variant, filename in [("debug", "app-debug.apk"), ("release", "app-release-unsigned.apk"), ("benchmark", "app-benchmark.apk")]:
             path = root / "app/build/outputs/apk" / variant / filename
             with zipfile.ZipFile(path) as apk:
-                missing = REQUIRED_NOTICES - set(apk.namelist())
+                missing = (REQUIRED_NOTICES | REQUIRED_DATA) - set(apk.namelist())
                 if missing:
-                    raise RuntimeError(f"ライセンス通知が APK にありません: {variant}: {sorted(missing)}")
-                for notice in REQUIRED_NOTICES:
+                    raise RuntimeError(f"必須リソースが APK にありません: {variant}: {sorted(missing)}")
+                for notice in REQUIRED_NOTICES | REQUIRED_DATA:
                     expected = root / "core/src/main/resources" / notice
                     if apk.read(notice) != expected.read_bytes():
-                        raise RuntimeError(f"APK のライセンス本文がソースと一致しません: {variant}: {notice}")
+                        raise RuntimeError(f"APK の必須リソースがソースと一致しません: {variant}: {notice}")
                 if apk.testzip() is not None:
                     raise RuntimeError(f"APK の ZIP 検査に失敗しました: {variant}")
             manifest = run([aapt, "dump", "xmltree", str(path), "AndroidManifest.xml"], f"manifest-{variant}")
@@ -101,9 +102,9 @@ def main():
         with zipfile.ZipFile(bundle) as archive:
             if archive.testzip() is not None:
                 raise RuntimeError("AAB の ZIP 検査に失敗しました")
-            for notice in REQUIRED_NOTICES:
+            for notice in REQUIRED_NOTICES | REQUIRED_DATA:
                 if archive.read("base/root/" + notice) != (root / "core/src/main/resources" / notice).read_bytes():
-                    raise RuntimeError(f"AAB のライセンス本文がソースと一致しません: {notice}")
+                    raise RuntimeError(f"AAB の必須リソースがソースと一致しません: {notice}")
         data["artifacts"].append({"variant": "release-bundle", "path": str(bundle.relative_to(root)),
                                   "bytes": bundle.stat().st_size,
                                   "sha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
