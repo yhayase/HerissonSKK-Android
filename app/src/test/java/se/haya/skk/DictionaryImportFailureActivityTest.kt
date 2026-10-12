@@ -315,7 +315,7 @@ class DictionaryImportFailureActivityTest {
         DictionarySettingsActivity.networkUiExecutorForTest = Executor { it.run() }
         DictionarySettingsActivity.networkDownloadForTest = { url, _ ->
             NetworkDictionaryDownload(("zz-fixture-warning-safe /独立警告正常候補/\n" +
-                "zz-fixture-warning-date /(skk-current-date nil nil t)/\n" +
+                "zz-fixture-warning-date /(skk-current-date nil \"%Y\" nil)/\n" +
                 " /独立警告空候補/").toByteArray(), url)
         }
         val controller = Robolectric.buildActivity(DictionarySettingsActivity::class.java).setup()
@@ -347,7 +347,7 @@ class DictionaryImportFailureActivityTest {
         DictionarySettingsActivity.fileExecutorFactoryForTest = { Executor { it.run() } }
         DictionarySettingsActivity.networkUiExecutorForTest = Executor { it.run() }
         DictionarySettingsActivity.networkDownloadForTest = { url, _ ->
-            NetworkDictionaryDownload("zz-fixture-warning-date /(skk-current-date nil nil t)/".toByteArray(), url)
+            NetworkDictionaryDownload("zz-fixture-warning-date /(skk-current-date nil \"%Y\" nil)/".toByteArray(), url)
         }
         val controller = Robolectric.buildActivity(DictionarySettingsActivity::class.java).setup()
         try {

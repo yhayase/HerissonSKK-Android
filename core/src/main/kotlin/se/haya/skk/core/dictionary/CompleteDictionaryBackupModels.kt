@@ -1,7 +1,7 @@
 package se.haya.skk.core.dictionary
 
 const val COMPLETE_DICTIONARY_BACKUP_FORMAT: String = "skk-android-dictionary-backup"
-const val COMPLETE_DICTIONARY_BACKUP_VERSION: Int = 4
+const val COMPLETE_DICTIONARY_BACKUP_VERSION: Int = 5
 
 enum class BackupSourceKind(val serializedName: String) {
     PERSONAL("personal"),
@@ -35,6 +35,7 @@ sealed interface BackupRecord {
         val section: SkkDictionarySection = SkkDictionarySection.infer(entryKey),
         val entryOrder: Long = 0L,
         val annotationIsPersonal: Boolean = false,
+        val dateExpression: Boolean = false,
     ) : BackupRecord
 
     data class Suppression(
@@ -42,6 +43,7 @@ sealed interface BackupRecord {
         val entryKey: String,
         val templateText: String,
         val okuriCondition: String?,
+        val dateExpression: Boolean = false,
     ) : BackupRecord
 
     data class SourceVersion(
@@ -55,6 +57,7 @@ sealed interface BackupRecord {
         val okuriCondition: String?,
         val committedText: String,
         val lastUsedSequence: Long,
+        val dateExpression: Boolean = false,
     ) : BackupRecord
 
     data class End(

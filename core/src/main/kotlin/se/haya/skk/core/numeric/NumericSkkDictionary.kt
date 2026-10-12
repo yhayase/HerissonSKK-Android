@@ -37,7 +37,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
         val expanded = try { lookup(DictionaryQuery(query.prefix, abbrev = query.abbrev)) } catch (_: RuntimeException) {
             return PredictionSearchResult.Indeterminate(PredictionSearchFailure.UNAVAILABLE)
         }
-        val values = expanded.mapIndexed { order, candidate ->
+        val values = expanded.filterNot { it.dateExpression }.mapIndexed { order, candidate ->
             val target = candidate.learningTarget?.let {
                 PredictionHistoryTarget(it.query.readingKey, it.templateText, it.okuriCondition, candidate.text)
             } ?: PredictionHistoryTarget(query.prefix, candidate.text, candidate.okuriCondition, candidate.text)
@@ -48,7 +48,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
 
     private fun attachUsage(result: PredictionSearchResult, limit: Int): PredictionSearchResult = when (result) {
         is PredictionSearchResult.Ready -> rankPredictionCandidates(
-            result.items.map { it.copy(lastUsedSequence = raw.predictionUsage(it.historyTarget)) }, limit)
+            result.items.filterNot { it.candidate.dateExpression || it.historyTarget.dateExpression }.map { it.copy(lastUsedSequence = raw.predictionUsage(it.historyTarget)) }, limit)
         PredictionSearchResult.ConfirmedEmpty -> result
         is PredictionSearchResult.Indeterminate -> result
     }
@@ -60,19 +60,47 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
         val templates = raw.lookup(normalized)
         if (templates.isEmpty()) return emptyList()
         if (templates.size > MAX_TEMPLATES) throw NumericLookupException(NumericLookupFailure.EXPANSION)
-        val output = linkedMapOf<String, DictionaryCandidate>()
+        val output = linkedMapOf<Pair<String, Boolean>, DictionaryCandidate>()
         var anySuccess = false
         var total = 0L
         var totalOrigins = 0L
         for (template in templates) {
+            if (template.dateExpression) {
+                val identity = template.text to true
+                val previous = output[identity]
+                if (previous == null) {
+                    total += template.text.length
+                    if (output.size >= NumericConversion.MAX_VARIANTS || total > NumericConversion.MAX_TOTAL_OUTPUT_CHARS) {
+                        throw NumericLookupException(NumericLookupFailure.EXPANSION)
+                    }
+                    val originCount = template.selection?.origins?.size ?: 0
+                    ensureOriginLimit(totalOrigins + originCount)
+                    totalOrigins += originCount
+                    output[identity] = template.copy(
+                        learningTarget = NumericLearningTarget(normalized, template.text, template.annotation,
+                            template.okuriCondition, template.annotationIsPersonal, template.entrySection, dateExpression = true),
+                        selection = template.selection?.asNumericTemplate(),
+                    )
+                } else {
+                    val previousCount = previous.selection?.origins?.size ?: 0
+                    val merged = mergeSelections(previous.selection, template.selection,
+                        (MAX_SELECTION_ORIGINS - (totalOrigins - previousCount)).toInt())
+                    totalOrigins += (merged?.origins?.size ?: 0) - previousCount
+                    ensureOriginLimit(totalOrigins)
+                    output[identity] = previous.copy(selection = merged)
+                }
+                anySuccess = true
+                continue
+            }
             val expanded = NumericConversion.expand(template.asSkk(), extraction.spans) { number ->
                 // #4 の内側候補は表示材料であり、削除対象は外側テンプレートだけです。
-                raw.lookup(DictionaryQuery(number)).map { it.asSkk() }
+                raw.lookup(DictionaryQuery(number)).filterNot { it.dateExpression }.map { it.asSkk() }
             }
             if (expanded.candidates.isEmpty()) continue
             anySuccess = true
             for (value in expanded.candidates) {
-                val previous = output[value.text]
+                val identity = value.text to false
+                val previous = output[identity]
                 if (previous == null) {
                     total += value.text.length
                     if (output.size >= NumericConversion.MAX_VARIANTS ||
@@ -84,7 +112,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
                     ensureOriginLimit(totalOrigins + originCount)
                     val selection = template.selection?.asNumericTemplate()
                     totalOrigins += originCount
-                    output[value.text] = DictionaryCandidate(
+                    output[identity] = DictionaryCandidate(
                         value.text,
                         value.annotation,
                         value.okuriCondition,
@@ -103,7 +131,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
                     )
                     totalOrigins += (merged?.origins?.size ?: 0) - (previous.selection?.origins?.size ?: 0)
                     ensureOriginLimit(totalOrigins)
-                    output[value.text] = previous.copy(selection = merged)
+                    output[identity] = previous.copy(selection = merged)
                 }
             }
         }
@@ -124,7 +152,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
         val extraction = extract(original)
         if (!extraction.hasNumericSpans) return raw.prepareRegistration(original, templateText)
         val expanded = NumericConversion.expand(SkkDictionaryCandidate(templateText), extraction.spans) { number ->
-            raw.lookup(DictionaryQuery(number)).map { it.asSkk() }
+            raw.lookup(DictionaryQuery(number)).filterNot { it.dateExpression }.map { it.asSkk() }
         }
         val committed = expanded.candidates.firstOrNull()?.text
             ?: throw NumericLookupException(NumericLookupFailure.EXPANSION)
@@ -135,7 +163,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
         if (!it.isUsable) throw NumericLookupException(NumericLookupFailure.EXTRACTION)
     }
 
-    private fun DictionaryCandidate.asSkk() = SkkDictionaryCandidate(text, annotation, okuriCondition, annotationIsPersonal)
+    private fun DictionaryCandidate.asSkk() = SkkDictionaryCandidate(text, annotation, okuriCondition, annotationIsPersonal, dateExpression)
 
     private fun CandidateSelection.asNumericTemplate() = CandidateSelection(
         personalGeneration,

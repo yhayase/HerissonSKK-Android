@@ -25,6 +25,9 @@ import se.haya.skk.core.dictionary.SkkDictionaryCandidate
 import se.haya.skk.core.dictionary.SkkDictionarySection
 import se.haya.skk.core.dictionary.CandidateSelection
 import se.haya.skk.core.numeric.NumericSkkDictionary
+import se.haya.skk.core.date.DateSkkDictionary
+import java.time.Clock
+import java.time.ZoneId
 import se.haya.skk.core.PredictionHistoryTarget
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchResult
@@ -64,6 +67,9 @@ class DictionaryManager(
     internal val deferReads: Boolean = true,
     private val ownedExecutor: ExecutorService? = null,
     val personalDataPolicy: PersonalDataPolicy = PersonalDataPolicy(),
+    private val dateClock: Clock = Clock.systemUTC(),
+    private val dateZoneProvider: () -> ZoneId = { ZoneId.systemDefault() },
+    private val includeBuiltinDates: Boolean = false,
 ) : Closeable, BasicSkkDictionary {
     private data class Published(
         val dictionary: BasicSkkDictionary?,
@@ -83,7 +89,8 @@ class DictionaryManager(
     private val pendingPromotions = linkedMapOf<Any, PendingPromotion>()
 
     private val observers = linkedMapOf<Long, (DictionaryManagerStatus) -> Unit>()
-    private val fallbackSystems = fallbackSystems.toList()
+    private val fallbackSystems = fallbackSystems.toList() +
+        if (includeBuiltinDates) listOf(DateSkkDictionary.builtinSource()) else emptyList()
     private val contextOwner = Any()
     private val backupHandles = mutableSetOf<Closeable>()
     private val settingsDrafts = linkedMapOf<String, DictionarySettingsDraft>()
@@ -116,7 +123,8 @@ class DictionaryManager(
                     val text = target?.templateText ?: candidate.text
                     val condition = target?.query?.okuri ?: query.okuri ?: candidate.okuriCondition
                     key == pending.key && text == pending.candidate.text &&
-                        condition == pending.candidate.okuriCondition
+                        condition == pending.candidate.okuriCondition &&
+                        (target?.dateExpression ?: candidate.dateExpression) == pending.candidate.dateExpression
                 }
                 if (promoted.isNotEmpty()) {
                     candidates.clear()
@@ -354,6 +362,7 @@ class DictionaryManager(
                     entryKey = origin.entryKey,
                     templateText = origin.text,
                     okuriCondition = origin.okuriCondition,
+                    dateExpression = origin.dateExpression,
                 )
             },
         ),
@@ -705,7 +714,7 @@ class DictionaryManager(
         val ids = metadata.sources.map { it.id }.toSet()
         val fallbacks = if (metadata.allowFallback) fallbackSystems.filterNot { it.id in ids } else emptyList()
         val sqlite = SQLiteSkkDictionary(repository, metadata, fallbacks)
-        return Published(NumericSkkDictionary(sqlite), DictionaryManagerStatus.Ready(),
+        return Published(DateSkkDictionary(NumericSkkDictionary(sqlite), dateClock, dateZoneProvider), DictionaryManagerStatus.Ready(),
             fallbacks.associate { it.id to it.generation }, published.inputEpoch, sqlite = sqlite)
     }
 
@@ -714,7 +723,7 @@ class DictionaryManager(
             fallbackSystems.filterNot { it.id in snapshot.storedSourceIds }
         } else emptyList()
         return Published(
-            NumericSkkDictionary(snapshot.asComposite(fallbacks)),
+            DateSkkDictionary(NumericSkkDictionary(snapshot.asComposite(fallbacks)), dateClock, dateZoneProvider),
             DictionaryManagerStatus.Ready(),
             fallbacks.associate { it.id to it.generation },
             published.inputEpoch,
@@ -796,6 +805,7 @@ class DictionaryManager(
                 callbackExecutor,
                 fallbackSystems,
                 ownedExecutor = serial,
+                includeBuiltinDates = true,
             )
         }
     }

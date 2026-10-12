@@ -36,9 +36,10 @@ data class DictionaryCandidate(
     val selection: CandidateSelection? = null,
     val annotationIsPersonal: Boolean = false,
     val entrySection: SkkDictionarySection? = null,
+    val dateExpression: Boolean = false,
 )
 
-/** 数値展開後の表示候補を、永続化用の元辞書候補へ結びます。 */
+/** 数値・日付展開後の表示候補を、永続化用の元辞書候補へ結びます。 */
 data class NumericLearningTarget(
     val query: DictionaryQuery,
     val templateText: String,
@@ -46,6 +47,7 @@ data class NumericLearningTarget(
     val okuriCondition: String?,
     val annotationIsPersonal: Boolean = false,
     val entrySection: SkkDictionarySection? = null,
+    val dateExpression: Boolean = false,
 )
 
 /** 登録本文を永続化する前に固定した、入力先へ確定する語幹です。 */
@@ -1140,6 +1142,11 @@ class BasicSkkEngine(
             return inputReadingCharacter(character, false)
         }
         return when {
+            interpretCommands && character == '@' && mode.isKana && romanizer.pending.isEmpty() && registrations.isEmpty() -> {
+                startReading()
+                insertBuffer("today")
+                lookup()
+            }
             interpretCommands && character == 'q' && mode.isKana -> {
                 val pending = finishIdlePending()
                 mode = when (mode) {
@@ -1814,7 +1821,7 @@ class BasicSkkEngine(
         val output = committed + conversionSuffix
         val selectedQuery = candidate.learningTarget?.query ?: checkNotNull(selectionQuery)
         val learnedCandidate = candidate.learningTarget?.let {
-            DictionaryCandidate(it.templateText, it.annotation, it.okuriCondition, annotationIsPersonal = it.annotationIsPersonal, entrySection = it.entrySection)
+            DictionaryCandidate(it.templateText, it.annotation, it.okuriCondition, annotationIsPersonal = it.annotationIsPersonal, entrySection = it.entrySection, dateExpression = it.dateExpression)
         } ?: candidate
         val effects = if (learningEnabled && registrationPolicy.savingAllowed && registrations.isEmpty()) {
             listOf(BasicSkkEffect.LearnCandidate(CandidateCommitRequest(
@@ -1828,6 +1835,7 @@ class BasicSkkEngine(
                     templateText = learnedCandidate.text,
                     okuriCondition = selectedQuery.okuri ?: learnedCandidate.okuriCondition,
                     committedText = committed,
+                    dateExpression = learnedCandidate.dateExpression,
                 ),
             )))
         } else emptyList()

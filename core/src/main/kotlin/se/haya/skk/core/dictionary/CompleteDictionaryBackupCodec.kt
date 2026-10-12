@@ -133,7 +133,9 @@ class CompleteDictionaryBackupCodec(
                 )
             }
             "candidate" -> {
-                if ((version ?: 0) >= 4) {
+                if ((version ?: 0) >= 5) {
+                    fields.requireExactly(recordNumber, "type", "sourceId", "entryKey", "ordinal", "text", "annotation", "okuriCondition", "section", "entryOrder", "annotationIsPersonal", "dateExpression")
+                } else if ((version ?: 0) >= 4) {
                     fields.requireExactly(recordNumber, "type", "sourceId", "entryKey", "ordinal", "text", "annotation", "okuriCondition", "section", "entryOrder", "annotationIsPersonal")
                 } else {
                     fields.requireExactly(recordNumber, "type", "sourceId", "entryKey", "ordinal", "text", "annotation", "okuriCondition")
@@ -152,15 +154,18 @@ class CompleteDictionaryBackupCodec(
                     } else SkkDictionarySection.infer(fields.string("entryKey", recordNumber)),
                     if ((version ?: 0) >= 4) fields.long("entryOrder", recordNumber) else 0L,
                     if ((version ?: 0) >= 4) fields.boolean("annotationIsPersonal", recordNumber) else false,
+                    if ((version ?: 0) >= 5) fields.boolean("dateExpression", recordNumber) else false,
                 )
             }
             "suppression" -> {
-                fields.requireExactly(recordNumber, "type", "sourceId", "entryKey", "templateText", "okuriCondition")
+                if ((version ?: 0) >= 5) fields.requireExactly(recordNumber, "type", "sourceId", "entryKey", "templateText", "okuriCondition", "dateExpression")
+                else fields.requireExactly(recordNumber, "type", "sourceId", "entryKey", "templateText", "okuriCondition")
                 BackupRecord.Suppression(
                     fields.string("sourceId", recordNumber),
                     fields.string("entryKey", recordNumber),
                     fields.string("templateText", recordNumber),
                     fields.nullableString("okuriCondition", recordNumber),
+                    if ((version ?: 0) >= 5) fields.boolean("dateExpression", recordNumber) else false,
                 )
             }
             "sourceVersion" -> {
@@ -172,13 +177,15 @@ class CompleteDictionaryBackupCodec(
             }
             "usage" -> {
                 if ((version ?: 0) < 3) fail(recordNumber, CompleteDictionaryBackupError.UNKNOWN_RECORD_TYPE)
-                fields.requireExactly(recordNumber, "type", "readingKey", "templateText", "okuriCondition", "committedText", "lastUsedSequence")
+                if ((version ?: 0) >= 5) fields.requireExactly(recordNumber, "type", "readingKey", "templateText", "okuriCondition", "committedText", "lastUsedSequence", "dateExpression")
+                else fields.requireExactly(recordNumber, "type", "readingKey", "templateText", "okuriCondition", "committedText", "lastUsedSequence")
                 BackupRecord.Usage(
                     fields.string("readingKey", recordNumber),
                     fields.string("templateText", recordNumber),
                     fields.nullableString("okuriCondition", recordNumber),
                     fields.string("committedText", recordNumber),
                     fields.long("lastUsedSequence", recordNumber),
+                    if ((version ?: 0) >= 5) fields.boolean("dateExpression", recordNumber) else false,
                 )
             }
             "end" -> {
@@ -213,10 +220,12 @@ class CompleteDictionaryBackupCodec(
                 if ((version ?: 0) >= 4) {
                     field("section", record.section.serializedName); number("entryOrder", record.entryOrder); bool("annotationIsPersonal", record.annotationIsPersonal)
                 }
+                if ((version ?: 0) >= 5) bool("dateExpression", record.dateExpression)
             }
             is BackupRecord.Suppression -> {
                 field("type", "suppression"); field("sourceId", record.sourceId); field("entryKey", record.entryKey)
                 field("templateText", record.templateText); nullableField("okuriCondition", record.okuriCondition)
+                if ((version ?: 0) >= 5) bool("dateExpression", record.dateExpression)
             }
             is BackupRecord.SourceVersion -> {
                 field("type", "sourceVersion"); field("sourceId", record.sourceId); number("lastGeneration", record.lastGeneration)
@@ -225,6 +234,7 @@ class CompleteDictionaryBackupCodec(
                 field("type", "usage"); field("readingKey", record.readingKey); field("templateText", record.templateText)
                 nullableField("okuriCondition", record.okuriCondition); field("committedText", record.committedText)
                 number("lastUsedSequence", record.lastUsedSequence)
+                if ((version ?: 0) >= 5) bool("dateExpression", record.dateExpression)
             }
             is BackupRecord.End -> {
                 field("type", "end"); number("sourceCount", record.sourceCount); number("candidateCount", record.candidateCount)
@@ -337,7 +347,7 @@ private class RecordValidator(private val limits: CompleteDictionaryBackupLimits
     private fun acceptCandidate(record: BackupRecord.Candidate) {
         moveTo(Section.CANDIDATES)
         if (candidateCount >= limits.maxCandidateCount) limit()
-        validateDictionaryValue(record.entryKey, record.text, record.annotation, record.okuriCondition, record.annotationIsPersonal)
+        validateDictionaryValue(record.entryKey, record.text, record.annotation, record.okuriCondition, record.annotationIsPersonal, record.dateExpression)
         if (record.entryOrder < 0) invalid()
         if ((formatVersion ?: 0) < 4 && (record.annotationIsPersonal || record.section != SkkDictionarySection.infer(record.entryKey))) invalid()
         validateIdentifier(record.sourceId)
@@ -371,8 +381,8 @@ private class RecordValidator(private val limits: CompleteDictionaryBackupLimits
         moveTo(Section.SUPPRESSIONS)
         if (suppressionCount >= limits.maxSuppressionCount) limit()
         validateIdentifier(record.sourceId)
-        validateDictionaryValue(record.entryKey, record.templateText, null, record.okuriCondition)
-        val identity = listOf(record.sourceId, record.entryKey, record.templateText, record.okuriCondition)
+        validateDictionaryValue(record.entryKey, record.templateText, null, record.okuriCondition, dateExpression = record.dateExpression)
+        val identity = listOf(record.sourceId, record.entryKey, record.templateText, record.okuriCondition, if (record.dateExpression) "1" else "0")
         previousSuppression?.let {
             val comparison = compareNullableTuple(identity, it)
             if (comparison < 0) order()
@@ -416,10 +426,10 @@ private class RecordValidator(private val limits: CompleteDictionaryBackupLimits
         if ((formatVersion ?: 0) < 3) order()
         moveTo(Section.USAGES)
         if (usageCount >= limits.maxUsageCount) limit()
-        validateDictionaryValue(record.readingKey, record.templateText, null, record.okuriCondition)
+        validateDictionaryValue(record.readingKey, record.templateText, null, record.okuriCondition, dateExpression = record.dateExpression)
         if (record.committedText.isEmpty() || record.committedText.length > limits.maxStringChars ||
             !validUnicodeWithoutControls(record.committedText, allowLineBreaks = true) || record.lastUsedSequence <= 0) invalid()
-        val identity = listOf(record.readingKey, record.templateText, record.okuriCondition, record.committedText)
+        val identity = listOf(record.readingKey, record.templateText, record.okuriCondition, record.committedText, if (record.dateExpression) "1" else "0")
         previousUsage?.let {
             val comparison = compareNullableTuple(identity, it)
             if (comparison < 0) order()
@@ -441,13 +451,14 @@ private class RecordValidator(private val limits: CompleteDictionaryBackupLimits
         if (value.isBlank() || !validUnicodeWithoutControls(value)) invalid()
     }
 
-    private fun validateDictionaryValue(key: String, text: String, annotation: String?, okuri: String?, annotationIsPersonal: Boolean = false) {
+    private fun validateDictionaryValue(key: String, text: String, annotation: String?, okuri: String?, annotationIsPersonal: Boolean = false, dateExpression: Boolean = false) {
+        if (dateExpression && (formatVersion ?: 0) < 5) invalid()
         listOfNotNull(key, text, annotation, okuri).forEach {
             if (it.length > limits.maxStringChars) limit()
         }
         if (annotation == "" || okuri == "") invalid()
         try {
-            SkkDictionaryCodec.validateCandidateFields(key, text, annotation, okuri, annotationIsPersonal)
+            SkkDictionaryCodec.validateCandidateFields(key, text, annotation, okuri, annotationIsPersonal, dateExpression)
         } catch (_: SkkDictionaryFormatException) {
             invalid()
         }
@@ -471,7 +482,7 @@ private class JsonObjectParser(
     private val maxStringChars: Int,
 ) {
     private companion object {
-        const val MAX_FIELD_COUNT = 10
+        const val MAX_FIELD_COUNT = 11
         const val MAX_FIELD_NAME_CHARS = 20
     }
 

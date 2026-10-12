@@ -24,6 +24,7 @@ data class SkkDictionaryCandidate(
     val annotation: String? = null,
     val okuriCondition: String? = null,
     val annotationIsPersonal: Boolean = false,
+    val dateExpression: Boolean = false,
 )
 
 class SkkDictionaryEntry(

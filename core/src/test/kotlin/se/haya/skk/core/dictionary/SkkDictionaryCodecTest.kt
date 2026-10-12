@@ -288,7 +288,7 @@ class SkkDictionaryCodecTest {
     fun `既知の動的日付式と空見出しを除外して正常候補を保持する`() {
         val document = SkkDictionaryCodec.parseText(
             "zz-fixture-warning-safe /独立警告正常候補/\n" +
-                "zz-fixture-warning-date /(skk-current-date nil nil t)/\n" +
+                "zz-fixture-warning-date /(skk-current-date nil \"%Y\" t)/\n" +
                 " /独立警告空候補;独立警告注釈/",
             policy = SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED,
         )
@@ -298,8 +298,8 @@ class SkkDictionaryCodecTest {
     @Test
     fun `同じ行と送りブロックの正常候補は非対応式と混在しても保持する`() {
         val document = SkkDictionaryCodec.parseText(
-            "zz-fixture-warning-mixed /独立警告先頭/(skk-current-date nil nil t)/" +
-                "[に/(skk-current-date nil nil t)/独立警告末尾/]/",
+            "zz-fixture-warning-mixed /独立警告先頭/(skk-current-date nil \"%Y\" t)/" +
+                "[に/(skk-current-date nil \"%Y\" t)/独立警告末尾/]/",
             policy = SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED,
         )
         assertEquals(
@@ -310,7 +310,7 @@ class SkkDictionaryCodecTest {
 
     @Test
     fun `既定の厳密解析は既知式と空見出しも拒否する`() {
-        for (source in listOf("zz-fixture-warning-date /(skk-current-date nil nil t)/", " /独立警告空候補/")) {
+        for (source in listOf("zz-fixture-warning-date /(skk-current-date nil \"%Y\" t)/", " /独立警告空候補/")) {
             assertThrows(SkkDictionaryFormatException::class.java) { SkkDictionaryCodec.parseText(source) }
         }
     }
@@ -319,7 +319,7 @@ class SkkDictionaryCodecTest {
     fun `警告は除外件数と行番号と理由だけを保持する`() {
         val document = SkkDictionaryCodec.parseText(
             "zz-fixture-warning-safe /独立警告正常候補/\n" +
-                "zz-fixture-warning-date /(skk-current-date nil nil t)/\n" +
+                "zz-fixture-warning-date /(skk-current-date nil \"%Y\" t)/\n" +
                 "zz-fixture-warning-mixed /独立警告先頭/(skk-ignore-dic-word \"独立警告末尾\")/\n" +
                 " /独立警告空候補/",
             policy = SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED,
@@ -338,7 +338,7 @@ class SkkDictionaryCodecTest {
     @Test
     fun `非対応だけのファイルは適用候補がないため拒否するが空ファイルは従来どおり読む`() {
         val error = assertThrows(SkkDictionaryFormatException::class.java) {
-            SkkDictionaryCodec.parseText("zz-fixture-warning-date /(skk-current-date nil nil t)/", policy = SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED)
+            SkkDictionaryCodec.parseText("zz-fixture-warning-date /(skk-current-date nil \"%Y\" t)/", policy = SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED)
         }
         assertEquals(SkkDictionaryError.NO_SUPPORTED_ENTRIES, error.error)
         assertTrue(SkkDictionaryCodec.parseText(";; コメント\n", policy = SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED).entries.isEmpty())
@@ -347,10 +347,10 @@ class SkkDictionaryCodecTest {
     @Test
     fun `警告行の後続破損や未知式や壊れた concat は部分適用しない`() {
         val invalid = listOf(
-            "zz-fixture-warning-date /(skk-current-date nil nil t)//",
-            "zz-fixture-warning-date /[に/(skk-current-date nil nil t)/",
+            "zz-fixture-warning-date /(skk-current-date nil \"%Y\" t)//",
+            "zz-fixture-warning-date /[に/(skk-current-date nil \"%Y\" t)/",
             " /独立警告空候補//",
-            "zz-fixture-warning-date /(skk-current-date nil nil t)tail/",
+            "zz-fixture-warning-date /(skk-current-date nil \"%Y\" t)tail/",
             "zz-fixture-warning-date /(skk-current-date (progn t))/",
             "zz-fixture-warning-date /(skk-ignore-dic-word \"\")/",
             "zz-fixture-warning-date /(skk-ignore-dic-word \"独立警告末尾\" extra)/",
@@ -358,7 +358,7 @@ class SkkDictionaryCodecTest {
             "zz-fixture-warning-date /(skk-current-date \"独立警告注釈\t\")/",
             "zz-fixture-warning-date /(concat \"独立警告先頭\" \"独立警告末尾\")/",
             "zz-fixture-warning-date /(concat \"独立警告先頭\\141\")/",
-            "zz-fixture-warning-date /(skk-current-date nil nil t);(concat \"独立警告先頭\" \"独立警告末尾\")/",
+            "zz-fixture-warning-date /(skk-current-date nil \"%Y\" t);(concat \"独立警告先頭\" \"独立警告末尾\")/",
         )
         for (source in invalid) {
             assertThrows(SkkDictionaryFormatException::class.java) {
@@ -382,7 +382,7 @@ class SkkDictionaryCodecTest {
     @Test
     fun `非対応注釈を持つ候補も除外件数に含め後続を保持する`() {
         val document = SkkDictionaryCodec.parseText(
-            "zz-fixture-warning-mixed /独立警告先頭;(skk-current-date nil nil t)/独立警告末尾/",
+            "zz-fixture-warning-mixed /独立警告先頭;(skk-current-date nil \"%Y\" t)/独立警告末尾/",
             policy = SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED,
         )
         assertEquals(listOf("独立警告末尾"), document.entries.single().candidates.map { it.text })
@@ -444,7 +444,7 @@ class SkkDictionaryCodecTest {
     @Test
     fun `警告サンプルの上限後も全件数を数える`() {
         val source = "zz-fixture-warning-safe /独立警告正常候補/\n" +
-            (1..150).joinToString("\n") { "zz-fixture-warning-date /(skk-current-date nil nil t)/" }
+            (1..150).joinToString("\n") { "zz-fixture-warning-date /(skk-current-date nil \"%Y\" t)/" }
         val warnings = SkkDictionaryCodec.parseText(source, policy = SkkDictionaryImportPolicy.SKIP_KNOWN_UNSUPPORTED).diagnostics.warnings
         assertEquals(150, warnings.count)
         assertEquals(150, warnings.skippedEntryCount)

@@ -93,6 +93,7 @@ data class SuppressedDictionaryCandidate(
     val entryKey: String,
     val text: String,
     val okuriCondition: String? = null,
+    val dateExpression: Boolean = false,
 )
 
 class ResolvedDictionaryCandidate internal constructor(
@@ -127,6 +128,7 @@ class CompositeSkkDictionary(
             text = resolved.candidate.text,
             annotation = resolved.candidate.annotation,
             annotationIsPersonal = resolved.candidate.annotationIsPersonal,
+            dateExpression = resolved.candidate.dateExpression,
             entrySection = resolved.origins.firstOrNull()?.let { origin ->
                 sources.firstOrNull { it.first.id == origin.dictionaryId }?.first?.section(query.readingKey)
             },
@@ -142,6 +144,7 @@ class CompositeSkkDictionary(
                             entryKey = query.readingKey,
                             text = origin.candidate.text,
                             okuriCondition = origin.candidate.okuriCondition,
+                            dateExpression = origin.candidate.dateExpression,
                         )
                     },
                 )
@@ -185,6 +188,7 @@ class CompositeSkkDictionary(
                             key,
                             candidate.text,
                             candidate.okuriCondition,
+                            candidate.dateExpression,
                         ) !in suppressions) {
                             visible = true
                             break
@@ -286,15 +290,15 @@ class CompositeSkkDictionary(
 
     /** 同じ語幹でも送り条件ごとに完成語が異なるため、予測では条件を潰しません。 */
     private fun resolveForPrediction(key: String): List<ResolvedDictionaryCandidate> {
-        val byIdentity = linkedMapOf<Pair<String, String?>, MutableList<CandidateOrigin>>()
+        val byIdentity = linkedMapOf<Triple<String, String?, Boolean>, MutableList<CandidateOrigin>>()
         for ((source, personal) in sources) {
             if (!source.enabled) continue
             source.candidates(key).filterNot { candidate ->
-                !personal && SuppressedDictionaryCandidate(
-                    source.id, key, candidate.text, candidate.okuriCondition,
+                candidate.dateExpression || !personal && SuppressedDictionaryCandidate(
+                    source.id, key, candidate.text, candidate.okuriCondition, candidate.dateExpression,
                 ) in suppressions
             }.forEach { candidate ->
-                byIdentity.getOrPut(candidate.text to candidate.okuriCondition) { mutableListOf() }
+                byIdentity.getOrPut(Triple(candidate.text, candidate.okuriCondition, candidate.dateExpression)) { mutableListOf() }
                     .add(CandidateOrigin(source.id, source.generation, personal, candidate))
             }
         }
@@ -306,12 +310,12 @@ class CompositeSkkDictionary(
     }
 
     fun resolve(query: DictionaryQuery): List<ResolvedDictionaryCandidate> {
-        val byText = linkedMapOf<String, MutableList<CandidateOrigin>>()
+        val byText = linkedMapOf<Pair<String, Boolean>, MutableList<CandidateOrigin>>()
         for ((source, personal) in sources) {
             if (!source.enabled) continue
             val candidates = source.candidates(query.readingKey).filterNot { candidate ->
                 !personal && SuppressedDictionaryCandidate(
-                    source.id, query.readingKey, candidate.text, candidate.okuriCondition,
+                    source.id, query.readingKey, candidate.text, candidate.okuriCondition, candidate.dateExpression,
                 ) in suppressions
             }
             val ordered = if (query.okuri == null || query.abbrev) candidates else candidates.sortedBy {
@@ -322,7 +326,7 @@ class CompositeSkkDictionary(
                 }
             }
             for (candidate in ordered) {
-                byText.getOrPut(candidate.text) { mutableListOf() }
+                byText.getOrPut(candidate.text to candidate.dateExpression) { mutableListOf() }
                     .add(CandidateOrigin(source.id, source.generation, personal, candidate))
             }
         }

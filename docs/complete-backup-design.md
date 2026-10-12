@@ -6,19 +6,19 @@
 
 [要件](requirements.md) N12 の辞書バックアップ、N04 の失敗・中断時の既存データ保持を具体化します。[互換性](compatibility.md) K13 の標準 SKK テキスト往復は既存の別機能として維持します。本書を完全バックアップの形式・復元契約の正本とします。
 
-必須の保存対象は、個人辞書の全候補、注釈と個人マーカー、エントリー区分と見出し順、送り条件、候補順、システム候補の全抑止記録、全システム辞書の内容・ID・名前・世代・有効状態・優先順、候補確定の使用履歴、および形式の版情報です。無効な辞書も省略しません。抑止の同一性は `(sourceId, entryKey, templateText, okuriCondition)` です。注釈・現在のソース世代は抑止の同一性に含めません。削除済みソースを参照する抑止も保存します。
+必須の保存対象は、個人辞書の全候補、注釈と個人マーカー、エントリー区分と見出し順、送り条件、候補順、システム候補の全抑止記録、全システム辞書の内容・ID・名前・世代・有効状態・優先順、候補確定の使用履歴、および形式の版情報です。無効な辞書も省略しません。抑止の同一性は `(sourceId, entryKey, templateText, okuriCondition, dateExpression)` です。注釈・現在のソース世代は抑止の同一性に含めません。削除済みソースを参照する抑止も保存します。
 
 設定、キー割り当て、入力途中の状態、入力先の本文、パスワード欄の情報、進行中の確認・保存トークンは対象外です。設定の書き出しはこの要件の必須項目に追加しません。バックアップは辞書を含む平文です。保存先選択画面でそのことを表示します。
 
 形式、上限、API、組み込み辞書の扱い、復元時の世代割り当ては以下の設計上の選択です。要件に特定の JSON 形式や容量が指定されているわけではありません。
 
-## 形式 v4 と v1〜v3 の読込み
+## 形式 v5 と v1〜v4 の読込み
 
-現行の書き出しは版4です。版1は取得元 URL なし、版1・版2は候補使用履歴なしとして復元します。版1〜版3の候補には区分・見出し順・個人マーカーがないため、区分はキーから推定し、見出し順はソース内のコードポイント順から 0 起点で割り当て、個人マーカーは false とします。失われた元の区分・順序・注釈由来は復元できません。版4のバックアップは版3以前だけに対応する実装では復元できません。
+現行の書き出しは版5です。候補・抑止・使用履歴の `dateExpression` は日付式と同じ本文の文字列を区別します。対応する日付式は元の式を保存し、変換結果で置換しません。版1〜版4の値はすべて `dateExpression=false` として復元します。式マーカーが true の値を旧版形式へ書き出す操作は拒否します。版5は版4以前だけに対応する実装では復元できません。版1は取得元 URL なし、版1・版2は候補使用履歴なしとして復元します。版1〜版3の候補には区分・見出し順・個人マーカーがないため、区分はキーから推定し、見出し順はソース内のコードポイント順から 0 起点で割り当て、個人マーカーは false とします。失われた元の区分・順序・注釈由来は復元できません。
 
-SQLite は版6へ移行し、候補ごとに区分・見出し順位・個人注釈属性を保存します。版1〜版5の既存 DB は、従来の見出し順とキーからの区分推定、マーカーなしの既定値へ移行します。見出しの相対順は保存・マージ・学習・候補削除を通して保持し、学習した見出しだけを先頭へ移します。順位が Long の上限に達して次の学習順位を割り当てられない場合は、学習全体を取り消します。
+SQLite は版7へ移行し、候補ごとに日付式のマーカー・区分・見出し順位・個人注釈属性を保存します。版6の既存値は区分・順位・個人注釈を保持し、日付式のマーカーを false にします。版1〜版5の既存 DB は、従来の見出し順とキーからの区分推定、マーカーなしの既定値へ移行します。見出しの相対順は保存・マージ・学習・候補削除を通して保持し、学習した見出しだけを先頭へ移します。順位が Long の上限に達して次の学習順位を割り当てられない場合は、学習全体を取り消します。
 
-非圧縮の UTF-8 JSON Lines を採用します。識別子は `skk-android-dictionary-backup`、拡張子は `.skkbackup`、SAF の MIME は `application/octet-stream` とします。ZIP、任意パス、SQL、実行可能な式は含めません。圧縮展開・パストラバーサルの処理自体を持ちません。
+非圧縮の UTF-8 JSON Lines を採用します。識別子は `skk-android-dictionary-backup`、拡張子は `.skkbackup`、SAF の MIME は `application/octet-stream` とします。ZIP、任意パス、SQL、任意の Lisp 実行は含めません。日付式マーカーが true の値は専用の許可形式として検証し、未知の関数やコールバックは復元しません。圧縮展開・パストラバーサルの処理自体を持ちません。
 
 各行は一つの平坦な JSON オブジェクトです。配列と入れ子オブジェクトを禁止し、文字列内の改行は JSON エスケープだけで表します。出力は BOM なし、LF、最終行の後にも LF とします。入力は BOM なしの strict UTF-8 と LF だけを受け付けます。最終 LF 欠落も未完了ファイルとして拒否します。
 
@@ -26,17 +26,17 @@ SQLite は版6へ移行し、候補ごとに区分・見出し順位・個人注
 
 | `type` | フィールド（`type` 以外）と意味 |
 | --- | --- |
-| `header` | `format` は上記識別子、`version` は整数 `4`（読込みは `1`〜`3` も対応）、`producerVersion` は作成アプリの表示用版文字列です |
+| `header` | `format` は上記識別子、`version` は整数 `5`（読込みは `1`〜`4` も対応）、`producerVersion` は作成アプリの表示用版文字列です |
 | `source` | `id`, `name`, `kind`（`personal` / `system`）, `generation`, `enabled`, `order`, `originUrl`（null可）。版1には`originUrl`を含めません。個人一件を先頭に、全システムを優先順に出力します |
-| `candidate` | `sourceId`, `entryKey`, `ordinal`, `text`, `annotation`（null 可）, `okuriCondition`（null 可）, `section`（`okuri-ari` / `okuri-nasi`）, `entryOrder`（非負 Long）, `annotationIsPersonal`（真偽値）。ソース順、見出し語のコードポイント順、候補順で出力し、元の見出し順は `entryOrder` で別に保持します。版1〜版3には末尾の 3 フィールドを含めません |
-| `suppression` | `sourceId`, `entryKey`, `templateText`, `okuriCondition`（null 可）。同一性の各文字列をコードポイント順で比較して出力します |
+| `candidate` | `sourceId`, `entryKey`, `ordinal`, `text`, `annotation`（null 可）, `okuriCondition`（null 可）, `section`（`okuri-ari` / `okuri-nasi`）, `entryOrder`（非負 Long）, `annotationIsPersonal`（真偽値）, `dateExpression`（真偽値、版5のみ）。ソース順、見出し語のコードポイント順、候補順で出力し、元の見出し順は `entryOrder` で別に保持します。版1〜版3には `section`, `entryOrder`, `annotationIsPersonal` を含めず、版1〜版4には `dateExpression` を含めません |
+| `suppression` | `sourceId`, `entryKey`, `templateText`, `okuriCondition`（null 可）, `dateExpression`（真偽値、版5のみ）。同一性の各文字列をコードポイント順で比較して出力します |
 | `sourceVersion` | `sourceId`, `lastGeneration`。削除済みソースを含む世代台帳を ID 順で出力します |
-| `usage` | `readingKey`, `templateText`, `okuriCondition`（null 可）, `committedText`, `lastUsedSequence`。辞書上の元候補と実際の確定文字列を分離します。版1・版2には含めません |
+| `usage` | `readingKey`, `templateText`, `okuriCondition`（null 可）, `committedText`, `lastUsedSequence`, `dateExpression`（真偽値、版5のみ）。辞書上の元候補と実際の確定文字列を分離します。版1・版2には含めません |
 | `end` | `sourceCount`, `candidateCount`, `suppressionCount`, `sourceVersionCount`, `usageCount`。各セクションの実測件数と完全一致させます。版1・版2には`usageCount`を含めません |
 
 `header` と `end` は各一件です。空セクションを許しますが、個人ソースは ID `personal`、`kind=personal`、`enabled=true`、`order=0` の一件が必須です。システム ID は個人 ID と衝突させず、システムの `order` は 0 起点の連番とします。空辞書は source のみで表現できます。
 
-同じソース・見出しの ordinal は 0 起点の連番です。版4では同じソース・見出しの `section` と `entryOrder` が全候補で一致する必要があります。別の見出し同士の `entryOrder` は同じソース内で重複できません。値の連番は要求せず、小さい値ほど先の見出しとして復元します。`annotationIsPersonal=true` は非空注釈がある場合だけ許します。候補の同一性 `(sourceId, entryKey, text, okuriCondition)`、抑止の同一性、ソース ID、台帳 ID の重複はエラーとし、黙ったマージをしません。候補は宣言済みのソースだけを参照します。台帳は全宣言済みソースを含み、`lastGeneration >= generation` を満たします。参照先がない抑止と台帳は有効です。
+同じソース・見出しの ordinal は 0 起点の連番です。版4以降では同じソース・見出しの `section` と `entryOrder` が全候補で一致する必要があります。別の見出し同士の `entryOrder` は同じソース内で重複できません。値の連番は要求せず、小さい値ほど先の見出しとして復元します。`annotationIsPersonal=true` は非空注釈がある場合だけ許します。候補の同一性 `(sourceId, entryKey, text, okuriCondition, dateExpression)`、抑止の同一性、ソース ID、台帳 ID の重複はエラーとし、黙ったマージをしません。候補は宣言済みのソースだけを参照します。台帳は全宣言済みソースを含み、`lastGeneration >= generation` を満たします。参照先がない抑止と台帳は有効です。
 
 出力した世代は作成時の由来として保存します。復元時の実行世代は後述の規則で変わるため、復元後の再出力で世代だけが増加することは仕様です。候補、注釈由来、区分、見出しの相対順、抑止、ソース ID、名前、有効状態、順序は一致させます。
 

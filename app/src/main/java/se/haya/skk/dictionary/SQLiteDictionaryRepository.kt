@@ -93,7 +93,7 @@ class DictionaryLookupSnapshot(
     fun asComposite(fallbackSystems: List<SkkDictionarySource> = emptyList()): CompositeSkkDictionary =
         CompositeSkkDictionary(personal, systems + if (allowFallback) fallbackSystems.filterNot { it.id in storedSourceIds } else emptyList(), suppressions.map { suppression ->
             suppression.key.let {
-                SuppressedDictionaryCandidate(it.sourceId, it.entryKey, it.templateText, it.okuriCondition)
+                SuppressedDictionaryCandidate(it.sourceId, it.entryKey, it.templateText, it.okuriCondition, it.dateExpression)
             }
         })
 }
@@ -260,6 +260,7 @@ class SQLiteDictionaryRepository internal constructor(
             put(COLUMN_OKURI, target.okuriCondition ?: NO_OKURI)
             put(COLUMN_COMMITTED_TEXT, target.committedText)
             put(COLUMN_LAST_USED_SEQUENCE, next)
+            put(COLUMN_DATE_EXPRESSION, if (target.dateExpression) 1 else 0)
         }
         check(database.insertWithOnConflict(
             TABLE_USAGE, null, values, SQLiteDatabase.CONFLICT_REPLACE,
@@ -314,11 +315,11 @@ class SQLiteDictionaryRepository internal constructor(
             request.origins.filter { it.kind == CandidateOriginKind.PERSONAL }
                 .groupBy { it.entryKey }
                 .forEach { (entryKey, origins) ->
-                    val removed = origins.map { CandidateIdentity(it.templateText, it.okuriCondition) }.toSet()
+                    val removed = origins.map { CandidateIdentity(it.templateText, it.okuriCondition, it.dateExpression) }.toSet()
                     val previous = readEntries(database, PERSONAL_SOURCE_ID, entryKey).singleOrNull()
                         ?: throw CandidateOriginMismatchException()
                     val retained = previous.candidates.filterNot {
-                        CandidateIdentity(it.text, it.okuriCondition) in removed
+                        CandidateIdentity(it.text, it.okuriCondition, it.dateExpression) in removed
                     }
                     if (previous.candidates.size - retained.size != removed.size) {
                         throw CandidateOriginMismatchException()
@@ -338,12 +339,12 @@ class SQLiteDictionaryRepository internal constructor(
                 insertSuppression(database, origin.suppressionKey())
             }
             // 表示候補の全由来を削除・抑止した時点で、元候補に結び付く展開済み履歴も破棄します。
-            request.origins.map { Triple(it.entryKey, it.templateText, it.okuriCondition) }.distinct()
-                .forEach { (entryKey, templateText, okuriCondition) ->
+            request.origins.map { it.usageDeletionIdentity() }.distinct()
+                .forEach { (entryKey, templateText, okuriCondition, dateExpression) ->
                     database.delete(
                         TABLE_USAGE,
-                        "$COLUMN_ENTRY_KEY=? AND $COLUMN_TEMPLATE_TEXT=? AND $COLUMN_OKURI=?",
-                        arrayOf(entryKey, templateText, okuriCondition ?: NO_OKURI),
+                        "$COLUMN_ENTRY_KEY=? AND $COLUMN_TEMPLATE_TEXT=? AND $COLUMN_OKURI=? AND $COLUMN_DATE_EXPRESSION=?",
+                        arrayOf(entryKey, templateText, okuriCondition ?: NO_OKURI, if (dateExpression) "1" else "0"),
                     )
                 }
             failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
@@ -545,7 +546,8 @@ class SQLiteDictionaryRepository internal constructor(
                                 WHERE x.$COLUMN_SOURCE_ID=c.$COLUMN_SOURCE_ID
                                 AND x.$COLUMN_ENTRY_KEY=c.$COLUMN_ENTRY_KEY
                                 AND x.$COLUMN_TEXT=c.$COLUMN_TEXT
-                                AND x.$COLUMN_OKURI=COALESCE(c.$COLUMN_OKURI, ''))
+                                AND x.$COLUMN_OKURI=COALESCE(c.$COLUMN_OKURI, '')
+                                AND x.$COLUMN_DATE_EXPRESSION=c.$COLUMN_DATE_EXPRESSION)
                                 FROM $TABLE_CANDIDATES c
                                 WHERE c.$COLUMN_SOURCE_ID=? AND c.$COLUMN_ENTRY_KEY=?
                                 ORDER BY c.$COLUMN_ORDINAL LIMIT ${CompletionQuery.MAX_WORK_ITEMS - work + 1}""".trimIndent(),
@@ -573,7 +575,7 @@ class SQLiteDictionaryRepository internal constructor(
                         val suppressions = readSuppressions(database, key).map { it.key }.toSet()
                         val visible = source.candidates(key).any { candidate ->
                             charge()
-                            CandidateSuppressionKey(source.id, key, candidate.text, candidate.okuriCondition) !in suppressions
+                            CandidateSuppressionKey(source.id, key, candidate.text, candidate.okuriCondition, candidate.dateExpression) !in suppressions
                         }
                         if (visible) append(key)
                     }
@@ -616,7 +618,7 @@ class SQLiteDictionaryRepository internal constructor(
                 SELECT s.$COLUMN_ID,s.$COLUMN_GENERATION,s.$COLUMN_KIND,
                        c.$COLUMN_ENTRY_KEY,c.$COLUMN_TEXT,c.$COLUMN_ANNOTATION,c.$COLUMN_OKURI,c.$COLUMN_SECTION,c.$COLUMN_ANNOTATION_IS_PERSONAL
                   FROM $TABLE_SOURCES s JOIN $TABLE_CANDIDATES c ON c.$COLUMN_SOURCE_ID=s.$COLUMN_ID
-                 WHERE s.$COLUMN_ENABLED=1 AND c.$COLUMN_ENTRY_KEY>=?$upperClause
+                 WHERE s.$COLUMN_ENABLED=1 AND c.$COLUMN_DATE_EXPRESSION=0 AND c.$COLUMN_ENTRY_KEY>=?$upperClause
                  ORDER BY c.$COLUMN_ENTRY_KEY,s.$COLUMN_KIND,s.$COLUMN_ORDER,c.$COLUMN_ORDINAL
                  LIMIT ${query.workLimit + 1}
                 """.trimIndent(), args.toTypedArray(),
@@ -656,7 +658,7 @@ class SQLiteDictionaryRepository internal constructor(
                 is PredictionPrefixRows.Limited -> return@inReadTransaction PredictionSearchResult.Indeterminate(rows.failure)
             }
             val composite = CompositeSkkDictionary(personal, systems + fallbacks, suppressions.map {
-                SuppressedDictionaryCandidate(it.key.sourceId, it.key.entryKey, it.key.templateText, it.key.okuriCondition)
+                SuppressedDictionaryCandidate(it.key.sourceId, it.key.entryKey, it.key.templateText, it.key.okuriCondition, it.key.dateExpression)
             }, usageLookup = usages::get)
             composite.predict(query)
         }
@@ -673,8 +675,8 @@ class SQLiteDictionaryRepository internal constructor(
 
     private fun readPredictionUsage(database: SQLiteDatabase, target: PredictionHistoryTarget): Long? =
         database.query(TABLE_USAGE, arrayOf(COLUMN_LAST_USED_SEQUENCE),
-            "$COLUMN_ENTRY_KEY=? AND $COLUMN_TEMPLATE_TEXT=? AND $COLUMN_OKURI=? AND $COLUMN_COMMITTED_TEXT=?",
-            arrayOf(target.readingKey, target.templateText, target.okuriCondition ?: NO_OKURI, target.committedText),
+            "$COLUMN_ENTRY_KEY=? AND $COLUMN_TEMPLATE_TEXT=? AND $COLUMN_OKURI=? AND $COLUMN_COMMITTED_TEXT=? AND $COLUMN_DATE_EXPRESSION=?",
+            arrayOf(target.readingKey, target.templateText, target.okuriCondition ?: NO_OKURI, target.committedText, if (target.dateExpression) "1" else "0"),
             null, null, null, "1").use { if (it.moveToFirst()) it.getLong(0) else null }
 
     private fun readPredictionUsageForPrefix(
@@ -690,7 +692,7 @@ class SQLiteDictionaryRepository internal constructor(
         var totalChars = 0L
         val values = linkedMapOf<PredictionHistoryTarget, Long>()
         database.rawQuery(
-            "SELECT $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE FROM $TABLE_USAGE WHERE $COLUMN_ENTRY_KEY>=?$upperClause LIMIT ${workLimit + 1}",
+            "SELECT $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE FROM $TABLE_USAGE WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY>=?$upperClause LIMIT ${workLimit + 1}",
             args.toTypedArray(),
         ).use { cursor ->
             while (cursor.moveToNext()) {
@@ -724,7 +726,7 @@ class SQLiteDictionaryRepository internal constructor(
         var totalChars = 0L
         val values = mutableListOf<CandidateSuppressionInfo>()
         database.rawQuery(
-            "SELECT $COLUMN_SOURCE_ID,$COLUMN_ENTRY_KEY,$COLUMN_TEXT,$COLUMN_OKURI FROM $TABLE_SUPPRESSIONS WHERE $COLUMN_ENTRY_KEY>=?$upperClause LIMIT ${workLimit + 1}",
+            "SELECT $COLUMN_SOURCE_ID,$COLUMN_ENTRY_KEY,$COLUMN_TEXT,$COLUMN_OKURI FROM $TABLE_SUPPRESSIONS WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY>=?$upperClause LIMIT ${workLimit + 1}",
             args.toTypedArray(),
         ).use { cursor ->
             while (cursor.moveToNext()) {
@@ -796,9 +798,9 @@ class SQLiteDictionaryRepository internal constructor(
                 var candidates = 0
                 stored.forEach { source ->
                     val maximumRank = maximumEntryRank(database, source.id)
-                    database.rawQuery("SELECT entry_key,ordinal,candidate_text,annotation,okuri_condition,entry_section,entry_rank,annotation_is_personal FROM dictionary_candidates WHERE source_id=? ORDER BY entry_key,ordinal", arrayOf(source.id)).use { cursor ->
+                    database.rawQuery("SELECT entry_key,ordinal,candidate_text,annotation,okuri_condition,entry_section,entry_rank,annotation_is_personal,date_expression FROM dictionary_candidates WHERE source_id=? ORDER BY entry_key,ordinal", arrayOf(source.id)).use { cursor ->
                         while (cursor.moveToNext()) {
-                            yield(BackupRecord.Candidate(source.id, cursor.getString(0), cursor.getInt(1), cursor.getString(2), cursor.nullableString(3), cursor.nullableString(4), readSection(cursor.getString(5)), maximumRank - cursor.getLong(6), cursor.getInt(7) != 0))
+                            yield(BackupRecord.Candidate(source.id, cursor.getString(0), cursor.getInt(1), cursor.getString(2), cursor.nullableString(3), cursor.nullableString(4), readSection(cursor.getString(5)), maximumRank - cursor.getLong(6), cursor.getInt(7) != 0, cursor.getInt(8) != 0))
                             candidates = Math.addExact(candidates, 1)
                         }
                     }
@@ -810,15 +812,15 @@ class SQLiteDictionaryRepository internal constructor(
                     ordered.forEach { indexed ->
                         val entry = indexed.value
                         entry.candidates.forEachIndexed { ordinal, candidate ->
-                            yield(BackupRecord.Candidate(source.id, entry.key, ordinal, candidate.text, candidate.annotation?.takeIf(String::isNotEmpty), candidate.okuriCondition, entry.section, indexed.index.toLong(), candidate.annotationIsPersonal))
+                            yield(BackupRecord.Candidate(source.id, entry.key, ordinal, candidate.text, candidate.annotation?.takeIf(String::isNotEmpty), candidate.okuriCondition, entry.section, indexed.index.toLong(), candidate.annotationIsPersonal, candidate.dateExpression))
                             candidates = Math.addExact(candidates, 1)
                         }
                     }
                 }
                 var suppressions = 0
-                database.rawQuery("SELECT source_id,entry_key,candidate_text,okuri_condition FROM candidate_suppressions ORDER BY source_id,entry_key,candidate_text,okuri_condition", null).use { cursor ->
+                database.rawQuery("SELECT source_id,entry_key,candidate_text,okuri_condition,date_expression FROM candidate_suppressions ORDER BY source_id,entry_key,candidate_text,okuri_condition,date_expression", null).use { cursor ->
                     while (cursor.moveToNext()) {
-                        yield(BackupRecord.Suppression(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3).takeIf(String::isNotEmpty)))
+                        yield(BackupRecord.Suppression(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3).takeIf(String::isNotEmpty), cursor.getInt(4) != 0))
                         suppressions = Math.addExact(suppressions, 1)
                     }
                 }
@@ -844,10 +846,10 @@ class SQLiteDictionaryRepository internal constructor(
                     yield(BackupRecord.SourceVersion(next, pending.getValue(next))); versions++
                 }
                 var usages = 0
-                database.rawQuery("SELECT $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE FROM $TABLE_USAGE ORDER BY $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT", null).use { cursor ->
+                database.rawQuery("SELECT $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE,$COLUMN_DATE_EXPRESSION FROM $TABLE_USAGE ORDER BY $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_DATE_EXPRESSION", null).use { cursor ->
                     while (cursor.moveToNext()) {
                         yield(BackupRecord.Usage(cursor.getString(0), cursor.getString(1),
-                            cursor.getString(2).takeIf(String::isNotEmpty), cursor.getString(3), cursor.getLong(4)))
+                            cursor.getString(2).takeIf(String::isNotEmpty), cursor.getString(3), cursor.getLong(4), cursor.getInt(5) != 0))
                         usages = Math.addExact(usages, 1)
                     }
                 }
@@ -882,7 +884,7 @@ class SQLiteDictionaryRepository internal constructor(
                 staging.rawQuery("SELECT source,MAX(entry_order) FROM candidates GROUP BY source", null).use { cursor ->
                     while (cursor.moveToNext()) maximumOrders[cursor.getString(0)] = cursor.getLong(1)
                 }
-                staging.rawQuery("SELECT source,entry,ordinal,text,annotation,okuri,section,entry_order,annotation_is_personal FROM candidates ORDER BY source,entry,ordinal", null).use { cursor ->
+                staging.rawQuery("SELECT source,entry,ordinal,text,annotation,okuri,section,entry_order,annotation_is_personal,date_expression FROM candidates ORDER BY source,entry,ordinal", null).use { cursor ->
                     while (cursor.moveToNext()) {
                         val values = ContentValues().apply {
                             put(COLUMN_SOURCE_ID, cursor.getString(0)); put(COLUMN_ENTRY_KEY, cursor.getString(1))
@@ -892,21 +894,23 @@ class SQLiteDictionaryRepository internal constructor(
                             put(COLUMN_SECTION, cursor.getString(6))
                             put(COLUMN_ENTRY_RANK, maximumOrders.getValue(cursor.getString(0)) - cursor.getLong(7))
                             put(COLUMN_ANNOTATION_IS_PERSONAL, cursor.getInt(8))
+                            put(COLUMN_DATE_EXPRESSION, cursor.getInt(9))
                         }
                         database.insertOrThrow(TABLE_CANDIDATES, null, values)
                         failpoint.hit(DictionaryWritePoint.AFTER_ROWS_CHANGED)
                     }
                 }
-                staging.rawQuery("SELECT source,entry,text,okuri FROM suppressions", null).use { cursor ->
-                    while (cursor.moveToNext()) insertSuppression(database, CandidateSuppressionKey(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3).takeIf(String::isNotEmpty)))
+                staging.rawQuery("SELECT source,entry,text,okuri,date_expression FROM suppressions", null).use { cursor ->
+                    while (cursor.moveToNext()) insertSuppression(database, CandidateSuppressionKey(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3).takeIf(String::isNotEmpty), cursor.getInt(4) != 0))
                 }
                 var maximumUsage = 0L
-                staging.rawQuery("SELECT reading,template,okuri,committed,sequence FROM usages ORDER BY sequence", null).use { cursor ->
+                staging.rawQuery("SELECT reading,template,okuri,committed,sequence,date_expression FROM usages ORDER BY sequence", null).use { cursor ->
                     while (cursor.moveToNext()) {
                         val values = ContentValues().apply {
                             put(COLUMN_ENTRY_KEY, cursor.getString(0)); put(COLUMN_TEMPLATE_TEXT, cursor.getString(1))
                             put(COLUMN_OKURI, cursor.getString(2)); put(COLUMN_COMMITTED_TEXT, cursor.getString(3))
                             put(COLUMN_LAST_USED_SEQUENCE, cursor.getLong(4))
+                            put(COLUMN_DATE_EXPRESSION, cursor.getInt(5))
                         }
                         database.insertOrThrow(TABLE_USAGE, null, values)
                         maximumUsage = maxOf(maximumUsage, cursor.getLong(4))
@@ -982,6 +986,7 @@ class SQLiteDictionaryRepository internal constructor(
                     put(COLUMN_SECTION, entry.section.serializedName)
                     put(COLUMN_ENTRY_RANK, rank ?: (entries.size - entryIndex).toLong())
                     put(COLUMN_ANNOTATION_IS_PERSONAL, if (candidate.annotationIsPersonal) 1 else 0)
+                    put(COLUMN_DATE_EXPRESSION, if (candidate.dateExpression) 1 else 0)
                 }
                 check(database.insertOrThrow(TABLE_CANDIDATES, null, values) != -1L)
             }
@@ -1023,12 +1028,12 @@ class SQLiteDictionaryRepository internal constructor(
 
     private fun candidateExists(database: SQLiteDatabase, origin: StoredCandidateOriginRef): Boolean {
         val okuriClause = if (origin.okuriCondition == null) "$COLUMN_OKURI IS NULL" else "$COLUMN_OKURI = ?"
-        val args = mutableListOf(origin.sourceId, origin.entryKey, origin.templateText)
+        val args = mutableListOf(origin.sourceId, origin.entryKey, origin.templateText, if (origin.dateExpression) "1" else "0")
         origin.okuriCondition?.let(args::add)
         return database.query(
             TABLE_CANDIDATES,
             arrayOf("1"),
-            "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ? AND $COLUMN_TEXT = ? AND $okuriClause",
+            "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ? AND $COLUMN_TEXT = ? AND $COLUMN_DATE_EXPRESSION = ? AND $okuriClause",
             args.toTypedArray(),
             null,
             null,
@@ -1043,6 +1048,7 @@ class SQLiteDictionaryRepository internal constructor(
             put(COLUMN_ENTRY_KEY, key.entryKey)
             put(COLUMN_TEXT, key.templateText)
             put(COLUMN_OKURI, key.okuriCondition ?: NO_OKURI)
+            put(COLUMN_DATE_EXPRESSION, if (key.dateExpression) 1 else 0)
         }
         if (database.insertWithOnConflict(
                 TABLE_SUPPRESSIONS,
@@ -1058,7 +1064,7 @@ class SQLiteDictionaryRepository internal constructor(
     private fun readSuppressions(database: SQLiteDatabase, key: String?): List<CandidateSuppressionInfo> = buildList {
         database.query(
             TABLE_SUPPRESSIONS,
-            arrayOf(COLUMN_SOURCE_ID, COLUMN_ENTRY_KEY, COLUMN_TEXT, COLUMN_OKURI),
+            arrayOf(COLUMN_SOURCE_ID, COLUMN_ENTRY_KEY, COLUMN_TEXT, COLUMN_OKURI, COLUMN_DATE_EXPRESSION),
             if (key == null) null else "$COLUMN_ENTRY_KEY = ?",
             key?.let { arrayOf(it) },
             null,
@@ -1071,6 +1077,7 @@ class SQLiteDictionaryRepository internal constructor(
                     entryKey = cursor.getString(1),
                     templateText = cursor.getString(2),
                     okuriCondition = cursor.getString(3).takeIf(String::isNotEmpty),
+                    dateExpression = cursor.getInt(4) != 0,
                 )))
             }
         }
@@ -1081,16 +1088,18 @@ class SQLiteDictionaryRepository internal constructor(
         entryKey,
         templateText,
         okuriCondition,
+        dateExpression,
     )
 
     private fun suppressionWhereClause(): String =
-        "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ? AND $COLUMN_TEXT = ? AND $COLUMN_OKURI = ?"
+        "$COLUMN_SOURCE_ID = ? AND $COLUMN_ENTRY_KEY = ? AND $COLUMN_TEXT = ? AND $COLUMN_OKURI = ? AND $COLUMN_DATE_EXPRESSION = ?"
 
     private fun suppressionWhereArgs(key: CandidateSuppressionKey): Array<String> = arrayOf(
         key.sourceId,
         key.entryKey,
         key.templateText,
         key.okuriCondition ?: NO_OKURI,
+        if (key.dateExpression) "1" else "0",
     )
 
     private fun allocateNextGeneration(database: SQLiteDatabase, source: DictionarySourceInfo): Long {
@@ -1144,7 +1153,7 @@ class SQLiteDictionaryRepository internal constructor(
         val sections = linkedMapOf<String, SkkDictionarySection>()
         database.query(
             TABLE_CANDIDATES,
-            arrayOf(COLUMN_ENTRY_KEY, COLUMN_TEXT, COLUMN_ANNOTATION, COLUMN_OKURI, COLUMN_SECTION, COLUMN_ANNOTATION_IS_PERSONAL),
+            arrayOf(COLUMN_ENTRY_KEY, COLUMN_TEXT, COLUMN_ANNOTATION, COLUMN_OKURI, COLUMN_SECTION, COLUMN_ANNOTATION_IS_PERSONAL, COLUMN_DATE_EXPRESSION),
             "$COLUMN_SOURCE_ID = ?" + if (key == null) "" else " AND $COLUMN_ENTRY_KEY = ?",
             if (key == null) arrayOf(sourceId) else arrayOf(sourceId, key),
             null,
@@ -1154,7 +1163,7 @@ class SQLiteDictionaryRepository internal constructor(
             while (cursor.moveToNext()) {
                 sections.putIfAbsent(cursor.getString(0), readSection(cursor.getString(4)))
                 entries.getOrPut(cursor.getString(0)) { mutableListOf() } += SkkDictionaryCandidate(
-                    cursor.getString(1), cursor.nullableString(2), cursor.nullableString(3), cursor.getInt(5) != 0,
+                    cursor.getString(1), cursor.nullableString(2), cursor.nullableString(3), cursor.getInt(5) != 0, cursor.getInt(6) != 0,
                 )
             }
         }
@@ -1167,10 +1176,10 @@ class SQLiteDictionaryRepository internal constructor(
     ): List<SkkDictionaryEntry> {
         val oldEntries = existing.associateBy { it.key }
         val result = imported.map { entry ->
-            val old = oldEntries[entry.key]?.candidates.orEmpty().associateBy { CandidateIdentity(it.text, it.okuriCondition) }
+            val old = oldEntries[entry.key]?.candidates.orEmpty().associateBy { CandidateIdentity(it.text, it.okuriCondition, it.dateExpression) }
             val merged = linkedMapOf<CandidateIdentity, SkkDictionaryCandidate>()
             entry.candidates.forEach { candidate ->
-                val identity = CandidateIdentity(candidate.text, candidate.okuriCondition)
+                val identity = CandidateIdentity(candidate.text, candidate.okuriCondition, candidate.dateExpression)
                 val prior = old[identity]
                 merged[identity] = if (candidate.annotation.isNullOrEmpty() && !prior?.annotation.isNullOrEmpty()) {
                     candidate.copy(annotation = prior?.annotation, annotationIsPersonal = prior?.annotationIsPersonal ?: false)
@@ -1195,7 +1204,7 @@ class SQLiteDictionaryRepository internal constructor(
             """
             SELECT s.$COLUMN_ID, s.$COLUMN_GENERATION, s.$COLUMN_KIND,
                    c.$COLUMN_ENTRY_KEY, c.$COLUMN_ORDINAL, c.$COLUMN_TEXT,
-                   c.$COLUMN_ANNOTATION, c.$COLUMN_OKURI, c.$COLUMN_SECTION, c.$COLUMN_ANNOTATION_IS_PERSONAL
+                   c.$COLUMN_ANNOTATION, c.$COLUMN_OKURI, c.$COLUMN_SECTION, c.$COLUMN_ANNOTATION_IS_PERSONAL, c.$COLUMN_DATE_EXPRESSION
               FROM $TABLE_SOURCES s
               $join $TABLE_CANDIDATES c ON c.$COLUMN_SOURCE_ID = s.$COLUMN_ID$keyClause
              WHERE s.$COLUMN_ENABLED = 1
@@ -1220,6 +1229,7 @@ class SQLiteDictionaryRepository internal constructor(
                         annotation = cursor.nullableString(6),
                         okuriCondition = cursor.nullableString(7),
                         annotationIsPersonal = cursor.getInt(9) != 0,
+                        dateExpression = cursor.getInt(10) != 0,
                     )
                 }
             }
@@ -1303,7 +1313,10 @@ class SQLiteDictionaryRepository internal constructor(
         originUrl = nullableString(6),
     )
 
-    private data class CandidateIdentity(val text: String, val okuri: String?)
+    private data class UsageDeletionIdentity(val entryKey: String, val templateText: String, val okuriCondition: String?, val dateExpression: Boolean)
+    private fun StoredCandidateOriginRef.usageDeletionIdentity() = UsageDeletionIdentity(entryKey, templateText, okuriCondition, dateExpression)
+
+    private data class CandidateIdentity(val text: String, val okuri: String?, val dateExpression: Boolean)
     private data class SnapshotBuilder(
         val id: String,
         val generation: Long,
@@ -1374,6 +1387,7 @@ class SQLiteDictionaryRepository internal constructor(
             createVersion2Tables(database)
             createVersion3Tables(database)
             createVersion5Tables(database)
+            migrateVersion7(database)
             val personal = ContentValues().apply {
                 put(COLUMN_ID, PERSONAL_SOURCE_ID)
                 put(COLUMN_NAME, PERSONAL_SOURCE_NAME)
@@ -1391,7 +1405,7 @@ class SQLiteDictionaryRepository internal constructor(
         }
 
         override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            require(oldVersion in 1..5 && newVersion == 6)
+            require(oldVersion in 1..6 && newVersion == 7)
             if (oldVersion == 1) {
                 createVersion2Tables(database)
                 database.execSQL("INSERT INTO $TABLE_SOURCE_VERSIONS SELECT $COLUMN_ID, $COLUMN_GENERATION FROM $TABLE_SOURCES")
@@ -1399,7 +1413,24 @@ class SQLiteDictionaryRepository internal constructor(
             if (oldVersion < 3) createVersion3Tables(database)
             if (oldVersion < 4) database.execSQL("ALTER TABLE $TABLE_SOURCES ADD COLUMN $COLUMN_ORIGIN_URL TEXT")
             if (oldVersion < 5) createVersion5Tables(database)
-            migrateVersion6(database)
+            if (oldVersion < 6) migrateVersion6(database)
+            migrateVersion7(database)
+        }
+
+        private fun migrateVersion7(database: SQLiteDatabase) {
+            database.execSQL("ALTER TABLE $TABLE_CANDIDATES ADD COLUMN $COLUMN_DATE_EXPRESSION INTEGER NOT NULL DEFAULT 0 CHECK($COLUMN_DATE_EXPRESSION IN (0,1))")
+            database.execSQL("DROP INDEX IF EXISTS suppressions_key_lookup")
+            database.execSQL("ALTER TABLE $TABLE_SUPPRESSIONS RENAME TO legacy_suppressions")
+            database.execSQL("CREATE TABLE $TABLE_SUPPRESSIONS ($COLUMN_SOURCE_ID TEXT NOT NULL,$COLUMN_ENTRY_KEY TEXT NOT NULL,$COLUMN_TEXT TEXT NOT NULL,$COLUMN_OKURI TEXT NOT NULL,$COLUMN_DATE_EXPRESSION INTEGER NOT NULL DEFAULT 0 CHECK($COLUMN_DATE_EXPRESSION IN (0,1)),PRIMARY KEY($COLUMN_SOURCE_ID,$COLUMN_ENTRY_KEY,$COLUMN_TEXT,$COLUMN_OKURI,$COLUMN_DATE_EXPRESSION))")
+            database.execSQL("INSERT INTO $TABLE_SUPPRESSIONS SELECT $COLUMN_SOURCE_ID,$COLUMN_ENTRY_KEY,$COLUMN_TEXT,$COLUMN_OKURI,0 FROM legacy_suppressions")
+            database.execSQL("DROP TABLE legacy_suppressions")
+            database.execSQL("CREATE INDEX suppressions_key_lookup ON $TABLE_SUPPRESSIONS($COLUMN_ENTRY_KEY,$COLUMN_SOURCE_ID)")
+            database.execSQL("DROP INDEX IF EXISTS prediction_usage_recency")
+            database.execSQL("ALTER TABLE $TABLE_USAGE RENAME TO legacy_usage")
+            database.execSQL("CREATE TABLE $TABLE_USAGE ($COLUMN_ENTRY_KEY TEXT NOT NULL,$COLUMN_TEMPLATE_TEXT TEXT NOT NULL,$COLUMN_OKURI TEXT NOT NULL,$COLUMN_COMMITTED_TEXT TEXT NOT NULL,$COLUMN_LAST_USED_SEQUENCE INTEGER NOT NULL,$COLUMN_DATE_EXPRESSION INTEGER NOT NULL DEFAULT 0 CHECK($COLUMN_DATE_EXPRESSION IN (0,1)),PRIMARY KEY($COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_DATE_EXPRESSION))")
+            database.execSQL("INSERT INTO $TABLE_USAGE SELECT $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE,0 FROM legacy_usage")
+            database.execSQL("DROP TABLE legacy_usage")
+            database.execSQL("CREATE INDEX prediction_usage_recency ON $TABLE_USAGE($COLUMN_LAST_USED_SEQUENCE DESC,$COLUMN_ENTRY_KEY,$COLUMN_COMMITTED_TEXT)")
         }
 
         private fun migrateVersion6(database: SQLiteDatabase) {
@@ -1491,13 +1522,14 @@ class SQLiteDictionaryRepository internal constructor(
         const val PERSONAL_SOURCE_ID = "personal"
         private const val PERSONAL_SOURCE_NAME = "個人辞書"
         private const val DEFAULT_DATABASE_NAME = "skk-dictionaries.db"
-        private const val DATABASE_VERSION = 6
+        private const val DATABASE_VERSION = 7
         private const val MISSING_GENERATION = -1L
         private const val KIND_PERSONAL = 0
         private const val KIND_SYSTEM = 1
         private const val TABLE_SOURCES = "dictionary_sources"
         private const val TABLE_CANDIDATES = "dictionary_candidates"
         private const val TABLE_SUPPRESSIONS = "candidate_suppressions"
+        private const val COLUMN_DATE_EXPRESSION = "date_expression"
         private const val TABLE_SOURCE_VERSIONS = "dictionary_source_versions"
         private const val TABLE_METADATA = "dictionary_metadata"
         private const val TABLE_USAGE = "candidate_usage"

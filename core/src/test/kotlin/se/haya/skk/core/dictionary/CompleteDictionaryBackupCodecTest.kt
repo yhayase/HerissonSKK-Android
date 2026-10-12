@@ -132,7 +132,7 @@ class CompleteDictionaryBackupCodecTest {
             "{\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":1,\"producerVersion\":\"x\",\"extra\":0}\n" to CompleteDictionaryBackupError.UNKNOWN_FIELD,
             "{\"type\":\"header\",\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":1,\"producerVersion\":\"x\"}\n" to CompleteDictionaryBackupError.DUPLICATE_FIELD,
             "{\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":1.0,\"producerVersion\":\"x\"}\n" to CompleteDictionaryBackupError.INVALID_JSON,
-            "{\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":5,\"producerVersion\":\"x\"}\n" to CompleteDictionaryBackupError.UNSUPPORTED_VERSION,
+            "{\"type\":\"header\",\"format\":\"$COMPLETE_DICTIONARY_BACKUP_FORMAT\",\"version\":6,\"producerVersion\":\"x\"}\n" to CompleteDictionaryBackupError.UNSUPPORTED_VERSION,
         )
 
         invalid.forEach { (text, expected) ->

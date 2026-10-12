@@ -10,6 +10,7 @@ data class SelectedCandidateOrigin(
     val entryKey: String,
     val text: String,
     val okuriCondition: String?,
+    val dateExpression: Boolean = false,
 ) {
     init {
         require(dictionaryId.isNotBlank()) { "候補由来の辞書IDが不正です" }

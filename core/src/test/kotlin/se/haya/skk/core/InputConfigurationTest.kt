@@ -49,9 +49,9 @@ class InputConfigurationTest {
 
     @Test fun `かなの長音と鉤括弧を固定しその他の記号は全半角を選べる`() {
         val full = engine(PunctuationConfig(fullwidthSymbols = true))
-        assertEquals("ー「」！？＠", full.dispatch(BasicSkkAction.Text("-[]!?@")).commit)
+        assertEquals("ー「」！？＠", full.dispatch(BasicSkkAction.Text("-[]!?@", interpretCommands = false)).commit)
         val half = engine(PunctuationConfig(fullwidthSymbols = false))
-        assertEquals("ー「」!?@", half.dispatch(BasicSkkAction.Text("-[]!?@")).commit)
+        assertEquals("ー「」!?@", half.dispatch(BasicSkkAction.Text("-[]!?@", interpretCommands = false)).commit)
         val registering = BasicSkkEngine(empty, RegistrationPolicy(enabled = true),
             punctuationConfig = PunctuationConfig(fullwidthSymbols = false))
         registering.dispatch(BasicSkkAction.Text("Michi "))

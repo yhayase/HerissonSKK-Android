@@ -169,7 +169,7 @@ class CompleteDictionaryRepositoryTest {
         val sourceName = name()
         SQLiteDictionaryRepository(context, sourceName).use { it.loadSnapshot() }
         SQLiteDatabase.openDatabase(context.getDatabasePath(sourceName).path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-            db.execSQL("INSERT INTO candidate_suppressions VALUES('gone','かな','抑止','')")
+            db.execSQL("INSERT INTO candidate_suppressions(source_id,entry_key,candidate_text,okuri_condition) VALUES('gone','かな','抑止','')")
             db.execSQL("INSERT INTO dictionary_source_versions VALUES('gone',9)")
         }
         val bytes = SQLiteDictionaryRepository(context, sourceName).use { export(it) }
@@ -268,11 +268,16 @@ class CompleteDictionaryRepositoryTest {
             repository.removeSystem("removed", 1)
         }
         SQLiteDatabase.openDatabase(context.getDatabasePath(databaseName).path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
-            db.execSQL("INSERT INTO candidate_suppressions VALUES('disabled','かk','送り候補','く')")
+            db.execSQL("INSERT INTO candidate_suppressions(source_id,entry_key,candidate_text,okuri_condition) VALUES('disabled','かk','送り候補','く')")
             db.execSQL("UPDATE dictionary_source_versions SET last_generation=7 WHERE source_id='removed'")
             db.execSQL("DROP TABLE dictionary_metadata")
+            db.execSQL("DROP TABLE candidate_usage")
             rebuildLegacySources(db)
             rebuildLegacyCandidates(db)
+            db.execSQL("ALTER TABLE candidate_suppressions RENAME TO modern_suppressions")
+            db.execSQL("CREATE TABLE candidate_suppressions(source_id TEXT NOT NULL,entry_key TEXT NOT NULL,candidate_text TEXT NOT NULL,okuri_condition TEXT NOT NULL,PRIMARY KEY(source_id,entry_key,candidate_text,okuri_condition))")
+            db.execSQL("INSERT INTO candidate_suppressions SELECT source_id,entry_key,candidate_text,okuri_condition FROM modern_suppressions")
+            db.execSQL("DROP TABLE modern_suppressions")
             db.version = 2
         }
     }
@@ -282,6 +287,7 @@ class CompleteDictionaryRepositoryTest {
         SQLiteDictionaryRepository(context, databaseName).use { it.replacePersonal(document("かな /保持/")) }
         SQLiteDatabase.openDatabase(context.getDatabasePath(databaseName).path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
             db.execSQL("DROP TABLE dictionary_metadata")
+            db.execSQL("DROP TABLE candidate_usage")
             db.execSQL("DROP TABLE candidate_suppressions")
             db.execSQL("DROP TABLE dictionary_source_versions")
             rebuildLegacySources(db)

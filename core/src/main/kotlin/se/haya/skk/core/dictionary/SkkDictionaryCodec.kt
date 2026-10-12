@@ -1,5 +1,6 @@
 package se.haya.skk.core.dictionary
 
+import se.haya.skk.core.date.DateExpression
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
@@ -63,7 +64,7 @@ object SkkDictionaryCodec {
                 sections.putIfAbsent(entry.key, currentSection ?: entry.section)
                 val candidates = merged.getOrPut(entry.key) { LinkedHashMap() }
                 for (candidate in entry.candidates) {
-                    val identity = CandidateIdentity(candidate.text, candidate.okuriCondition)
+                    val identity = CandidateIdentity(candidate.text, candidate.okuriCondition, candidate.dateExpression)
                     val existing = candidates[identity]
                     if (existing == null) {
                         candidates[identity] = candidate
@@ -122,9 +123,11 @@ object SkkDictionaryCodec {
         annotation: String?,
         okuriCondition: String?,
         annotationIsPersonal: Boolean = false,
+        dateExpression: Boolean = false,
     ) {
         validateKey(entryKey, 1)
         validateValue(text, 1, allowLineBreaks = true)
+        if (dateExpression && (text.any { it == '\n' || it == '\r' } || DateExpression.parse(text) == null)) fail(1, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
         annotation?.let { validateValue(it, 1, allowLineBreaks = true) }
         if (annotationIsPersonal && annotation.isNullOrEmpty()) fail(1, SkkDictionaryError.INVALID_VALUE)
         okuriCondition?.let { validateOkuriCondition(it, 1) }
@@ -247,28 +250,32 @@ object SkkDictionaryCodec {
             }
             return decodeAtom(atom, lineNumber, annotation).also { if (!annotation || it.isNotEmpty()) validateValue(it, lineNumber, allowLineBreaks = true) }
         }
-        val value = atomValue(textAtom, false)
+        validateValue(textAtom, lineNumber)
+        val dateExpression = DateExpression.parse(textAtom) != null
+        val value = if (dateExpression) textAtom else atomValue(textAtom, false)
         val annotation = annotationAtom?.takeIf { it.isNotEmpty() }?.let { atomValue(it, true) }
         reason?.let {
             warnings.add(lineNumber, it, 1)
             return null
         }
         val nonemptyAnnotation = annotation?.takeIf { it.isNotEmpty() }
-        return SkkDictionaryCandidate(requireNotNull(value), nonemptyAnnotation, okuriCondition, annotationIsPersonal && nonemptyAnnotation != null)
+        return SkkDictionaryCandidate(requireNotNull(value), nonemptyAnnotation, okuriCondition, annotationIsPersonal && nonemptyAnnotation != null, dateExpression)
     }
 
     // DDSKK の既知の形式だけを識別します。式は評価せず、未知の式や壊れた concat は従来どおり拒否します。
     private fun hasKnownOperatorPrefix(atom: String): Boolean =
-        listOf("skk-current-date", "skk-ignore-dic-word").any { operator ->
+        listOf("skk-current-date", "skk-relative-date", "skk-ignore-dic-word").any { operator ->
             val prefix = "($operator"
             atom.startsWith(prefix) && (atom.length == prefix.length || atom.getOrNull(prefix.length) in listOf(' ', ')'))
         }
 
     private fun knownExpression(atom: String): SkkDictionaryWarningReason? {
         if (!hasKnownOperatorPrefix(atom)) return null
-        val date = atom.startsWith("(skk-current-date")
-        val reader = KnownExpressionReader(atom, if (date) "skk-current-date" else "skk-ignore-dic-word")
-        if (!reader.readArguments(date)) return null
+        val relative = atom.startsWith("(skk-relative-date")
+        val date = relative || atom.startsWith("(skk-current-date")
+        val operator = if (relative) "skk-relative-date" else if (date) "skk-current-date" else "skk-ignore-dic-word"
+        val reader = KnownExpressionReader(atom, operator)
+        if (!reader.readArguments(date, relative)) return null
         return if (date) SkkDictionaryWarningReason.UNSUPPORTED_DATE_EXPRESSION
         else SkkDictionaryWarningReason.UNSUPPORTED_SUPPRESSION_EXPRESSION
     }
@@ -278,18 +285,26 @@ object SkkDictionaryCodec {
         private var index = operator.length + 1
         private var nodes = 0
 
-        fun readArguments(date: Boolean): Boolean {
+        fun readArguments(date: Boolean, relative: Boolean): Boolean {
             var arguments = 0
+            var relativeKey: String? = null
             while (index < text.length && text[index] != ')') {
                 if (text[index] != ' ') return false
                 skipSpaces()
                 if (text.getOrNull(index) == ')') break
                 if (date) {
-                    if (arguments >= 3) return false
+                    if (!relative && arguments >= 3) return false
                     val valid = when (arguments) {
                         0 -> readFunctionArgument()
                         1 -> if (text.getOrNull(index) == '"') readString() >= 0 else readSymbol() == "nil"
-                        else -> readSymbol() in listOf("nil", "t")
+                        2 -> readSymbol() in listOf("nil", "t")
+                        else -> {
+                            if (++nodes > 4096) return false
+                            if (arguments % 2 == 1) {
+                                relativeKey = readSymbol()
+                                relativeKey in listOf(":yy", ":mm", ":dd")
+                            } else readRelativeOffset(relativeKey)
+                        }
                     }
                     if (!valid) return false
                 } else {
@@ -297,7 +312,14 @@ object SkkDictionaryCodec {
                 }
                 arguments++
             }
-            return index == text.lastIndex && text.getOrNull(index) == ')' && (date || arguments > 0)
+            return index == text.lastIndex && text.getOrNull(index) == ')' && (if (relative) arguments >= 3 && arguments % 2 == 1 else date || arguments > 0)
+        }
+
+        private fun readRelativeOffset(key: String?): Boolean {
+            val value = readSymbol() ?: return false
+            if (!value.matches(Regex("[+-]?[0-9]+"))) return false
+            val offset = value.toIntOrNull() ?: return false
+            return key != ":dd" || offset in -DateExpression.MAX_DAY_OFFSET..DateExpression.MAX_DAY_OFFSET
         }
 
         private fun readFunctionArgument(): Boolean = when {
@@ -493,6 +515,7 @@ object SkkDictionaryCodec {
         if (entry.candidates.isEmpty()) fail(lineNumber, SkkDictionaryError.INVALID_CANDIDATE_LIST)
         entry.candidates.forEach { candidate ->
             validateValue(candidate.text, lineNumber, allowLineBreaks = true)
+            if (candidate.dateExpression && (candidate.text.any { it == '\n' || it == '\r' } || DateExpression.parse(candidate.text) == null)) fail(lineNumber, SkkDictionaryError.UNSUPPORTED_EXPRESSION)
             candidate.annotation?.takeIf { it.isNotEmpty() }?.let { validateValue(it, lineNumber, allowLineBreaks = true) }
             if (candidate.annotationIsPersonal && candidate.annotation.isNullOrEmpty()) fail(lineNumber, SkkDictionaryError.INVALID_VALUE)
             candidate.okuriCondition?.let { validateOkuriCondition(it, lineNumber) }
@@ -586,7 +609,7 @@ object SkkDictionaryCodec {
     }
 
     private fun formatCandidate(candidate: SkkDictionaryCandidate): String {
-        val text = encodeAtom(candidate.text, annotation = false)
+        val text = if (candidate.dateExpression) candidate.text else encodeAtom(candidate.text, annotation = false)
         val annotation = candidate.annotation ?: return text
         if (annotation.isEmpty()) return text
         return "$text;${if (candidate.annotationIsPersonal) "*" else ""}${encodeAtom(annotation, annotation = true)}"
@@ -699,5 +722,5 @@ object SkkDictionaryCodec {
     }
 
     private data class Decoded(val text: String, val encoding: SkkDictionaryEncoding)
-    private data class CandidateIdentity(val text: String, val okuriCondition: String?)
+    private data class CandidateIdentity(val text: String, val okuriCondition: String?, val dateExpression: Boolean)
 }

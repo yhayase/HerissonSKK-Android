@@ -27,6 +27,7 @@ data class PredictionHistoryTarget(
     val templateText: String,
     val okuriCondition: String?,
     val committedText: String,
+    val dateExpression: Boolean = false,
 )
 
 /** UI には readingKey を表示せず、確定後の履歴更新にだけ使用します。 */

@@ -13,6 +13,7 @@ data class StoredCandidateOriginRef(
     val entryKey: String,
     val templateText: String,
     val okuriCondition: String?,
+    val dateExpression: Boolean = false,
 ) {
     init {
         require(sourceId.isNotBlank()) { "候補由来の辞書IDが不正です" }
@@ -40,6 +41,7 @@ data class CandidateSuppressionKey(
     val entryKey: String,
     val templateText: String,
     val okuriCondition: String?,
+    val dateExpression: Boolean = false,
 ) {
     init {
         require(sourceId.isNotBlank() && sourceId != SQLiteDictionaryRepository.PERSONAL_SOURCE_ID) {

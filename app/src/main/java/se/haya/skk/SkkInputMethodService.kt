@@ -254,7 +254,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             candidateLearner = { request, complete ->
                 dictionaries.savePersonalCandidate(request.query.readingKey,
                     SkkDictionaryCandidate(request.candidate.text, request.candidate.annotation,
-                        request.query.okuri ?: request.candidate.okuriCondition, request.candidate.annotationIsPersonal), learningAllowed,
+                        request.query.okuri ?: request.candidate.okuriCondition, request.candidate.annotationIsPersonal, request.candidate.dateExpression), learningAllowed,
                     writeContext.value, request.historyTarget, section = request.candidate.entrySection) { result ->
                     complete(when (result) {
                         PersonalWriteResult.Applied -> RegistrationSaveOutcome.Applied
