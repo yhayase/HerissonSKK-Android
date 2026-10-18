@@ -206,6 +206,15 @@ class EditorEditPort(
     }
 
     private fun execute(operation: Operation, command: EditCommand) {
+        if (command == EditCommand.BACKSPACE || command == EditCommand.DELETE) {
+            val nativeOwned = nativeNavigation.get()
+            if (!checkDeletion(operation, nativeOwned)) return
+            val selection = readDeletionSelection()
+            if (!checkDeletion(operation, nativeOwned)) return
+            if (selection != null && selection.start != selection.end) {
+                return deleteSelection(operation, selection, nativeOwned)
+            }
+        }
         if (nativeNavigation.get() && command == EditCommand.NEWLINE) {
             return issueUnverifiedCommand(operation, command)
         }
@@ -317,6 +326,76 @@ class EditorEditPort(
         verticalGoal = plan.preferredColumn
         verticalState = state().copy(selectionStart = target, selectionEnd = target)
         finish(operation, EditorEditResult(EditorEditResult.Outcome.APPLIED,
+            expectedSelectionStart = target, expectedSelectionEnd = target))
+    }
+
+    private data class DeletionSelection(val start: Int, val end: Int, val absolute: Boolean = true)
+
+    /** 本文の取得窓や文字境界を使わず、入力先が返す現在の選択座標だけを読みます。 */
+    private fun readDeletionSelection(): DeletionSelection? {
+        val request = ExtractedTextRequest().apply {
+            hintMaxChars = 1
+            hintMaxLines = 1
+        }
+        val value = connection.getExtractedText(request, 0)
+        if (value == null) {
+            if (Build.VERSION.SDK_INT < 31) return null
+            // この API は選択本文を含みますが、本文のコピーや長さによる拒否はしません。
+            val surrounding = connection.getSurroundingText(0, 0, 0) ?: return null
+            if (surrounding.selectionStart < 0 || surrounding.selectionEnd < 0 ||
+                surrounding.offset < -1) return null
+            val offset = surrounding.offset.coerceAtLeast(0)
+            val start = offset.toLong() + surrounding.selectionStart
+            val end = offset.toLong() + surrounding.selectionEnd
+            if (start > Int.MAX_VALUE || end > Int.MAX_VALUE) return null
+            return DeletionSelection(start.toInt(), end.toInt(), surrounding.offset >= 0)
+        }
+        if (value.partialStartOffset != -1 || value.startOffset < 0 ||
+            value.selectionStart < 0 || value.selectionEnd < 0) return null
+        val start = value.startOffset.toLong() + value.selectionStart
+        val end = value.startOffset.toLong() + value.selectionEnd
+        if (start > Int.MAX_VALUE || end > Int.MAX_VALUE) return null
+        return DeletionSelection(start.toInt(), end.toInt())
+    }
+
+    // 標準編集の途中では、同じ版の遅延選択通知を従来の標準キーと同じ条件で受け入れます。
+    private fun checkDeletion(operation: Operation, nativeOwned: Boolean): Boolean =
+        if (nativeOwned) checkNative(operation) else check(operation)
+
+    private fun deleteSelection(operation: Operation, first: DeletionSelection, nativeOwned: Boolean) {
+        if (!checkDeletion(operation, nativeOwned)) return
+        val second = readDeletionSelection()
+            ?: return unsupported(operation, EditorEditResult.Reason.UNAVAILABLE)
+        if (first != second) return finish(operation, result(EditorEditResult.Outcome.STALE))
+        if (!checkDeletion(operation, nativeOwned)) return
+        val target = if (first.absolute) minOf(first.start, first.end) else null
+        if (target != null && !beforeRequest(operation.initial, target)) {
+            return finish(operation, result(EditorEditResult.Outcome.STALE))
+        }
+        if (!checkDeletion(operation, nativeOwned)) return
+        // 選択は入力先自身に保持させ、取得本文の長さや書記素境界で作り直しません。
+        if (target == null) {
+            // 絶対座標がない接続では、選択通知を既存のネイティブ編集の通知として受け取ります。
+            nativeNavigation.set(true)
+            nativeSelectionPending.set(true)
+        }
+        if (!connection.commitText("", 1)) return fail(operation, EditorEditResult.Reason.API_REJECTED)
+        if (target != null) { if (!checkAfterRequest(operation, target)) return }
+        else if (!checkNative(operation)) return
+        val after = readDeletionSelection()
+        if (target != null) { if (!checkAfterRequest(operation, target)) return }
+        else if (!checkNative(operation)) return
+        if (after == null || after.start != after.end ||
+            target != null && (!after.absolute || after.start != target)) {
+            return fail(operation, EditorEditResult.Reason.POSTCHECK_MISMATCH)
+        }
+        verticalGoal = null
+        if (target != null) {
+            nativeNavigation.set(false)
+            nativeSelectionPending.set(false)
+        }
+        finish(operation, EditorEditResult(if (target != null) EditorEditResult.Outcome.APPLIED else
+            EditorEditResult.Outcome.NATIVE_ISSUED,
             expectedSelectionStart = target, expectedSelectionEnd = target))
     }
 

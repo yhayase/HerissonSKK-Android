@@ -643,6 +643,16 @@ class EditorSession(
         if (!active || failed) return false
         if (protectedInput) return handleProtectedTouch(action)
         if (action is BasicSkkAction.Edit && !acceptsEmacsEdit()) return false
+        val externalDeletion = when (action) {
+            BasicSkkAction.Backspace -> EditCommand.BACKSPACE
+            BasicSkkAction.Delete -> EditCommand.DELETE
+            else -> null
+        }
+        if (externalDeletion != null && !hasComposition && !ownsInternalEditing()) {
+            // 外部削除の連打は内部入力として版を進めず、遅延する選択通知の所有権を保ちます。
+            submitExternal(externalDeletion)
+            return true
+        }
         val forwards = forwardConfirmedEnter && action == BasicSkkAction.Enter && shouldForwardConfirmedEnter()
         if (handleReady(action)) {
             if (forwards && active && !failed) dispatchEditorEnter()
@@ -666,8 +676,9 @@ class EditorSession(
     private fun handleProtectedTouch(action: BasicSkkAction): Boolean = when (action) {
         is BasicSkkAction.Text -> connection.commitText(action.text, 1)
         is BasicSkkAction.TouchText -> connection.commitText(action.text, 1)
-        BasicSkkAction.Backspace -> connection.deleteSurroundingTextInCodePoints(1, 0)
-        BasicSkkAction.Delete -> connection.deleteSurroundingTextInCodePoints(0, 1)
+        // 保護欄では本文や遅延する選択通知を照合せず、入力先の現在の選択へ標準削除を送ります。
+        BasicSkkAction.Backspace -> sendTouchNavigation(KeyEvent.KEYCODE_DEL)
+        BasicSkkAction.Delete -> sendTouchNavigation(KeyEvent.KEYCODE_FORWARD_DEL)
         BasicSkkAction.Left -> sendTouchNavigation(KeyEvent.KEYCODE_DPAD_LEFT)
         BasicSkkAction.Right -> sendTouchNavigation(KeyEvent.KEYCODE_DPAD_RIGHT)
         BasicSkkAction.Enter -> dispatchEditorEnter()

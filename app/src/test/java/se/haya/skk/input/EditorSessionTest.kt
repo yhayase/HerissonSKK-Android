@@ -2,6 +2,8 @@ package se.haya.skk.input
 
 import android.content.Context
 import android.text.Selection
+import android.text.method.TextKeyListener
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
@@ -36,17 +38,60 @@ class EditorSessionTest {
         var rejectCommit = false
         var rejectDelete = false
         var deletions = 0
+        var codePointDeletions = 0
         var afterMutation: (() -> Unit)? = null
         var composingCalls = 0
+        var textQueries = 0
+        var rejectNativeAfterMutation = false
+        val deletionKeys = mutableListOf<Int>()
         val editorActions = mutableListOf<Int>()
         init { Selection.setSelection(editable, 0) }
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
             commits++
             return (!rejectCommit && super.commitText(text, newCursorPosition)).also { afterMutation?.invoke() }
         }
+        override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
+            textQueries++
+            return super.getExtractedText(request, flags)
+        }
+        override fun getTextBeforeCursor(length: Int, flags: Int): CharSequence? {
+            textQueries++
+            return super.getTextBeforeCursor(length, flags)
+        }
+        override fun getTextAfterCursor(length: Int, flags: Int): CharSequence? {
+            textQueries++
+            return super.getTextAfterCursor(length, flags)
+        }
+        override fun getSelectedText(flags: Int): CharSequence? {
+            textQueries++
+            return super.getSelectedText(flags)
+        }
+        override fun sendKeyEvent(event: KeyEvent): Boolean {
+            if (event.keyCode != KeyEvent.KEYCODE_DEL && event.keyCode != KeyEvent.KEYCODE_FORWARD_DEL)
+                return super.sendKeyEvent(event)
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                deletionKeys += event.keyCode
+                val text = requireNotNull(editable)
+                val start = Selection.getSelectionStart(text)
+                val end = Selection.getSelectionEnd(text)
+                if (event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL && start == end &&
+                    start in 0 until text.length && text[start] in '\u0000'..'\u007f') {
+                    // SDK 26 の描画スタブに依存せず、この偽入力先の ASCII 前方削除を適用します。
+                    text.delete(start, start + 1)
+                } else {
+                    TextKeyListener.getInstance().onKeyDown(View(RuntimeEnvironment.getApplication()),
+                        text, event.keyCode, event)
+                }
+            }
+            return !rejectNativeAfterMutation
+        }
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
             deletions++
             return (!rejectDelete && super.deleteSurroundingText(beforeLength, afterLength)).also { afterMutation?.invoke() }
+        }
+        override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
+            codePointDeletions++
+            return super.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
         }
         override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
             composingCalls++
@@ -813,6 +858,64 @@ class EditorSessionTest {
         assertEquals("secre", captured.editable.toString())
         assertEquals(listOf(EditorInfo.IME_ACTION_SEND), captured.editorActions)
         assertFalse(session.hasComposition)
+    }
+
+    @Test fun `保護欄の画面削除は方向や選択の向きによらず現在の選択だけを標準削除する`() {
+        val text = "A\uD83D\uDE00a\u0301Z"
+        for (action in listOf(BasicSkkAction.Backspace, BasicSkkAction.Delete)) {
+            for ((start, end) in listOf(0 to text.length, text.length to 0, 2 to 4, 4 to 2)) {
+                val connection = Connection()
+                requireNotNull(connection.editable).append(text)
+                Selection.setSelection(connection.editable, start, end)
+                val current = EditorSession(1, connection, true, false, start, end)
+
+                assertTrue(current.handleTouch(action))
+
+                assertEquals(text.removeRange(minOf(start, end), maxOf(start, end)),
+                    connection.editable.toString())
+                assertEquals(listOf(if (action == BasicSkkAction.Backspace) KeyEvent.KEYCODE_DEL
+                    else KeyEvent.KEYCODE_FORWARD_DEL), connection.deletionKeys)
+                assertEquals(0, connection.textQueries)
+                assertEquals(0, connection.commits)
+                assertEquals(0, connection.deletions)
+                assertEquals(0, connection.codePointDeletions)
+                assertFalse(current.hasComposition)
+            }
+        }
+    }
+
+    @Test fun `保護欄の未選択削除と遅延した選択通知後の連打は入力先の現在位置に適用する`() {
+        for (action in listOf(BasicSkkAction.Backspace, BasicSkkAction.Delete)) {
+            val connection = Connection()
+            requireNotNull(connection.editable).append("abcd")
+            val initial = if (action == BasicSkkAction.Backspace) 4 else 0
+            Selection.setSelection(connection.editable, initial)
+            val current = EditorSession(1, connection, true, false, initial, initial)
+            assertTrue(current.handleTouch(action))
+            current.onSelection(initial, initial, -1, -1)
+            assertTrue(current.handleTouch(action))
+            assertEquals(if (action == BasicSkkAction.Backspace) "ab" else "cd",
+                connection.editable.toString())
+            assertEquals(0, connection.textQueries)
+            assertEquals(2, connection.deletionKeys.size)
+        }
+    }
+
+    @Test fun `保護欄の標準削除は変更後に失敗しても別方式で再送せず終了後には送らない`() {
+        val captured = Connection().apply { rejectNativeAfterMutation = true }
+        requireNotNull(captured.editable).append("secret")
+        Selection.setSelection(captured.editable, 0, 6)
+        val current = EditorSession(1, captured, true, false, 0, 6)
+        assertFalse(current.handleTouchBackspace())
+        assertEquals("", captured.editable.toString())
+        assertEquals(listOf(KeyEvent.KEYCODE_DEL), captured.deletionKeys)
+        assertEquals(0, captured.commits)
+        assertEquals(0, captured.deletions)
+        assertEquals(0, captured.codePointDeletions)
+        current.close()
+        assertFalse(current.handleTouch(BasicSkkAction.Delete))
+        assertEquals(1, captured.deletionKeys.size)
+        assertEquals(0, captured.textQueries)
     }
 
     /** N03・N04: 確定拒否後は同じキーを再配送せず、接続が回復しても旧セッションを再利用しません。 */

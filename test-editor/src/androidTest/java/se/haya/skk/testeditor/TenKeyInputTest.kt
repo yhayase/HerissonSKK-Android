@@ -53,6 +53,51 @@ class TenKeyInputTest {
         composition(editor, false)
     }
 
+    @Test fun selectedTextDeletesExactlyAndRepeatContinuesFromCollapsedCursor() = withEditor { editor, scenario ->
+        val url = "https://example.invalid/path?q=test"
+        for (reversed in listOf(false, true)) {
+            scenario.onActivity {
+                editor.setText(url)
+                editor.setSelection(if (reversed) url.length else 0, if (reversed) 0 else url.length)
+            }
+            device.waitForIdle()
+            tap("⌫")
+            awaitText(editor, "")
+        }
+        scenario.onActivity {
+            editor.setText("abcd$url")
+            editor.setSelection(4, editor.length())
+        }
+        device.waitForIdle()
+        val bounds = Rect().also(key("⌫")::getBoundsInScreen)
+        val down = SystemClock.uptimeMillis()
+        fun inject(action: Int) {
+            val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
+                bounds.exactCenterX(), bounds.exactCenterY(), 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+            try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+        }
+        inject(MotionEvent.ACTION_DOWN)
+        try {
+            awaitText(editor, "abcd")
+            SystemClock.sleep(800)
+        } finally { inject(MotionEvent.ACTION_UP) }
+        awaitText(editor, "")
+        composition(editor, false)
+    }
+
+    @Test fun passwordSelectionDeletesThroughTheStandardEditorKey() = withEditor { editor, scenario ->
+        scenario.onActivity {
+            editor.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            editor.setText("secret")
+            editor.setSelection(editor.length(), 0)
+        }
+        device.waitForIdle()
+        key("ABC")
+        tap("⌫")
+        awaitText(editor, "")
+        composition(editor, false)
+    }
+
     @Test fun directionalExitsApplyReplaceAndCancelWithoutReturningToCenter() = withEditor { editor, _ ->
         gesture("か", listOf(-1 to 0, 0 to -1))
         awaitText(editor, "ぐ")

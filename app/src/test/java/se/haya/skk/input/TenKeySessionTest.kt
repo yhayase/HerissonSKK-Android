@@ -7,6 +7,7 @@ import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.SurroundingText
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,12 +29,13 @@ class TenKeySessionTest {
         fun run() { while (tasks.isNotEmpty()) tasks.removeFirst().run() }
     }
 
-    private class Connection : BaseInputConnection(View(RuntimeEnvironment.getApplication()), true) {
+    private open class Connection : BaseInputConnection(View(RuntimeEnvironment.getApplication()), true) {
         var provideSnapshot = true
         var rejectCommit = false
         var commits = 0
         var afterCommit: (() -> Unit)? = null
         var liveSnapshot = false
+        val nativeDeletionKeys = mutableListOf<Int>()
         var onNativeSelection: ((Int, Int) -> Unit)? = null
         init { Selection.setSelection(editable, 0) }
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? =
@@ -54,14 +56,28 @@ class TenKeySessionTest {
             if (event.keyCode != KeyEvent.KEYCODE_DEL && event.keyCode != KeyEvent.KEYCODE_FORWARD_DEL)
                 return super.sendKeyEvent(event)
             if (event.action == KeyEvent.ACTION_DOWN) {
+                nativeDeletionKeys += event.keyCode
                 // 裸の View にはキー配送先がないため、実際の入力欄と同じ標準削除を適用します。
                 val text = requireNotNull(editable)
-                if (!TextKeyListener.getInstance().onKeyDown(
+                val start = Selection.getSelectionStart(text)
+                val end = Selection.getSelectionEnd(text)
+                if (event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL && start == end &&
+                    start in 0 until text.length && text[start] in '\u0000'..'\u007f') {
+                    // SDK 26 の描画スタブに依存せず、この偽入力先の ASCII 前方削除を適用します。
+                    text.delete(start, start + 1)
+                } else if (!TextKeyListener.getInstance().onKeyDown(
                         View(RuntimeEnvironment.getApplication()), text, event.keyCode, event)) return false
                 onNativeSelection?.invoke(Selection.getSelectionStart(text), Selection.getSelectionEnd(text))
             }
             return true
         }
+    }
+
+    private class RelativeSelectionConnection : Connection() {
+        override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? = null
+        override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText =
+            SurroundingText(requireNotNull(editable).toString(), Selection.getSelectionStart(editable),
+                Selection.getSelectionEnd(editable), -1)
     }
 
     private fun session(
@@ -84,6 +100,95 @@ class TenKeySessionTest {
         },
     ).also { current ->
         connection.onNativeSelection = { start, end -> current.onSelection(start, end, -1, -1) }
+    }
+
+    @Test fun `通常欄の長いURL全選択を方向によらず一度で消し長押し後も入力を続けられる`() {
+        val url = "https://example.test/" + "a".repeat(10_000)
+        for (action in listOf(BasicSkkAction.Backspace, BasicSkkAction.Delete)) {
+            for (reversed in listOf(false, true)) {
+                val connection = Connection()
+                requireNotNull(connection.editable).append(url)
+                val workers = Queue()
+                val callbacks = Queue()
+                val current = session(connection, workers = workers, callbacks = callbacks)
+                val start = if (reversed) url.length else 0
+                val end = if (reversed) 0 else url.length
+                Selection.setSelection(connection.editable, start, end)
+                current.onSelection(start, end, -1, -1)
+
+                repeat(4) { assertTrue(current.handleTouch(action)) }
+                repeat(6) { workers.run(); callbacks.run() }
+
+                assertEquals("", connection.editable.toString())
+                assertEquals(1, connection.commits)
+                assertEquals(0 to 0, current.expectedCursorSelection)
+                assertFalse(current.failed)
+                assertTrue(current.handleTouch(BasicSkkAction.TouchText("あ")))
+                assertEquals("あ", connection.editable.toString())
+            }
+        }
+    }
+
+    @Test fun `通常欄の選択削除後の長押しは残った本文の現在位置から順番に削除する`() {
+        for (action in listOf(BasicSkkAction.Backspace, BasicSkkAction.Delete)) {
+            val connection = Connection()
+            requireNotNull(connection.editable).append("ab選択cd")
+            val workers = Queue()
+            val callbacks = Queue()
+            val current = session(connection, workers = workers, callbacks = callbacks)
+            Selection.setSelection(connection.editable, 2, 4)
+            current.onSelection(2, 4, -1, -1)
+
+            repeat(3) { assertTrue(current.handleTouch(action)) }
+            repeat(6) { workers.run(); callbacks.run() }
+
+            assertEquals(if (action == BasicSkkAction.Backspace) "cd" else "ab",
+                connection.editable.toString())
+            assertEquals(1, connection.commits)
+            assertFalse(current.failed)
+        }
+    }
+
+    @Test
+    @Config(sdk = [35])
+    fun `絶対位置を返さない入力先でも選択削除の通知は長押しの後続削除を取り消さない`() {
+        for (action in listOf(BasicSkkAction.Backspace, BasicSkkAction.Delete)) {
+            for (delayed in listOf(false, true)) {
+                val context = "操作=$action、通知遅延=$delayed"
+                val connection = RelativeSelectionConnection()
+                requireNotNull(connection.editable).append("ab選択cd")
+                val workers = Queue()
+                val callbacks = Queue()
+                val current = session(connection, workers = workers, callbacks = callbacks)
+                Selection.setSelection(connection.editable, 2, 4)
+                current.onSelection(2, 4, -1, -1)
+                val notifications = mutableListOf<Pair<Int, Int>>()
+                connection.afterCommit = {
+                    val observed = Selection.getSelectionStart(connection.editable) to
+                        Selection.getSelectionEnd(connection.editable)
+                    if (delayed) notifications += observed
+                    else current.onSelection(observed.first, observed.second, -1, -1)
+                }
+
+                repeat(3) { assertTrue(current.handleTouch(action)) }
+                workers.run()
+                callbacks.run()
+                assertEquals(context, "abcd", connection.editable.toString())
+                assertEquals(context, 2, Selection.getSelectionStart(connection.editable))
+                assertEquals(context, 2, Selection.getSelectionEnd(connection.editable))
+                // 最初の選択削除が完了してから通知されても、待機中の長押しを保ちます。
+                notifications.forEach { current.onSelection(it.first, it.second, -1, -1) }
+                repeat(6) { workers.run(); callbacks.run() }
+
+                val key = if (action == BasicSkkAction.Backspace) KeyEvent.KEYCODE_DEL
+                    else KeyEvent.KEYCODE_FORWARD_DEL
+                assertEquals(context, listOf(key, key), connection.nativeDeletionKeys)
+                assertEquals(context, if (action == BasicSkkAction.Backspace) "cd" else "ab",
+                    connection.editable.toString())
+                assertEquals(context, 1, connection.commits)
+                assertFalse(context, current.failed)
+            }
+        }
     }
 
     @Test fun `自動開始した読みは変換確定後の次の文字でも再開する`() {

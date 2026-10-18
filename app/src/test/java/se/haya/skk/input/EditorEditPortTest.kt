@@ -1,6 +1,7 @@
 package se.haya.skk.input
 
 import android.os.Build
+import android.text.Selection
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
@@ -59,6 +60,8 @@ class EditorEditPortTest {
         var throws = false
         var onQuery: ((Int) -> Unit)? = null
         var onEdit: (() -> Unit)? = null
+        val extractedLimits = ArrayList<Int>()
+        var metadataOnly = false
         private fun query() { queries++; onQuery?.invoke(queries) }
         override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText? {
             query()
@@ -98,8 +101,9 @@ class EditorEditPortTest {
         }
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
             query()
+            extractedLimits += request?.hintMaxChars ?: 0
             return if (unavailable || extractedUnavailable) null else ExtractedText().also {
-                it.text = text
+                it.text = if (metadataOnly && request?.hintMaxChars == 1) "" else text
                 it.startOffset = offset
                 it.selectionStart = start
                 it.selectionEnd = end
@@ -516,6 +520,137 @@ class EditorEditPortTest {
         }
     }
 
+    @Test fun `選択範囲の前後削除は文書端と窓端と文字境界によらず指定範囲だけを置換する`() {
+        for (command in listOf(EditCommand.BACKSPACE, EditCommand.DELETE)) {
+            for ((text, start, end) in listOf(
+                Triple("abcd", 0, 4), Triple("abcd", 4, 0),
+                Triple("abcd", 2, 4), Triple("abcd", 4, 2),
+                Triple("a\u0301b", 1, 2), Triple("🇯x🇵", 2, 3),
+                Triple("\r\n", 0, 1), Triple("x\r", 1, 2))) {
+                val h = Harness(text, end, start)
+                h.connection.windowed = true
+                assertEquals(EditorEditResult.Outcome.APPLIED, h.run(command).outcome)
+                assertEquals(text.removeRange(minOf(start, end), maxOf(start, end)), h.connection.text)
+                assertEquals(1, h.connection.commitCalls)
+                assertEquals(0, h.connection.deleteCalls)
+                assertEquals(0, h.connection.selectionCalls)
+                assertTrue(h.connection.nativeCodes.isEmpty())
+            }
+        }
+    }
+
+    @Test fun `長い選択も取得本文に依存せず現在の入力先の選択を削除する`() {
+        for (command in listOf(EditCommand.BACKSPACE, EditCommand.DELETE)) {
+            val h = Harness("A" + "x".repeat(100_000) + "Z", 100_001, 1)
+            h.connection.metadataOnly = true
+            assertEquals(EditorEditResult.Outcome.APPLIED, h.run(command).outcome)
+            assertEquals("AZ", h.connection.text)
+            assertEquals(listOf(1, 1, 1), h.connection.extractedLimits)
+            assertEquals(3, h.connection.queries)
+            assertEquals(1, h.connection.commitCalls)
+        }
+    }
+
+    @Test fun `抽出未対応の入力先も周辺取得の選択座標で範囲を一度削除する`() {
+        if (Build.VERSION.SDK_INT < 31) return
+        for (relative in listOf(false, true)) {
+            for (command in listOf(EditCommand.BACKSPACE, EditCommand.DELETE)) {
+                val h = Harness("abcd", 1, 4)
+                h.connection.extractedUnavailable = true
+                if (relative) h.connection.surroundingOffset = -1
+                assertEquals(if (relative) EditorEditResult.Outcome.NATIVE_ISSUED else
+                    EditorEditResult.Outcome.APPLIED, h.run(command).outcome)
+                assertEquals("a", h.connection.text)
+                assertEquals(1, h.connection.commitCalls)
+                assertEquals(0, h.connection.selectionCalls)
+                assertTrue(h.connection.nativeCodes.isEmpty())
+            }
+        }
+    }
+
+    @Test fun `遅れた選択通知で次の削除を空の選択置換にしない`() {
+        val h = Harness("abcd", 4, 2)
+        h.update { it.copy(selectionStart = 0, selectionEnd = 0) }
+        assertEquals(EditorEditResult.Outcome.APPLIED, h.run(EditCommand.BACKSPACE).outcome)
+        assertEquals("ab", h.connection.text)
+        assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.BACKSPACE).outcome)
+        assertEquals("a", h.connection.text)
+        assertEquals(1, h.connection.commitCalls)
+        assertEquals(1, h.connection.nativeDown)
+    }
+
+    @Test fun `標準編集中の選択照会は同じ版の遅延通知を受け入れ外部変更では止める`() {
+        for (external in listOf(false, true)) {
+            val h = Harness("abc", 2)
+            h.port.expectNativeEnter()
+            h.connection.onQuery = { if (it == 1) {
+                h.update { state -> state.copy(selectionStart = 3, selectionEnd = 3,
+                    revision = if (external) 1 else 0) }
+            } }
+            assertEquals(if (external) EditorEditResult.Outcome.STALE else
+                EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.BACKSPACE).outcome)
+            assertEquals(if (external) "abc" else "ac", h.connection.text)
+            assertEquals(if (external) 0 else 1, h.connection.nativeDown)
+            assertEquals(0, h.connection.commitCalls)
+        }
+    }
+
+    @Test fun `選択照合の途中で選択または世代が変われば変更しない`() {
+        for (changeGeneration in listOf(false, true)) {
+            val h = Harness("abcd", 4, 1)
+            h.connection.onQuery = { if (it == 2) {
+                if (changeGeneration) h.update { state -> state.copy(generation = 8) }
+                else h.connection.start = 2
+            } }
+            assertEquals(EditorEditResult.Outcome.STALE, h.run(EditCommand.DELETE).outcome)
+            assertEquals("abcd", h.connection.text)
+            assertEquals(0, h.connection.edits)
+            assertTrue(h.connection.nativeCodes.isEmpty())
+        }
+    }
+
+    @Test fun `選択削除の拒否と事後不一致では標準キーを追加しない`() {
+        for (reject in listOf(false, true)) {
+            val h = Harness("abcd", 4, 1)
+            h.connection.accept = !reject
+            h.connection.ignoreEdit = !reject
+            assertEquals(EditorEditResult.Outcome.FAILED_OR_UNKNOWN, h.run(EditCommand.DELETE).outcome)
+            assertEquals(1, h.connection.commitCalls)
+            assertEquals(0, h.connection.deleteCalls)
+            assertTrue(h.connection.nativeCodes.isEmpty())
+        }
+    }
+
+    @Test fun `実際のBaseInputConnectionも逆向き選択を一回のcommitで削除する`() {
+        val connection = object : BaseInputConnection(View(RuntimeEnvironment.getApplication()), true) {
+            var commits = 0
+            override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText =
+                ExtractedText().also {
+                    it.text = ""
+                    it.startOffset = 0
+                    it.selectionStart = Selection.getSelectionStart(editable)
+                    it.selectionEnd = Selection.getSelectionEnd(editable)
+                    it.partialStartOffset = -1
+                }
+            override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                commits++
+                return super.commitText(text, newCursorPosition)
+            }
+        }
+        val editable = requireNotNull(connection.editable)
+        editable.append("a\u0301b")
+        Selection.setSelection(editable, 3, 1)
+        val state = EditorEditState(true, 7, 3, 1, 0)
+        val immediate = Executor { it.run() }
+        val port = EditorEditPort(connection, 7, { state }, immediate, immediate, Scheduler(), { 0L })
+        var result: EditorEditResult? = null
+        port.submit(EditCommand.BACKSPACE) { result = it }
+        assertEquals(EditorEditResult.Outcome.APPLIED, result?.outcome)
+        assertEquals("a", editable.toString())
+        assertEquals(1, connection.commits)
+        assertEquals(1, Selection.getSelectionStart(editable))
+    }
+
     @Test fun `削除で前後が結合してカーソル補正が必要なら変更しない`() {
         val h = Harness("🇯x🇵rest", 3)
         assertEquals(EditorEditResult.Outcome.UNSUPPORTED, h.run(EditCommand.BACKSPACE).outcome)
@@ -832,7 +967,8 @@ class EditorEditPortTest {
             h.connection.surroundingOffset = -1
             h.connection.extractedUnavailable = true
             assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(command).outcome)
-            assertEquals(3, h.connection.queries)
+            assertEquals(if (command == EditCommand.BACKSPACE || command == EditCommand.DELETE) 5 else 3,
+                h.connection.queries)
             assertEquals(if (command == EditCommand.NEWLINE) 1 else 0, h.connection.commitCalls)
             assertEquals(if (command == EditCommand.NEWLINE) 0 else 1, h.connection.nativeDown)
         }
@@ -843,7 +979,7 @@ class EditorEditPortTest {
         val h = Harness("abc", 1)
         h.connection.surroundingOffset = -1
         h.connection.extractedUnavailable = true
-        h.connection.onQuery = { if (it == 3) h.connection.text = "xyz" }
+        h.connection.onQuery = { if (it == 5) h.connection.text = "xyz" }
         assertEquals(EditorEditResult.Outcome.STALE, h.run(EditCommand.DELETE).outcome)
         assertTrue(h.connection.nativeCodes.isEmpty())
     }
@@ -868,7 +1004,7 @@ class EditorEditPortTest {
         assertEquals(2, h.state.get().selectionEnd)
         assertEquals(EditorEditResult.Outcome.NATIVE_ISSUED, h.run(EditCommand.BACKSPACE).outcome)
         assertEquals("", h.connection.text)
-        assertEquals(queries, h.connection.queries)
+        assertEquals(queries + 1, h.connection.queries)
         assertEquals(2, h.connection.nativeDown)
     }
 
