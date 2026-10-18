@@ -79,9 +79,12 @@ internal class TenKeyController {
     }
 }
 
-/** 確定した方向領域から出るたびに修飾を切り替え、静止後の移動で境界指定を取り消します。 */
+/** 確定した方向領域から出るたびに修飾を切り替え、出力文字の変更またはキー幅相当の移動で境界指定を取り消します。 */
 internal class TenKeyGesture(private val threshold: Float, private val operation: TenKeyOperation, private val touchSlop: Float = threshold,
     private val hysteresis: Float = 0f,
+    private val keyWidth: Float = threshold,
+    private val keyHeight: Float = threshold,
+    private val output: (TenKeyController.Direction, TenKeyController.Direction?) -> String? = { direction, modifier -> "$direction/$modifier" },
 ) {
     private var x = 0f
     private var y = 0f
@@ -91,6 +94,10 @@ internal class TenKeyGesture(private val threshold: Float, private val operation
         private set
     private var lastX = 0f
     private var lastY = 0f
+    private var holdX = 0f
+    private var holdY = 0f
+    private var heldOutput: String? = null
+    private var direction = TenKeyController.Direction.CENTER
     private var confirmedRegion = TenKeyController.Direction.CENTER
     var active = false
         private set
@@ -98,18 +105,20 @@ internal class TenKeyGesture(private val threshold: Float, private val operation
         private set
     var boundary = false
         private set
-    fun start(x: Float, y: Float) { this.x = x; this.y = y; pauseX = x; pauseY = y; motionRevision = 0; active = true; modifier = null; boundary = false; lastX = x; lastY = y; confirmedRegion = TenKeyController.Direction.CENTER }
+    fun start(x: Float, y: Float) { this.x = x; this.y = y; pauseX = x; pauseY = y; motionRevision = 0; direction = TenKeyController.Direction.CENTER; active = true; modifier = null; boundary = false; lastX = x; lastY = y; confirmedRegion = TenKeyController.Direction.CENTER }
     fun hold(): Boolean {
         if (!active || boundary || operation == TenKeyOperation.FLICK) return false
+        holdX = lastX; holdY = lastY
+        heldOutput = output(direction, modifier)
         boundary = true
         return true
     }
     fun move(x: Float, y: Float): TenKeyController.Direction {
-        if (active && (x - pauseX) * (x - pauseX) + (y - pauseY) * (y - pauseY) > touchSlop * touchSlop) {
-            pauseX = x; pauseY = y; motionRevision++; boundary = false
+        if (active && !boundary && (x - pauseX) * (x - pauseX) + (y - pauseY) * (y - pauseY) > touchSlop * touchSlop) {
+            pauseX = x; pauseY = y; motionRevision++
         }
         val dx = x - this.x; val dy = y - this.y
-        val direction = if (abs(dx) < threshold && abs(dy) < threshold) TenKeyController.Direction.CENTER
+        direction = if (abs(dx) < threshold && abs(dy) < threshold) TenKeyController.Direction.CENTER
             else if (abs(dx) > abs(dy)) { if (dx < 0) TenKeyController.Direction.LEFT else TenKeyController.Direction.RIGHT }
             else { if (dy < 0) TenKeyController.Direction.UP else TenKeyController.Direction.DOWN }
         if (active && operation == TenKeyOperation.HOLD_AND_RETURN) {
@@ -124,6 +133,15 @@ internal class TenKeyGesture(private val threshold: Float, private val operation
                     }
                     confirmedRegion = region
                 }
+            }
+        }
+        if (active && boundary) {
+            val normalizedX = (x - holdX) / keyWidth.coerceAtLeast(1f)
+            val normalizedY = (y - holdY) / keyHeight.coerceAtLeast(1f)
+            if (output(direction, modifier) != heldOutput || normalizedX * normalizedX + normalizedY * normalizedY >= 1f) {
+                boundary = false
+                pauseX = x; pauseY = y
+                motionRevision++
             }
         }
         lastX = x; lastY = y

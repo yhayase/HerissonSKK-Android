@@ -135,26 +135,36 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
         }
         var gesture: TenKeyGesture? = null
         var direction = TenKeyController.Direction.CENTER
-        var hapticSent = false
+        fun vibrate(feedback: Int) {
+            if (settings.vibrateOnBoundary && (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.hasVibrator() == true) button.performHapticFeedback(feedback)
+        }
+        val secondCancelPulse = Runnable { if (capturedGeneration == generation && skkEnabled) vibrate(HapticFeedbackConstants.KEYBOARD_TAP) }
         val hold = Runnable {
             val active = gesture
             if (capturedGeneration == generation && skkEnabled && !kind && active?.hold() == true) {
-                if (!hapticSent && settings.vibrateOnBoundary && (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.hasVibrator() == true) button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                hapticSent = true
+                vibrate(HapticFeedbackConstants.LONG_PRESS)
                 showGuide(button, group, direction, active)
             }
         }
         val delayedGuide = Runnable { gesture?.takeIf { it.active }?.let { showGuide(button, group, direction, it) } }
-        fun clear() { button.removeCallbacks(hold); button.removeCallbacks(delayedGuide); gesture?.cancel(); gesture = null; button.isPressed = false; dismissGuide() }
-        cancellations += ::clear
+        fun clear(keepCancelPulse: Boolean = false) { if (!keepCancelPulse) button.removeCallbacks(secondCancelPulse); button.removeCallbacks(hold); button.removeCallbacks(delayedGuide); gesture?.cancel(); gesture = null; button.isPressed = false; dismissGuide() }
+        cancellations += { clear() }
         fun sample(event: MotionEvent, reschedule: Boolean) {
             val active = gesture ?: return
             val revision = active.motionRevision
-            for (index in 0 until event.historySize) direction = active.move(event.getHistoricalX(index), event.getHistoricalY(index))
-            direction = active.move(event.x, event.y)
+            fun move(x: Float, y: Float) {
+                val hadBoundary = active.boundary
+                direction = active.move(x, y)
+                if (hadBoundary && !active.boundary) {
+                    button.removeCallbacks(secondCancelPulse)
+                    vibrate(HapticFeedbackConstants.KEYBOARD_TAP)
+                    button.postDelayed(secondCancelPulse, 60)
+                }
+            }
+            for (index in 0 until event.historySize) move(event.getHistoricalX(index), event.getHistoricalY(index))
+            move(event.x, event.y)
             if (revision != active.motionRevision) {
                 button.removeCallbacks(hold)
-                hapticSent = false
                 if (reschedule && !kind) button.postDelayed(hold, settings.holdMillis.toLong())
             }
         }
@@ -165,8 +175,9 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                     // 修飾の領域切替には、画面描画用の予測座標ではなく実際の移動を使います。
                     if (!kind && settings.operation == TenKeyOperation.HOLD_AND_RETURN) button.requestUnbufferedDispatch(event)
                     clear()
-                    gesture = TenKeyGesture(maxOf(ViewConfiguration.get(context).scaledTouchSlop.toFloat(), minOf(button.width, button.height) * .2f), if(kind) TenKeyOperation.FLICK else settings.operation, ViewConfiguration.get(context).scaledTouchSlop.toFloat(), 2f * resources.displayMetrics.density).also { it.start(event.x, event.y) }
-                    direction = TenKeyController.Direction.CENTER; button.isPressed = true; hapticSent = false
+                    gesture = TenKeyGesture(maxOf(ViewConfiguration.get(context).scaledTouchSlop.toFloat(), minOf(button.width, button.height) * .2f), if(kind) TenKeyOperation.FLICK else settings.operation, ViewConfiguration.get(context).scaledTouchSlop.toFloat(), 2f * resources.displayMetrics.density, button.width.toFloat(), button.height.toFloat(),
+                        { selected, modifier -> group?.let { controller.output(it, selected, modifier) } }).also { it.start(event.x, event.y) }
+                    direction = TenKeyController.Direction.CENTER; button.isPressed = true
                     if (!kind) button.postDelayed(hold, settings.holdMillis.toLong())
                     button.postDelayed(delayedGuide, 200)
                 }
@@ -181,7 +192,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                         skkEnabled && readingConversionEnabled && controller.face == TenKeyController.Face.KANA && direction == TenKeyController.Direction.UP -> action(BasicSkkAction.ConvertTouchReading())
                         skkEnabled && readingConversionEnabled && controller.face == TenKeyController.Face.KANA && direction == TenKeyController.Direction.RIGHT -> action(BasicSkkAction.ConvertTouchReading(true))
                     } else group?.let { row -> emit(row, direction, it.modifier, it.boundary) }
-                    clear()
+                    clear(keepCancelPulse = true)
                 }
                 MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> clear()
             }
@@ -249,7 +260,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
         val popupWidth = cellWidth * (maxColumn - minColumn + 1)
         val popupHeight = cellHeight * (maxRow - minRow + 1)
         val popup = guide ?: PopupWindow(context).apply {
-            val content = FrameLayout(context)
+            val content = FlickGuideLayout(context)
             guideCells = TenKeyController.Direction.entries.map { candidate ->
                 FlickGuideCell(context).apply {
                     gravity = Gravity.CENTER; textSize = 18f
@@ -286,8 +297,15 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             cell.contentDescription = (if (candidate == TenKeyController.Direction.CENTER && gesture.boundary) "境界 " else "") + description
             cell.background = GradientDrawable().apply {
                 setColor(if (candidate == TenKeyController.Direction.CENTER) keyboardColors.selectedBackground else keyboardColors.panelBackground)
-                setStroke(dp(if (candidate == TenKeyController.Direction.CENTER && gesture.boundary) 3 else 1), if (gesture.boundary && candidate == TenKeyController.Direction.CENTER) keyboardColors.pressed else keyboardColors.border)
+                setStroke(dp(1), keyboardColors.border)
             }
+        }
+        (popup.contentView as FlickGuideLayout).apply {
+            outlineCells = assigned.map { (column(it) - minColumn) to (row(it) - minRow) }.toSet()
+            outlineCellWidth = cellWidth.toFloat(); outlineCellHeight = cellHeight.toFloat()
+            outlineColor = keyboardColors.text
+            boundary = gesture.boundary
+            invalidate()
         }
         val left = position[0] + (anchor.width - cellWidth) / 2 - (1 - minColumn) * cellWidth
         val top = position[1] + (anchor.height - cellHeight) / 2 - (1 - minRow) * cellHeight
@@ -396,5 +414,52 @@ internal class FlickGuideCell(context: Context) : TextView(context) {
             markPath.lineTo(left + arrowSize, centerY - arrowSize * .35f)
             canvas.drawPath(markPath, hintPaint)
         }
+    }
+}
+
+/** 隣り合うセルの共有辺を除き、十字形の外周だけを強調します。 */
+internal class FlickGuideLayout(context: Context) : FrameLayout(context) {
+    internal var outlineCells = emptySet<Pair<Int, Int>>()
+    internal var outlineCellWidth = 0f
+    internal var outlineCellHeight = 0f
+    internal var outlineColor = Color.BLACK
+    internal var boundary = false
+    private val outlinePath = Path()
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND }
+    internal fun outlineEdges(): List<List<Float>> = buildList {
+        val w = outlineCellWidth; val h = outlineCellHeight
+        outlineCells.forEach { (x, y) ->
+            if ((x to (y - 1)) !in outlineCells) add(listOf(x * w, y * h, (x + 1) * w, y * h))
+            if (((x + 1) to y) !in outlineCells) add(listOf((x + 1) * w, y * h, (x + 1) * w, (y + 1) * h))
+            if ((x to (y + 1)) !in outlineCells) add(listOf((x + 1) * w, (y + 1) * h, x * w, (y + 1) * h))
+            if (((x - 1) to y) !in outlineCells) add(listOf(x * w, (y + 1) * h, x * w, y * h))
+        }
+    }
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        if (!boundary) return
+        outlinePaint.color = outlineColor
+        outlinePaint.strokeWidth = 4f * resources.displayMetrics.density
+        // 窓の端でも太線が欠けないよう、外周の端点だけ半線幅内側へ寄せます。
+        val inset = outlinePaint.strokeWidth / 2
+        val edges = outlineEdges().toMutableList()
+        outlinePath.reset()
+        fun drawX(value: Float) = value.coerceIn(minOf(inset, width / 2f), maxOf(width - inset, width / 2f))
+        fun drawY(value: Float) = value.coerceIn(minOf(inset, height / 2f), maxOf(height - inset, height / 2f))
+        while (edges.isNotEmpty()) {
+            val first = edges.removeAt(0)
+            outlinePath.moveTo(drawX(first[0]), drawY(first[1]))
+            var endX = first[2]; var endY = first[3]
+            outlinePath.lineTo(drawX(endX), drawY(endY))
+            while (true) {
+                val next = edges.indexOfFirst { it[0] == endX && it[1] == endY }
+                if (next < 0) break
+                val edge = edges.removeAt(next)
+                endX = edge[2]; endY = edge[3]
+                outlinePath.lineTo(drawX(endX), drawY(endY))
+            }
+            outlinePath.close()
+        }
+        canvas.drawPath(outlinePath, outlinePaint)
     }
 }

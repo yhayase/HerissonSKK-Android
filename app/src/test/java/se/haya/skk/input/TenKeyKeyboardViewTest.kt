@@ -250,6 +250,127 @@ class TenKeyKeyboardViewTest {
         assertEquals(android.view.HapticFeedbackConstants.LONG_PRESS, Shadows.shadowOf(source).lastHapticFeedbackPerformed())
         touch(source, MotionEvent.ACTION_CANCEL)
     }
+    @Test fun `同じ文字の指ずれと離した座標では一キー未満の境界を保つ`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val view = TenKeyKeyboardView(activity, TouchKeyboardSettings()) { commands += it }
+        activity.setContentView(view)
+        view.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY))
+        view.layout(0, 0, 600, 320)
+        val source = key(view, "か")
+        touch(source, MotionEvent.ACTION_DOWN, 60f, 40f)
+        touch(source, MotionEvent.ACTION_MOVE, 60f, 0f)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(350, TimeUnit.MILLISECONDS)
+        touch(source, MotionEvent.ACTION_MOVE, 60f, -20f)
+        assertTrue(view.pendingGuide!!.startsWith("境界"))
+        touch(source, MotionEvent.ACTION_UP, 60f, -24f)
+        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("く", true)), commands.single())
+    }
+    @Test fun `取消振動は短い二回で継続移動では繰り返さずセッション取消で予約を破棄する`() {
+        val context = RuntimeEnvironment.getApplication()
+        Shadows.shadowOf(context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator).setHasVibrator(true)
+        val view = TenKeyKeyboardView(context, TouchKeyboardSettings(vibrateOnBoundary = true)) {}
+        Robolectric.buildActivity(Activity::class.java).setup().get().setContentView(view)
+        val source = key(view, "か")
+        val shadow = Shadows.shadowOf(source)
+        val clock = Shadows.shadowOf(Looper.getMainLooper())
+        val tap = android.view.HapticFeedbackConstants.KEYBOARD_TAP
+        val marker = android.view.HapticFeedbackConstants.CONTEXT_CLICK
+        fun begin() {
+            touch(source, MotionEvent.ACTION_DOWN)
+            clock.idleFor(350, TimeUnit.MILLISECONDS)
+            assertEquals(android.view.HapticFeedbackConstants.LONG_PRESS, shadow.lastHapticFeedbackPerformed())
+        }
+        begin()
+        touch(source, MotionEvent.ACTION_MOVE, 30f, 0f)
+        assertEquals(tap, shadow.lastHapticFeedbackPerformed())
+        source.performHapticFeedback(marker)
+        // 描画時にも模擬時刻が進むため、二回目の直前1 msには依存しません。
+        clock.idleFor(10, TimeUnit.MILLISECONDS)
+        assertEquals(marker, shadow.lastHapticFeedbackPerformed())
+        clock.idleFor(60, TimeUnit.MILLISECONDS)
+        assertEquals(tap, shadow.lastHapticFeedbackPerformed())
+        source.performHapticFeedback(marker)
+        touch(source, MotionEvent.ACTION_MOVE, 30f, -2f)
+        clock.idleFor(60, TimeUnit.MILLISECONDS)
+        assertEquals(marker, shadow.lastHapticFeedbackPerformed())
+        view.cancelTouches()
+        begin()
+        touch(source, MotionEvent.ACTION_MOVE, 30f, 0f)
+        view.cancelTouches()
+        source.performHapticFeedback(marker)
+        clock.idleFor(400, TimeUnit.MILLISECONDS)
+        assertEquals(marker, shadow.lastHapticFeedbackPerformed())
+    }
+    @Test fun `振動設定と振動子の有無は境界認識と取消の両方に適用する`() {
+        val context = RuntimeEnvironment.getApplication()
+        listOf(false to true, true to false).forEach { (enabled, hardware) ->
+            Shadows.shadowOf(context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator).setHasVibrator(hardware)
+            val view = TenKeyKeyboardView(context, TouchKeyboardSettings(vibrateOnBoundary = enabled)) {}
+            Robolectric.buildActivity(Activity::class.java).setup().get().setContentView(view)
+            val source = key(view, "か")
+            val marker = android.view.HapticFeedbackConstants.CONTEXT_CLICK
+            source.performHapticFeedback(marker)
+            touch(source, MotionEvent.ACTION_DOWN)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(350, TimeUnit.MILLISECONDS)
+            assertEquals(marker, Shadows.shadowOf(source).lastHapticFeedbackPerformed())
+            touch(source, MotionEvent.ACTION_MOVE, 30f, 0f)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(60, TimeUnit.MILLISECONDS)
+            assertEquals(marker, Shadows.shadowOf(source).lastHapticFeedbackPerformed())
+            view.dispose()
+        }
+    }
+    @Test fun `取消の二回目の振動は再構成と保護欄への切替と破棄で停止する`() {
+        val context = RuntimeEnvironment.getApplication()
+        Shadows.shadowOf(context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator).setHasVibrator(true)
+        listOf<(TenKeyKeyboardView) -> Unit>(
+            { key(it, "ABC").performClick() }, { it.setSkkEnabled(false) }, { it.dispose() },
+        ).forEach { cancel ->
+            val view = TenKeyKeyboardView(context, TouchKeyboardSettings()) {}
+            Robolectric.buildActivity(Activity::class.java).setup().get().setContentView(view)
+            val source = key(view, "か")
+            touch(source, MotionEvent.ACTION_DOWN)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(350, TimeUnit.MILLISECONDS)
+            touch(source, MotionEvent.ACTION_MOVE, 30f, 0f)
+            cancel(view)
+            val marker = android.view.HapticFeedbackConstants.CONTEXT_CLICK
+            source.performHapticFeedback(marker)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(400, TimeUnit.MILLISECONDS)
+            assertEquals(marker, Shadows.shadowOf(source).lastHapticFeedbackPerformed())
+        }
+    }
+    @Test fun `離した座標で境界取消になっても二回目の短い振動を送る`() {
+        val context = RuntimeEnvironment.getApplication()
+        Shadows.shadowOf(context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator).setHasVibrator(true)
+        val view = TenKeyKeyboardView(context, TouchKeyboardSettings()) {}
+        Robolectric.buildActivity(Activity::class.java).setup().get().setContentView(view)
+        val source = key(view, "か")
+        touch(source, MotionEvent.ACTION_DOWN)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(350, TimeUnit.MILLISECONDS)
+        touch(source, MotionEvent.ACTION_UP, 30f, 0f)
+        source.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(60, TimeUnit.MILLISECONDS)
+        assertEquals(android.view.HapticFeedbackConstants.KEYBOARD_TAP, Shadows.shadowOf(source).lastHapticFeedbackPerformed())
+    }
+    @Test fun `境界ガイドは十字の外周十二辺だけを強調する`() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val view = TenKeyKeyboardView(activity, TouchKeyboardSettings()) {}
+        activity.setContentView(view)
+        view.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY))
+        view.layout(0, 0, 600, 320)
+        touch(key(view, "な"), MotionEvent.ACTION_DOWN)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(350, TimeUnit.MILLISECONDS)
+        val content = view.guide!!.contentView as FlickGuideLayout
+        assertTrue(content.boundary)
+        assertEquals(5, content.outlineCells.size)
+        val edges = content.outlineEdges()
+        assertEquals(12, edges.size)
+        val w = content.outlineCellWidth; val h = content.outlineCellHeight
+        assertTrue(listOf(w, 0f, 2 * w, 0f) in edges)
+        assertTrue(listOf(0f, 2 * h, 0f, h) in edges)
+        assertFalse(listOf(w, h, 2 * w, h) in edges)
+        assertFalse(listOf(0f, 0f, 3 * w, 0f) in edges)
+    }
     @Test fun `削除は即時一回と四百ミリ秒後から六十ミリ秒間隔で離すと停止する`() {
         val commands = mutableListOf<TouchKeyboardCommand>()
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }

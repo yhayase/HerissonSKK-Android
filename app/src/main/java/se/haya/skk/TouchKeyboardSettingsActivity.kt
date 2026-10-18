@@ -156,7 +156,7 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
             draft.copy(holdMillis = value.toInt())
         }
         vibrate = SwitchPreferenceCompat(context).apply {
-            key = "vibrate"; title = "ホールドで境界を指定したときに振動"; isIconSpaceReserved = false
+            key = "vibrate"; title = "ホールド境界の指定・取消時に振動"; isIconSpaceReserved = false
             isPersistent = false
             setOnPreferenceChangeListener { _, value -> update(draft.copy(vibrateOnBoundary = value as Boolean)); true }
         }
@@ -193,7 +193,7 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
             else -> "中央から${if (value.tenKeyPositionPercent < 50) "左" else "右"}へ ${kotlin.math.abs(value.tenKeyPositionPercent - 50)} %"
         }
         vibrate.isEnabled = hasVibrator
-        vibrate.summary = if (hasVibrator) "ホールドで境界指定が有効になったときに振動します。"
+        vibrate.summary = if (hasVibrator) "境界指定時は一回、取消時は短く二回振動します。"
             else "この端末には振動子がありません。振動しません。"
         val tenKey = value.layout == ScreenKeyboardLayout.TEN_KEY
         val usesHold = value.operation != TenKeyOperation.FLICK

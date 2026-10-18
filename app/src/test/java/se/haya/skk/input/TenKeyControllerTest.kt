@@ -21,21 +21,55 @@ class TenKeyControllerTest {
         assertNull(gesture.modifier); assertFalse(gesture.boundary)
         gesture.cancel(); assertFalse(gesture.hold())
     }
-    @Test fun `静止位置の累積移動で境界を取り消し最後の静止で再指定する`() {
-        val gesture = TenKeyGesture(20f, TenKeyOperation.HOLD_AND_RETURN, 8f)
+    private fun heldGesture(width: Float = 100f, height: Float = 50f,
+        output: (TenKeyController.Direction, TenKeyController.Direction?) -> String? = { _, _ -> "同じ文字" },
+    ) = TenKeyGesture(20f, TenKeyOperation.HOLD_AND_RETURN, 8f, 2f, width, height, output)
+
+    @Test fun `同じ文字ならスロップを超えてもホールドを保ち認識位置から一キーで取り消す`() {
+        val gesture = heldGesture()
         gesture.start(0f, 0f)
+        gesture.move(7f, 0f)
         assertTrue(gesture.hold())
-        gesture.move(4f, 0f); gesture.move(7f, 0f)
+        gesture.move(100f, 0f)
         assertTrue(gesture.boundary)
-        gesture.move(9f, 0f)
+        assertEquals(0, gesture.motionRevision)
+        gesture.move(107f, 0f)
         assertFalse(gesture.boundary)
         assertEquals(1, gesture.motionRevision)
-        gesture.move(30f, 0f)
         assertTrue(gesture.hold())
-        gesture.move(32f, 0f)
+        gesture.move(110f, 0f)
         assertTrue(gesture.boundary)
-        gesture.move(40f, 0f)
-        assertFalse(gesture.boundary)
+    }
+    @Test fun `縦横と斜めの移動をキーの縦横寸法で正規化する`() {
+        listOf(100f to 0f, 0f to 50f, 80f to 30f).forEach { (x, y) ->
+            val gesture = heldGesture()
+            gesture.start(0f, 0f); gesture.hold()
+            gesture.move(x * .99f, y * .99f)
+            assertTrue(gesture.boundary)
+            gesture.move(x, y)
+            assertFalse(gesture.boundary)
+        }
+    }
+    @Test fun `出力文字の濁音小書き数字と英字大小の変更は一キー未満でも取り消す`() {
+        val controller = TenKeyController()
+        val rows = listOf(TenKeyController.KANA[1], TenKeyController.KANA[0], TenKeyController.KANA[1])
+        val modifiers = listOf(left, right, up)
+        (rows.zip(modifiers) + listOf(TenKeyController.ALPHA[1] to right)).forEachIndexed { index, (row, selected) ->
+            if (index == 3) controller.cycleFace()
+            val gesture = heldGesture { direction, modifier -> controller.output(row, direction, modifier) }
+            gesture.start(0f, 0f)
+            val (x, y) = when (selected) { left -> -30f to 0f; right -> 30f to 0f; else -> 0f to -30f }
+            gesture.move(x, y); gesture.hold()
+            gesture.move(0f, 0f)
+            assertFalse(gesture.boundary)
+        }
+    }
+    @Test fun `効果のない修飾への変更では出力文字が同じなら境界を保つ`() {
+        val controller = TenKeyController()
+        val gesture = heldGesture { _, modifier -> controller.output(TenKeyController.KANA[4], center, modifier) }
+        gesture.start(0f, 0f); gesture.move(-30f, 0f); gesture.hold(); gesture.move(0f, 0f)
+        assertEquals(left, gesture.modifier)
+        assertTrue(gesture.boundary)
     }
     @Test fun `フリック方式ではホールドも往復も修飾しない`() {
         val gesture = TenKeyGesture(10f, TenKeyOperation.FLICK)

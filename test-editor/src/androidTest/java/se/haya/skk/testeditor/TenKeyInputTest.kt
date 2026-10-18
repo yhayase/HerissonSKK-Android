@@ -104,6 +104,38 @@ class TenKeyInputTest {
         assertNoAction(scenario)
     }
 
+    @Test fun recognizedHoldSurvivesJitterAndCancelsOnCharacterOrKeySizeMovement() = withEditor { editor, _ ->
+        fun heldStroke(startY: Float, endX: Float, endY: Float, screenshot: String? = null) {
+            device.waitForIdle()
+            val box = Rect().also(key("か")::getBoundsInScreen)
+            val down = SystemClock.uptimeMillis()
+            fun inject(action: Int, dx: Float, dy: Float) {
+                val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
+                    box.exactCenterX() + dx * box.width(), box.exactCenterY() + dy * box.height(), 0).apply {
+                    source = InputDevice.SOURCE_TOUCHSCREEN
+                }
+                try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+            }
+            inject(MotionEvent.ACTION_DOWN, 0f, 0f)
+            inject(MotionEvent.ACTION_MOVE, 0f, startY)
+            SystemClock.sleep(450)
+            screenshot?.let(::capture)
+            inject(MotionEvent.ACTION_MOVE, endX, endY)
+            inject(MotionEvent.ACTION_UP, endX, endY - .02f)
+            instrumentation.waitForIdleSync()
+        }
+        heldStroke(.7f, 0f, .9f, "hold-cross-outline")
+        awaitText(editor, "こ")
+        composition(editor, true)
+        tap("確定")
+        heldStroke(0f, .4f, 0f)
+        awaitText(editor, "こけ")
+        composition(editor, false)
+        heldStroke(.7f, 0f, 1.8f)
+        awaitText(editor, "こけこ")
+        composition(editor, false)
+    }
+
     @Test fun candidateOutlinesAndAnnotationDetailsRemainSeparate() = withEditor { editor, scenario ->
         gesture("た", listOf(1 to 0), hold = true)
         gesture("さ", listOf(0 to -1))
