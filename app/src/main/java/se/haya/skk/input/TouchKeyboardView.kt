@@ -24,6 +24,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import se.haya.skk.CandidateStatusView
+import se.haya.skk.R
 import se.haya.skk.core.BasicSkkAction
 import se.haya.skk.core.InputMode
 import se.haya.skk.settings.TouchKeyboardSettings
@@ -332,7 +333,9 @@ internal class TouchKeyboardView(
             send(BasicSkkAction.SetInputMode(target))
         }.apply { setOnLongClickListener { showModeMenu(this); true } }
         bottom.addView(modeButton, keyParams(1.1f))
-        bottom.addView(commandKey("🌐") { onCommand(TouchKeyboardCommand.SwitchIme) }.apply {
+        bottom.addView(commandKey("", alternative = true) { onCommand(TouchKeyboardCommand.SwitchIme) }.apply {
+            (this as AlternativeFunctionButton).centeredIcon = context.getDrawable(R.drawable.ic_globe_white)
+            showAlternativeHint = false
             contentDescription = "IME切替"
         }, keyParams())
         bottom.addView(commandKey("␣") { onCommand(TouchKeyboardCommand.SpaceOrConvert()) }.apply { contentDescription = "空白" }, keyParams(3f))

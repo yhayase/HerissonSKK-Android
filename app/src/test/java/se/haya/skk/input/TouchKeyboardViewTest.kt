@@ -48,7 +48,7 @@ class TouchKeyboardViewTest {
         val area = view.getChildAt(1) as ViewGroup
         assertEquals(4, area.childCount)
         assertEquals("空白", key(view, "␣").contentDescription)
-        assertEquals(listOf("123", "あ", "🌐", "␣", ",", ".", "⏎"),
+        assertEquals(listOf("123", "あ", "", "␣", ",", ".", "⏎"),
             buttons(area.getChildAt(3)).map { it.text.toString() })
         assertTrue(buttons(area.getChildAt(2)).any { it.text.toString() == "-" })
     }
@@ -629,7 +629,10 @@ class TouchKeyboardViewTest {
         assertTrue(mode.alternativeHintBounds().top > mode.height / 2f)
         view.updateMode(InputMode.DIRECT)
         assertEquals("A", mode.text.toString())
-        assertFalse(key(view, "🌐") is AlternativeFunctionButton)
+        val globe = buttons(view).single { it.contentDescription == "IME切替" } as AlternativeFunctionButton
+        assertNotNull(globe.centeredIcon)
+        assertEquals(mode.currentTextColor, globe.currentTextColor)
+        assertFalse(globe.showAlternativeHint)
         assertFalse(key(view, "⌫") is AlternativeFunctionButton)
     }
     @Test fun `読み確定の可否は十キーへの切替と再構築を越えて保持する`() {
