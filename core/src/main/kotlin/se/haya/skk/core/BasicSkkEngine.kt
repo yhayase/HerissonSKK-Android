@@ -102,7 +102,12 @@ fun interface BasicSkkDictionary {
 sealed interface BasicSkkAction {
     data class Text(val text: String, val interpretCommands: Boolean = true) : BasicSkkAction
     /** 画面に表示された文字をローマ字規則や物理キーコマンドへ渡さず入力します。 */
-    data class TouchText(val text: String, val boundary: Boolean = false, val kanaMode: InputMode = InputMode.HIRAGANA) : BasicSkkAction
+    data class TouchText(
+        val text: String,
+        val boundary: Boolean = false,
+        val kanaMode: InputMode = InputMode.HIRAGANA,
+        val autoStartReading: Boolean = false,
+    ) : BasicSkkAction
     data class StartTouchReading(val kanaMode: InputMode = InputMode.HIRAGANA) : BasicSkkAction
     /** 表示中の読みを、未消化ローマ字も含めて文字どおり確定します。 */
     data object CommitTouchReading : BasicSkkAction
@@ -1492,7 +1497,7 @@ class BasicSkkEngine(
         var outcome = Outcome(true)
         val boundary = action.boundary || pendingTouchBoundary
         pendingTouchBoundary = false
-        if (phase == InputPhase.IDLE && boundary) outcome = startTouchReading(action.kanaMode)
+        if (phase == InputPhase.IDLE && (boundary || action.autoStartReading)) outcome = startTouchReading(action.kanaMode)
         if (phase == InputPhase.IDLE) return outcome.then(Outcome(true, finishIdlePending() + action.text))
         finishPendingIntoBuffer()
         if (phase == InputPhase.READING) touchReading = true

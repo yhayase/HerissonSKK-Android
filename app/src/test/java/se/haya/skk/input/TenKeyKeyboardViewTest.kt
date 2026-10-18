@@ -29,6 +29,56 @@ class TenKeyKeyboardViewTest {
     private fun touch(button: Button, action: Int, x: Float = 30f, y: Float = 30f) {
         MotionEvent.obtain(SystemClock.uptimeMillis(),SystemClock.uptimeMillis(),action,x,y,0).also { button.dispatchTouchEvent(it); it.recycle() }
     }
+    @Test fun `自動開始設定は全ての文字面にだけ付け保護欄では付けない`() {
+        for (enabled in listOf(false, true)) {
+            for (protected in listOf(false, true)) {
+                val commands = mutableListOf<TouchKeyboardCommand>()
+                val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(),
+                    TouchKeyboardSettings(tenKeyAutoStartReading = enabled)) { commands += it }
+                view.setSkkEnabled(!protected)
+                key(view, "か").performClick()
+                key(view, "、").performClick()
+                key(view, "ABC").performClick()
+                key(view, "abc").performClick()
+                key(view, "123").performClick()
+                key(view, "1").performClick()
+                val texts = commands.map { (it as TouchKeyboardCommand.Skk).action as BasicSkkAction.TouchText }
+                assertEquals(listOf("か", "、", "a", "1"), texts.map { it.text })
+                assertTrue(texts.all { it.autoStartReading == (enabled && !protected) && !it.boundary })
+            }
+        }
+    }
+
+    @Test fun `パレットの記号と絵文字も自動開始設定を引き継ぐ`() {
+        for (enabled in listOf(false, true)) {
+            for (protected in listOf(false, true)) {
+                val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+                val commands = mutableListOf<TouchKeyboardCommand>()
+                val view = TenKeyKeyboardView(activity, TouchKeyboardSettings(tenKeyAutoStartReading = enabled)) { commands += it }
+                activity.setContentView(view)
+                view.setSkkEnabled(!protected)
+                key(view, "記号").performClick()
+                val paletteField = TenKeyKeyboardView::class.java.getDeclaredField("palette").apply { isAccessible = true }
+                val palette = paletteField.get(view) as CharacterPalette
+                val root = palette.popup!!.contentView
+                fun findGrid(node: View): android.widget.GridView? = when (node) {
+                    is android.widget.GridView -> node
+                    is ViewGroup -> (0 until node.childCount).firstNotNullOfOrNull { findGrid(node.getChildAt(it)) }
+                    else -> null
+                }
+                val grid = findGrid(root)!!
+                for ((category, value) in listOf("記号" to "@", "顔・人" to "👩‍💻")) {
+                    key(root, category).performClick()
+                    val index = CharacterPalette.CATEGORIES.single { it.label == category }.entries.indexOfFirst { it.value == value }
+                    (grid.adapter.getView(index, null, grid) as Button).performClick()
+                    assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText(value,
+                        autoStartReading = enabled && !protected)), commands.last())
+                }
+                palette.dismiss()
+            }
+        }
+    }
+
     @Test fun `空白コマンドは全角英字面だけ全角空白を指定する`() {
         val commands = mutableListOf<TouchKeyboardCommand>()
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }

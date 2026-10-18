@@ -202,7 +202,8 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
     }
     private fun emit(group: List<String>, direction: TenKeyController.Direction, modifier: TenKeyController.Direction?, boundary: Boolean) {
         controller.output(group, direction, modifier)?.let {
-            action(BasicSkkAction.TouchText(it, skkEnabled && (boundary || controller.nextBoundary), controller.kanaMode))
+            action(BasicSkkAction.TouchText(it, skkEnabled && (boundary || controller.nextBoundary), controller.kanaMode,
+                autoStartReading = settings.tenKeyAutoStartReading && skkEnabled))
             controller.nextBoundary = false
         }
     }
@@ -322,7 +323,8 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
         val capturedGeneration = generation
         val capturedPaletteRevision = paletteRevision
         palette = CharacterPalette(context) { text ->
-            if (capturedGeneration == generation && capturedPaletteRevision == paletteRevision) action(BasicSkkAction.TouchText(text, kanaMode = controller.kanaMode))
+            if (capturedGeneration == generation && capturedPaletteRevision == paletteRevision) action(BasicSkkAction.TouchText(text, kanaMode = controller.kanaMode,
+                autoStartReading = settings.tenKeyAutoStartReading && skkEnabled))
         }.also { it.show(anchor) }
     }
     private fun backspaceKey(): Button {

@@ -136,6 +136,38 @@ class TenKeyInputTest {
         composition(editor, false)
     }
 
+    @Test fun automaticReadingStartsForKanaLettersNumbersAndSymbols() {
+        configureLayout("10キー", autoReading = true)
+        try {
+            withEditor { editor, _ ->
+                tap("か")
+                tap("か")
+                awaitText(editor, "かか")
+                composition(editor, true)
+                tap("確定")
+                tap("ABC")
+                tap("abc")
+                awaitText(editor, "かかa")
+                composition(editor, true)
+                tap("確定")
+                tap("123")
+                tap("1")
+                awaitText(editor, "かかa1")
+                composition(editor, true)
+                tap("確定")
+                tap("かな")
+                tap("、")
+                awaitText(editor, "かかa1、")
+                composition(editor, true)
+                tap("確定")
+                composition(editor, false)
+            }
+        } finally {
+            device.pressBack()
+            configureLayout("10キー", autoReading = false)
+        }
+    }
+
     @Test fun candidateOutlinesAndAnnotationDetailsRemainSeparate() = withEditor { editor, scenario ->
         gesture("た", listOf(1 to 0), hold = true)
         gesture("さ", listOf(0 to -1))
@@ -592,7 +624,7 @@ class TenKeyInputTest {
         }
     }
 
-    private fun configureLayout(layout: String) {
+    private fun configureLayout(layout: String, autoReading: Boolean? = null) {
         device.executeShellCommand("am start -W -a android.intent.action.VIEW -f 0x14000000 -n se.haya.skk/.SettingsActivity")
         device.waitForIdle()
         if (!device.findObject(UiSelector().text("画面キーボード")).waitForExists(1_000)) {
@@ -607,6 +639,28 @@ class TenKeyInputTest {
         if (layout == "10キー") {
             select("10キーの操作", "ホールド＋往復")
             select("ホールド判定", "標準（350 ms）")
+            if (autoReading != null) {
+                val title = "ホールドなしで見出し語入力を開始"
+                UiScrollable(UiSelector().scrollable(true)).scrollIntoView(UiSelector().text(title))
+                fun checkable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+                    if (node.isCheckable) return node
+                    for (index in 0 until node.childCount) {
+                        node.getChild(index)?.let { child -> checkable(child)?.let { return it } }
+                    }
+                    return null
+                }
+                val label = automation.windows.asSequence().mapNotNull { it.root }
+                    .flatMap { it.findAccessibilityNodeInfosByText(title).asSequence() }
+                    .first { it.text?.toString() == title }
+                var parent: AccessibilityNodeInfo? = label
+                var toggle: AccessibilityNodeInfo? = null
+                while (parent != null && toggle == null) {
+                    toggle = checkable(parent)
+                    parent = parent.parent
+                }
+                val switch = checkNotNull(toggle)
+                if (switch.isChecked != autoReading) assertTrue(device.findObject(UiSelector().text(title)).click())
+            }
         }
         assertTrue(device.findObject(UiSelector().text("保存").className("android.widget.Button")).click())
         device.waitForIdle()

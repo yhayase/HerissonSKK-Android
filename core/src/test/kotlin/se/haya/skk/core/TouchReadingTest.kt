@@ -5,6 +5,79 @@ import org.junit.Test
 import se.haya.skk.core.dictionary.*
 
 class TouchReadingTest {
+    @Test fun `自動開始は通常入力の未消化ローマ字を確定してから読みを始める`() {
+        val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() })
+        engine.dispatch(BasicSkkAction.Text("n"))
+        val result = engine.dispatch(BasicSkkAction.TouchText("か", autoStartReading = true))
+        assertEquals("ん", result.commit)
+        assertEquals("か", engine.state.reading)
+        assertEquals("", engine.state.pendingRomaji)
+    }
+
+    @Test fun `自動開始したカタカナ読みは確定と取消で開始時の文字種へ戻る`() {
+        for (finish in listOf(BasicSkkAction.CommitTouchReading, BasicSkkAction.Cancel)) {
+            val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() })
+            engine.dispatch(BasicSkkAction.SetInputMode(InputMode.KATAKANA))
+            engine.dispatch(BasicSkkAction.TouchText("カ", kanaMode = InputMode.KATAKANA, autoStartReading = true))
+            assertEquals("か", engine.state.reading)
+            val result = engine.dispatch(finish)
+            assertEquals(if (finish == BasicSkkAction.CommitTouchReading) "カ" else null, result.commit)
+            assertEquals(InputMode.KATAKANA, engine.state.mode)
+            assertEquals(InputPhase.IDLE, engine.state.phase)
+        }
+    }
+
+    @Test fun `自動開始は全ての文字種で読みを始め後続かなを送りにしない`() {
+        for (text in listOf("か", "API", "１２", "。", "😀")) {
+            for (mode in InputMode.entries) {
+                val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() })
+                engine.dispatch(BasicSkkAction.SetInputMode(mode))
+                val result = engine.dispatch(BasicSkkAction.TouchText(text, autoStartReading = true))
+                assertNull(result.commit)
+                assertEquals(InputPhase.READING, engine.state.phase)
+                engine.dispatch(BasicSkkAction.TouchText("く", autoStartReading = true))
+                assertEquals(text + "く", engine.state.reading)
+                assertNull(engine.state.okuriConsonant)
+                assertEquals("", engine.state.okuri)
+            }
+        }
+    }
+
+    @Test fun `自動開始後も明示境界は送りを開始する`() {
+        val engine = BasicSkkEngine(BasicSkkDictionary { listOf(DictionaryCandidate("書")) })
+        engine.dispatch(BasicSkkAction.TouchText("か", autoStartReading = true))
+        engine.dispatch(BasicSkkAction.TouchText("く", boundary = true, autoStartReading = true))
+        assertEquals('k', engine.state.okuriConsonant)
+        assertEquals("書く", engine.currentView.candidate!!.committedText)
+    }
+
+    @Test fun `自動開始付き文字は候補ページ先頭を一度確定して新しい読みに入る`() {
+        val engine = BasicSkkEngine(BasicSkkDictionary { (1..7).map { DictionaryCandidate("候補$it") } }, RegistrationPolicy(),
+            candidatePageCapacityProvider = { _, _ -> 2 })
+        engine.dispatch(BasicSkkAction.TouchText("か", autoStartReading = true))
+        engine.dispatch(BasicSkkAction.ConvertNext)
+        engine.dispatch(BasicSkkAction.NextCandidatePage)
+        val result = engine.dispatch(BasicSkkAction.TouchText("Q/", autoStartReading = true))
+        assertEquals("候補3", result.commit)
+        assertEquals(InputPhase.READING, engine.state.phase)
+        assertEquals("Q/", engine.state.reading)
+    }
+
+    @Test fun `自動開始は登録本文内でも子の読みを開始する`() {
+        val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() }, RegistrationPolicy(enabled = true))
+        engine.dispatch(BasicSkkAction.TouchText("おや", autoStartReading = true))
+        engine.dispatch(BasicSkkAction.ConvertNext)
+        engine.dispatch(BasicSkkAction.TouchText("親本文"))
+        val result = engine.dispatch(BasicSkkAction.TouchText("こ", autoStartReading = true))
+        assertEquals("親本文", result.view.registration!!.body)
+        assertEquals("こ", result.view.registration!!.innerComposing)
+        assertNull(result.commit)
+        engine.dispatch(BasicSkkAction.TouchText("ども", autoStartReading = true))
+        assertNull(engine.state.okuriConsonant)
+        engine.dispatch(BasicSkkAction.ConvertNext)
+        assertEquals(2, engine.state.registrationDepth)
+    }
+
     @Test fun `各モードから同じ読みを開始し大文字とコマンド文字を保持する`() {
         for (mode in InputMode.entries) {
             var query: DictionaryQuery? = null

@@ -5,6 +5,7 @@ import android.os.Looper
 import android.os.Bundle
 import androidx.preference.ListPreference
 import androidx.preference.SeekBarPreference
+import androidx.preference.SwitchPreferenceCompat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -28,6 +29,46 @@ class TouchKeyboardSettingsActivityTest {
     private fun start(): TouchKeyboardSettingsActivity {
         RuntimeEnvironment.getApplication().getSharedPreferences("settings", 0).edit().clear().commit()
         return Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java).setup().get()
+    }
+
+    @Test fun `自動読み開始は10キーだけに表示し下書きと保存済み値を再生成後も保つ`() {
+        RuntimeEnvironment.getApplication().getSharedPreferences("settings", 0).edit().clear().commit()
+        val controller = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java).setup()
+        val activity = controller.get()
+        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
+        val automatic = page.findPreference<SwitchPreferenceCompat>("auto_start_reading")!!
+        assertFalse(automatic.isVisible)
+        assertFalse(automatic.isChecked)
+        page.findPreference<ListPreference>("layout")!!.callChangeListener("TEN_KEY")
+        assertTrue(automatic.isVisible)
+        automatic.callChangeListener(true)
+        assertFalse(TouchKeyboardSettingsStore.read(activity).tenKeyAutoStartReading)
+        val state = Bundle()
+        controller.saveInstanceState(state).pause().stop().destroy()
+        val recreated = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java)
+            .create(state).start().resume().visible().get()
+        val recreatedPage = recreated.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
+        assertTrue(recreatedPage.findPreference<SwitchPreferenceCompat>("auto_start_reading")!!.isChecked)
+        assertTrue(recreated.findViewById<android.widget.Button>(R.id.settings_save).isEnabled)
+        recreated.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertTrue(TouchKeyboardSettingsStore.read(recreated).tenKeyAutoStartReading)
+    }
+
+    @Test fun `自動読み開始を標準に戻すと保存前の下書きだけ無効にする`() {
+        val activity = start()
+        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
+        page.findPreference<ListPreference>("layout")!!.callChangeListener("TEN_KEY")
+        page.findPreference<SwitchPreferenceCompat>("auto_start_reading")!!.callChangeListener(true)
+        assertTrue(TouchKeyboardSettingsStore.save(activity,
+            TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY, tenKeyAutoStartReading = true)))
+        activity.findViewById<android.widget.Button>(R.id.settings_defaults).performClick()
+        val resetDialog = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
+        resetDialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(page.findPreference<SwitchPreferenceCompat>("auto_start_reading")!!.isChecked)
+        assertTrue(TouchKeyboardSettingsStore.read(activity).tenKeyAutoStartReading)
+        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertFalse(TouchKeyboardSettingsStore.read(activity).tenKeyAutoStartReading)
     }
 
     @Test fun `配列と操作の下書きを保存すると次回向け設定として保持する`() {

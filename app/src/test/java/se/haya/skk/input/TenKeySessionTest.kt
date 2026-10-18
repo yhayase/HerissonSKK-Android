@@ -86,6 +86,35 @@ class TenKeySessionTest {
         connection.onNativeSelection = { start, end -> current.onSelection(start, end, -1, -1) }
     }
 
+    @Test fun `自動開始した読みは変換確定後の次の文字でも再開する`() {
+        val connection = Connection()
+        val current = session(connection)
+        current.handleTouch(BasicSkkAction.TouchText("にほん", autoStartReading = true))
+        assertEquals(0, connection.commits)
+        current.handleTouchSpaceOrConvert()
+        current.handleTouch(BasicSkkAction.TouchText("か", autoStartReading = true))
+        assertEquals("か", current.engine.state.reading)
+        assertEquals(InputPhase.READING, current.engine.state.phase)
+        assertEquals(1, connection.commits)
+        current.handleTouch(BasicSkkAction.TouchText("く", autoStartReading = true))
+        assertEquals("かく", current.engine.state.reading)
+        assertNull(current.engine.state.okuriConsonant)
+        current.handleTouchPrimary()
+        assertEquals("日本かく", connection.editable.toString())
+        assertEquals(2, connection.commits)
+    }
+
+    @Test fun `保護入力では自動開始付きの全文字種を直接確定する`() {
+        val connection = Connection()
+        val current = session(connection, protected = true)
+        for (text in listOf("か", "API", "12", "。", "😀")) {
+            current.handleTouch(BasicSkkAction.TouchText(text, autoStartReading = true))
+            assertEquals(InputPhase.IDLE, current.engine.state.phase)
+        }
+        assertEquals("かAPI12。😀", connection.editable.toString())
+        assertEquals(5, connection.commits)
+    }
+
     @Test fun `英字とかなは一つの見出し語として大小を保持して検索する`() {
         val connection = Connection()
         val current = session(connection)
