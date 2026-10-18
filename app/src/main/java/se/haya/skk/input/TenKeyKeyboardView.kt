@@ -66,11 +66,11 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
     fun dispose() { cancelTouches(); generation++ }
     fun updatePrimaryAction(label: String, enabled: Boolean) {
         primaryLabel = label; primaryEnabled = enabled
-        primary?.apply { text = label; contentDescription = label; setTextColor(keyboardColors.text); isEnabled = enabled }
+        primary?.apply { text = label; updateSymbolWeight(); contentDescription = label; setTextColor(keyboardColors.text); isEnabled = enabled }
     }
     fun updateSpaceAction(convert: Boolean) {
         spaceConverts = convert
-        spaceButton?.apply { text = if (convert) "変換" else "␣"; contentDescription = if (convert) "変換" else "空白" }
+        spaceButton?.apply { text = if (convert) "変換" else "␣"; updateSymbolWeight(); contentDescription = if (convert) "変換" else "空白" }
     }
     override fun onDetachedFromWindow() { cancelTouches(); super.onDetachedFromWindow() }
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -337,6 +337,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
         val currentGeneration = generation
         return (if (alternative) AlternativeFunctionButton(context) else Button(context)).apply {
             text = label; contentDescription = label; setTextColor(keyboardColors.text); textSize = if (label.length > 3) 12f else 16f
+            updateSymbolWeight()
             gravity = Gravity.CENTER; includeFontPadding = false
             maxLines = 2; isAllCaps = false; minWidth = 0; minHeight = 0; setPadding(0,0,0,0)
             background = StateListDrawable().apply {
@@ -347,6 +348,11 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             stateListAnimator = null
             setOnClickListener { if (currentGeneration == generation) click(this) }
         }
+    }
+    private fun Button.updateSymbolWeight() {
+        // 記号のフォールバックフォントも、他のキートップに近い線幅へ揃えます。
+        paint.isFakeBoldText = text.toString() in setOf("⌫", "␣", "⇧", "⏎")
+        invalidate()
     }
     private fun params() = LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
