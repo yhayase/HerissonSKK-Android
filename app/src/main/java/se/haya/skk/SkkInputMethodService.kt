@@ -11,6 +11,7 @@ import android.os.Looper
 import android.os.Build
 import android.os.IBinder
 import android.text.InputType
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -91,6 +92,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private var statusView: TextView? = null
     private var candidateStatusView: CandidateStatusView? = null
     private var touchKeyboardView: TouchKeyboardView? = null
+    private var sessionTouchSettings = se.haya.skk.settings.TouchKeyboardSettings()
     private var lastDevice: Int? = null
     private var physicalHostAllowed = false
     private var physicalHostRequested = false
@@ -212,6 +214,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         info: EditorInfo,
         allowPhysicalHost: Boolean,
     ) {
+        sessionTouchSettings = se.haya.skk.settings.TouchKeyboardSettingsStore.read(this)
         val writeContext = SessionWriteContext(dictionaries.captureInputWriteContext())
         sessionWriteContext = writeContext
         val global = customization.snapshot
@@ -238,7 +241,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             registrationSaver = { request, complete ->
                 dictionaries.savePersonalCandidate(request.readingKey,
                     SkkDictionaryCandidate(request.candidateText, okuriCondition = request.okuriCondition),
-                    learningAllowed, writeContext.value) { result ->
+                    learningAllowed, writeContext.value,
+                    section = if (request.commonReading && request.okuriCondition == null)
+                        se.haya.skk.core.dictionary.SkkDictionarySection.OKURI_NASI else null) { result ->
                     complete(when (result) {
                         PersonalWriteResult.Applied -> RegistrationSaveOutcome.Applied
                         PersonalWriteResult.SavedButNotApplied -> RegistrationSaveOutcome.SavedButNotApplied
@@ -324,6 +329,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             })
         physicalHostAllowed = allowPhysicalHost && info.inputType != InputType.TYPE_NULL
         touchKeyboardView?.resetForEditorSession()
+        touchKeyboardView?.configure(sessionTouchSettings)
         updateTouchKeyboardVisibility()
         render()
     }
@@ -362,6 +368,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             shouldShowTouchCharacters())
 
     override fun onWindowHidden() {
+        touchKeyboardView?.cancelInteractions()
+        candidateStatusView?.closeDetail()
         if (!changingConfiguration) configurationRestart = null
         if (!changingConfiguration && !changingPhysicalHost) {
             physicalHostAllowed = false
@@ -386,6 +394,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        touchKeyboardView?.cancelInteractions()
+        candidateStatusView?.closeDetail()
         clearInlineAnnotation()
         super.onFinishInputView(finishingInput)
     }
@@ -414,6 +424,15 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     override fun onCreateInputView(): View {
         val keys = TouchKeyboardView(this, ::onTouchCommand).also {
+            it.onGeometryChanged = { updated ->
+                sessionTouchSettings = sessionTouchSettings.copy(
+                    tenKeyHeightDp = updated.tenKeyHeightDp,
+                    tenKeyWidthPercent = updated.tenKeyWidthPercent,
+                    tenKeyPositionPercent = updated.tenKeyPositionPercent,
+                    tenKeyBottomPaddingDp = updated.tenKeyBottomPaddingDp,
+                )
+            }
+            it.configure(sessionTouchSettings)
             touchKeyboardView = it
             candidateStatusView = it.candidateStatusView
             statusView = it.candidateStatusView.statusTextView
@@ -425,11 +444,21 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         }
         return FrameLayout(this).apply {
             inputHost = this
+            setBackgroundColor(se.haya.skk.input.KeyboardColors.resolve(this@SkkInputMethodService).panelBackground)
             addView(keys, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT))
+                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> renderPhysicalPopup() }
             updateTouchKeyboardVisibility()
             updateStatus()
+        }
+    }
+
+    override fun setInputView(view: View) {
+        super.setInputView(view)
+        // IME側の入力フレームが以前の高さを保っても、文字面の下端を窓の下端へ揃えます。
+        (view.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
+            params.gravity = Gravity.BOTTOM
+            view.layoutParams = params
         }
     }
 
@@ -494,6 +523,10 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         val handled = presses.down(event.deviceId, keyCode, event.downTime, generation,
             event.repeatCount, keyCode != KeyEvent.KEYCODE_ENTER && keyCode != KeyEvent.KEYCODE_NUMPAD_ENTER &&
                 keyCode != KeyEvent.KEYCODE_ESCAPE) {
+            if (keyCode == KeyEvent.KEYCODE_BACK && candidateStatusView?.annotationPopup?.isShowing == true) {
+                candidateStatusView?.closeDetail()
+                return@down true
+            }
             if (quoteNext.consumeDown(event)) {
                 session?.breakKillChain()
                 return@down false
@@ -672,6 +705,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             changingConfiguration = false
         }
         candidateStatusView?.requestLayout()
+        inputHost?.setBackgroundColor(se.haya.skk.input.KeyboardColors.resolve(this).panelBackground)
         touchKeyboardView?.configurationChanged()
         updateTouchKeyboardVisibility()
         updatePhysicalHostVisibility()
@@ -1010,10 +1044,15 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         val statusEnabled = getSharedPreferences("settings", Context.MODE_PRIVATE)
             .getBoolean("show_status", true)
         candidateStatusView?.visibility = if (current == null || current.protectedInput ||
-            (!statusEnabled && !current.hasComposition && !current.failed && appEmacsNotice == null)) View.GONE else View.VISIBLE
+            ((!statusEnabled || shouldShowTouchCharacters()) && !current.hasComposition && !current.failed && appEmacsNotice == null)) View.GONE else View.VISIBLE
         touchKeyboardView?.updateMode(current?.engine?.state?.mode,
             current != null && current.active && !current.failed && !current.protectedInput &&
                 current.view.registration?.saving != true && current.view.deletion == null)
+        touchKeyboardView?.updateReadingConversion(touchReadingConversionAvailable(current))
+        touchKeyboardView?.updateSpaceAction(current != null && !current.protectedInput && (
+            current.view.prediction != null || current.view.candidate != null ||
+                current.view.registration?.innerCandidate != null || current.view.registration?.innerComposing != null ||
+                current.engine.state.phase != se.haya.skk.core.InputPhase.IDLE))
         touchKeyboardView?.updatePrimaryAction(when {
             current?.protectedInput != true && current?.view?.registration != null &&
                 current.view.registration?.innerCandidate == null && current.view.registration?.innerComposing == null -> "登録"
@@ -1024,9 +1063,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 EditorInfo.IME_ACTION_DONE -> "完了"
                 EditorInfo.IME_ACTION_GO -> "実行"
                 EditorInfo.IME_ACTION_NEXT -> "次へ"
-                else -> "↵"
+                else -> "⏎"
             }
-        }, enabled = current?.view?.prediction?.failure == null)
+        }, enabled = touchPrimaryActionAvailable(current))
     }
 
     private fun onCandidateTapped(target: CandidateTapTarget) {
@@ -1108,7 +1147,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 is BasicSkkAction.SetInputMode -> current.handleTouchSetInputMode(action.mode)
                 else -> current.handleTouch(action)
             }
-            TouchKeyboardCommand.SpaceOrConvert -> current.handleTouchSpaceOrConvert()
+            is TouchKeyboardCommand.SpaceOrConvert -> current.handleTouchSpaceOrConvert(command.fullWidthSpace)
             TouchKeyboardCommand.SwitchIme -> return
         }
         render()
@@ -1191,3 +1230,15 @@ internal fun physicalHostAllowedForStartedInput(
     restarting: Boolean,
     previouslyAllowed: Boolean,
 ): Boolean = !restarting || previouslyAllowed
+
+/** 登録中も外側の表示ではなく、現在編集中の読みの状態で判定します。 */
+internal fun touchReadingConversionAvailable(current: EditorSession?): Boolean =
+    current != null && current.active && !current.failed && !current.protectedInput &&
+        current.view.registration?.saving != true && current.view.deletion == null &&
+        current.engine.state.phase in setOf(se.haya.skk.core.InputPhase.READING,
+            se.haya.skk.core.InputPhase.ABBREV, se.haya.skk.core.InputPhase.SELECTING)
+
+/** 読みの確定は予測の検索結果に依存しません。保護入力では入力先の Enter を使います。 */
+internal fun touchPrimaryActionAvailable(current: EditorSession?): Boolean =
+    current != null && current.active && !current.failed &&
+        (current.protectedInput || current.view.registration?.saving != true && current.view.deletion == null)

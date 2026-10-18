@@ -8,6 +8,8 @@ data class CompletionQuery(
     val abbrev: Boolean = false,
     val limit: Int = MAX_RESULTS,
     val scope: CompletionScope = CompletionScope.ALL,
+    /** 共通見出し語は末尾英字から送りを推定しません。 */
+    val commonReading: Boolean = false,
 ) {
     companion object {
         const val MAX_RESULTS = 64

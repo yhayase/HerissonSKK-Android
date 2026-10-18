@@ -4,6 +4,7 @@ import android.content.Context
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import se.haya.skk.core.DictionaryQuery
+import se.haya.skk.core.CompletionQuery
 import se.haya.skk.core.PredictionHistoryTarget
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchResult
@@ -13,6 +14,7 @@ import se.haya.skk.core.dictionary.SkkDictionaryDocument
 import se.haya.skk.core.dictionary.SkkDictionaryEncoding
 import se.haya.skk.core.dictionary.SkkDictionaryEntry
 import se.haya.skk.core.dictionary.SkkDictionarySource
+import se.haya.skk.core.dictionary.SkkDictionarySection
 import org.junit.After
 import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertArrayEquals
@@ -35,6 +37,30 @@ class SQLiteDictionaryRepositoryTest {
 
     @After fun removeDatabases() {
         databases.forEach(context::deleteDatabase)
+    }
+
+    @Test fun `共通見出し語の補完と予測は保存した送り区分と送り条件を保持する`() {
+        val name = databaseName()
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            repository.importSystem("touch", "10キー試験", SkkDictionaryDocument(listOf(
+                SkkDictionaryEntry("かなapi", listOf(SkkDictionaryCandidate("混在候補")), SkkDictionarySection.OKURI_NASI),
+                SkkDictionaryEntry("かk", listOf(SkkDictionaryCandidate("書", okuriCondition = "く")), SkkDictionarySection.OKURI_ARI),
+                SkkDictionaryEntry("かg", listOf(SkkDictionaryCandidate("条件なし")), SkkDictionarySection.OKURI_ARI),
+            ), SkkDictionaryEncoding.UTF8))
+        }
+        SQLiteDictionaryRepository(context, name).use { repository ->
+            val revision = repository.dictionaryRevision()
+            assertEquals(listOf("かなapi"), repository.complete(CompletionQuery("か", commonReading = true), revision))
+            val predictions = repository.predict(PredictionQuery("か", commonReading = true), revision)
+                as PredictionSearchResult.Ready
+            assertEquals(setOf("混在候補", "書く"), predictions.items.map { it.committedText }.toSet())
+            val okuri = predictions.items.single { it.committedText == "書く" }
+            assertEquals(SkkDictionarySection.OKURI_ARI, okuri.candidate.entrySection)
+            assertEquals("く", okuri.historyTarget.okuriCondition)
+            val mixed = repository.lookup("かなapi").asComposite()
+                .lookup(DictionaryQuery("かなapi", commonReading = true)).single()
+            assertEquals(SkkDictionarySection.OKURI_NASI, mixed.entrySection)
+        }
     }
 
     @Test fun `登録と学習は最新の見出しだけを更新し注釈と他の候補を保持する`() {

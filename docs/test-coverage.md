@@ -39,6 +39,7 @@
 | F21 初期 S 辞書 | `InitialDictionaryInstallerTest` と初期設定 UI 試験。取得失敗時の再試行、S／L の選択競合、debug fixture と release の取得経路を区別します |
 | F22 アプリ別 Emacs | `AppEmacsEditingStoreTest`、`AppEmacsSettingsActivityTest`、`CustomizationE2eTest`。継承、保存失敗、セッション固定と入力先の切替を扱います |
 | F23 IME 切替 | `ImeSwitchServiceTest` と入力 E2E。タッチ・物理の双方を扱います |
+| F27 10キー | `TouchReadingTest`、`TenKeyControllerTest`、`TenKeyKeyboardViewTest`、`TenKeySessionTest`、画面キーボード設定試験、SQLite混在読みの試験。`TenKeyInputTest` は公開設定から配列を選び、実IMEのホールド・往復・取消・面切替・変換・英字直接入力・カナ確定を扱います。実機の操作感と振動、任意の入力先での直前かな修正は自動試験の保証外です |
 | 設定 UI・候補表示 | 設定 Activity の単体試験、`SettingsLayoutTest`、`CandidateDisplayE2eTest`。狭幅・文字倍率と入力欄の可視性を扱い、利用者の読取り・操作感は別に判断します |
 
 数値変換・日付、回転後の変換状態保持、再変換、端末間同期の優先順位は[ロードマップ](roadmap.md)を参照します。

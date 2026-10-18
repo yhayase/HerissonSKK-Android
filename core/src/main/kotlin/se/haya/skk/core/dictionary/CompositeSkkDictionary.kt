@@ -1,6 +1,7 @@
 package se.haya.skk.core.dictionary
 
 import java.util.Collections
+import java.util.PriorityQueue
 import se.haya.skk.core.BasicSkkDictionary
 import se.haya.skk.core.CompletionException
 import se.haya.skk.core.CompletionFailure
@@ -13,7 +14,8 @@ import se.haya.skk.core.PredictionHistoryTarget
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchFailure
 import se.haya.skk.core.PredictionSearchResult
-import se.haya.skk.core.rankPredictionCandidates
+import se.haya.skk.core.PredictionCandidateCollector
+import se.haya.skk.core.predictionCandidateRetainedChars
 import se.haya.skk.core.CODE_POINT_ORDER as PREDICTION_CODE_POINT_ORDER
 
 /** 公開済み辞書の読み取り専用世代です。構築後は呼出側のリスト変更に影響されません。 */
@@ -218,74 +220,109 @@ class CompositeSkkDictionary(
             query.workLimit !in 1..PredictionQuery.MAX_WORK_ITEMS ||
             query.totalResultCharsLimit !in 1..PredictionQuery.MAX_TOTAL_RESULT_CHARS
         ) return PredictionSearchResult.Indeterminate(PredictionSearchFailure.INVALID_INPUT)
-        val keys = linkedSetOf<String>()
-        var work = 0
-        var totalChars = 0L
+        data class Cursor(val keys: Iterator<String>, var key: String)
+        val cursors = PriorityQueue<Cursor> { left, right ->
+            PREDICTION_CODE_POINT_ORDER.compare(left.key, right.key)
+        }
         sources.forEach { (source, _) ->
             if (source.enabled) prefixes.forEach { prefix ->
-                for (key in source.completionKeys(prefix)) {
-                    if (++work > query.workLimit) {
-                        return PredictionSearchResult.Indeterminate(PredictionSearchFailure.WORK_LIMIT)
-                    }
-                    if (keys.add(key)) {
-                        totalChars += key.length
-                        if (totalChars > query.totalResultCharsLimit) {
-                            return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
-                        }
-                    }
-                }
+                val keys = source.completionKeys(prefix).iterator()
+                if (keys.hasNext()) cursors.add(Cursor(keys, keys.next()))
             }
         }
-        val orderedKeys = keys.sortedWith(PREDICTION_CODE_POINT_ORDER)
-        val values = mutableListOf<PredictionCandidate>()
-        for (key in orderedKeys) {
-            if (query.abbrev && !key.isAscii()) continue
-            val resolved = resolveForPrediction(key)
-            resolved.forEachIndexed { candidateOrder, value ->
+        var work = 0
+        val collector = PredictionCandidateCollector(query.limit, query.totalResultCharsLimit)
+        while (cursors.isNotEmpty()) {
+            val key = cursors.peek().key
+            do {
+                val cursor = cursors.remove()
                 if (++work > query.workLimit) {
                     return PredictionSearchResult.Indeterminate(PredictionSearchFailure.WORK_LIMIT)
                 }
-                val candidate = value.candidate
-                totalChars += candidate.text.length + (candidate.annotation?.length ?: 0)
-                if (totalChars > query.totalResultCharsLimit) {
-                    return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
+                if (cursor.keys.hasNext()) {
+                    cursor.key = cursor.keys.next()
+                    cursors.add(cursor)
                 }
-                val entrySection = value.origins.firstOrNull()?.let { origin ->
-                    sources.firstOrNull { it.first.id == origin.dictionaryId }?.first?.section(key)
-                }
-                val okuri = if (!query.abbrev && entrySection == SkkDictionarySection.OKURI_ARI) {
-                    candidate.okuriCondition ?: return@forEachIndexed
-                } else ""
-                val displayed = DictionaryCandidate(
-                    text = candidate.text,
-                    annotation = candidate.annotation,
-                    annotationIsPersonal = candidate.annotationIsPersonal,
-                    entrySection = entrySection,
-                    okuriCondition = candidate.okuriCondition,
-                    selection = personalGeneration?.let { generation ->
-                        CandidateSelection(generation, value.origins.map { origin ->
-                            SelectedCandidateOrigin(origin.dictionaryId, origin.generation, origin.personal,
-                                key, origin.candidate.text, origin.candidate.okuriCondition)
-                        })
-                    },
-                )
-                val committedText = displayed.text + okuri
-                val historyTarget = PredictionHistoryTarget(
-                    key, candidate.text, candidate.okuriCondition, committedText,
-                )
-                values += PredictionCandidate(
-                    displayed,
-                    committedText,
-                    historyTarget,
-                    lastUsedSequence = usageLookup(historyTarget),
-                    dictionaryOrder = value.origins.firstOrNull()?.let { origin ->
-                        sources.indexOfFirst { it.first.id == origin.dictionaryId }.coerceAtLeast(0)
-                    } ?: 0,
-                    candidateOrder = candidateOrder,
-                )
+            } while (cursors.peek()?.key == key)
+            if (query.abbrev && !key.isAscii()) continue
+            var readingChars = key.length.toLong()
+            if (readingChars > query.totalResultCharsLimit) {
+                return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
             }
+            for ((source, _) in sources) {
+                if (!source.enabled) continue
+                for (candidate in source.candidates(key)) {
+                    if (candidate.dateExpression) continue
+                    readingChars += candidate.text.length + (candidate.annotation?.length ?: 0) +
+                        (candidate.okuriCondition?.length ?: 0)
+                    if (readingChars > query.totalResultCharsLimit) {
+                        return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
+                    }
+                }
+            }
+            val resolved = resolveForPrediction(key)
+            work += resolved.size
+            if (work > query.workLimit) {
+                return PredictionSearchResult.Indeterminate(PredictionSearchFailure.WORK_LIMIT)
+            }
+            val values = predictionCandidatesForReading(key, query.abbrev, resolved)
+            if (values.sumOf(::predictionCandidateRetainedChars) > query.totalResultCharsLimit) {
+                return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
+            }
+            values.forEach(collector::add)
         }
-        return rankPredictionCandidates(values, query.limit)
+        return collector.result()
+    }
+
+    /** 呼出側で一読みの作業量と保持量を制限してから、全由来をまとめて解決します。 */
+    fun predictionCandidatesForReading(key: String, abbrev: Boolean = false): List<PredictionCandidate> {
+        if (abbrev && !key.isAscii()) return emptyList()
+        return predictionCandidatesForReading(key, abbrev, resolveForPrediction(key))
+    }
+
+    private fun predictionCandidatesForReading(
+        key: String,
+        abbrev: Boolean,
+        resolved: List<ResolvedDictionaryCandidate>,
+    ): List<PredictionCandidate> {
+        val values = mutableListOf<PredictionCandidate>()
+        resolved.forEachIndexed { candidateOrder, value ->
+            val candidate = value.candidate
+            val entrySection = value.origins.firstOrNull()?.let { origin ->
+                sources.firstOrNull { it.first.id == origin.dictionaryId }?.first?.section(key)
+            }
+            val okuri = if (!abbrev && entrySection == SkkDictionarySection.OKURI_ARI) {
+                candidate.okuriCondition ?: return@forEachIndexed
+            } else ""
+            val displayed = DictionaryCandidate(
+                text = candidate.text,
+                annotation = candidate.annotation,
+                annotationIsPersonal = candidate.annotationIsPersonal,
+                entrySection = entrySection,
+                okuriCondition = candidate.okuriCondition,
+                selection = personalGeneration?.let { generation ->
+                    CandidateSelection(generation, value.origins.map { origin ->
+                        SelectedCandidateOrigin(origin.dictionaryId, origin.generation, origin.personal,
+                            key, origin.candidate.text, origin.candidate.okuriCondition)
+                    })
+                },
+            )
+            val committedText = displayed.text + okuri
+            val historyTarget = PredictionHistoryTarget(
+                key, candidate.text, candidate.okuriCondition, committedText,
+            )
+            values += PredictionCandidate(
+                displayed,
+                committedText,
+                historyTarget,
+                lastUsedSequence = usageLookup(historyTarget),
+                dictionaryOrder = value.origins.firstOrNull()?.let { origin ->
+                    sources.indexOfFirst { it.first.id == origin.dictionaryId }.coerceAtLeast(0)
+                } ?: 0,
+                candidateOrder = candidateOrder,
+            )
+        }
+        return values
     }
 
     /** 同じ語幹でも送り条件ごとに完成語が異なるため、予測では条件を潰しません。 */

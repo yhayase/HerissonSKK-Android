@@ -404,6 +404,8 @@ class CandidateStatusServiceTest {
             ReflectionHelpers.callInstanceMethod<Unit>(service, "updateStatus")
             assertTrue(surface.statusTextView.text.length < 2_000)
             assertEquals(View.GONE, surface.findViewById<View>(R.id.candidate_full_detail).visibility)
+            // 左右キーでページを送る、物理キーボード側の詳細表示を検証します。
+            surface.physicalPresentation = true
             descendants(surface).first { it.isLongClickable }.performLongClick()
             val detail = surface.findViewById<TextView>(R.id.candidate_detail_text)
             val firstPage = detail.text.toString()

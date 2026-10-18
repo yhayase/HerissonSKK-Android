@@ -26,6 +26,7 @@
         <activity android:name=".LicensesActivity" android:exported="false" android:label="ライセンス" />
         <activity android:name=".SetupActivity" android:exported="false" android:label="初期設定" />
         <activity android:name=".BasicSettingsActivity" android:exported="false" android:label="設定" />
+        <activity android:name=".TouchKeyboardSettingsActivity" android:exported="false" android:label="画面キーボード" />
         <activity android:name=".CustomizationSettingsActivity" android:exported="false"
             android:label="入力規則・句読点・候補" />
         <activity android:name=".AppEmacsSettingsActivity" android:exported="false"

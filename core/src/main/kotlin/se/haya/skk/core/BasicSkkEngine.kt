@@ -25,6 +25,8 @@ data class DictionaryQuery(
     val readingKey: String,
     val okuri: String? = null,
     val abbrev: Boolean = false,
+    /** 10キーの共通見出し語では末尾英字を送り指定と推定しません。 */
+    val commonReading: Boolean = false,
 )
 
 /** 注釈と送り条件は候補本文から分離して保持します。 */
@@ -99,6 +101,13 @@ fun interface BasicSkkDictionary {
 /** Android のキー表から正規化して渡す基本操作です。 */
 sealed interface BasicSkkAction {
     data class Text(val text: String, val interpretCommands: Boolean = true) : BasicSkkAction
+    /** 画面に表示された文字をローマ字規則や物理キーコマンドへ渡さず入力します。 */
+    data class TouchText(val text: String, val boundary: Boolean = false, val kanaMode: InputMode = InputMode.HIRAGANA) : BasicSkkAction
+    data class StartTouchReading(val kanaMode: InputMode = InputMode.HIRAGANA) : BasicSkkAction
+    /** 表示中の読みを、未消化ローマ字も含めて文字どおり確定します。 */
+    data object CommitTouchReading : BasicSkkAction
+    data class ConvertTouchReading(val halfwidth: Boolean = false) : BasicSkkAction
+    data object CycleTouchKana : BasicSkkAction
     data class Edit(val command: EditCommand) : BasicSkkAction
     data object Enter : BasicSkkAction
     data object Kana : BasicSkkAction
@@ -229,6 +238,8 @@ class BasicSkkEngine(
     private var phase = InputPhase.IDLE
     private var buffer = EditableBuffer()
     private var readingStartMode = InputMode.HIRAGANA
+    private var touchReading = false
+    private var pendingTouchBoundary = false
     private var okuriBoundary: Int? = null
     private var okuriConsonant: Char? = null
     private var romanizer = Romanizer(romanRuleSet)
@@ -321,6 +332,11 @@ class BasicSkkEngine(
             return if (action is BasicSkkAction.Edit) registrationResult else afterInput(registrationResult)
         }
         val outcome = when (action) {
+            is BasicSkkAction.TouchText -> onTouchText(action)
+            is BasicSkkAction.StartTouchReading -> startTouchReading(action.kanaMode)
+            BasicSkkAction.CommitTouchReading -> commitTouchReading()
+            is BasicSkkAction.ConvertTouchReading -> convertTouchReading(action.halfwidth)
+            BasicSkkAction.CycleTouchKana -> cycleTouchKana()
             is BasicSkkAction.Text -> error("文字入力は先に処理済みです")
             is BasicSkkAction.Edit -> onEdit(action.command)
             BasicSkkAction.Enter -> onEnter(false)
@@ -447,6 +463,7 @@ class BasicSkkEngine(
         prediction = when (val found = dictionary.predict(PredictionQuery(
             prefix = prefixes.first(),
             abbrev = abbrev,
+            commonReading = touchReading,
             alternativePrefixes = prefixes.drop(1),
         ))) {
             is PredictionSearchResult.Ready -> PredictionView(items = found.items.map(::renderPredictionItem))
@@ -492,7 +509,7 @@ class BasicSkkEngine(
         }
         val prefix = buffer.text
         val values = try {
-            dictionary.complete(CompletionQuery(prefix, abbrev = phase == InputPhase.ABBREV)).toList()
+            dictionary.complete(CompletionQuery(prefix, abbrev = phase == InputPhase.ABBREV, commonReading = touchReading)).toList()
         } catch (pending: DeferredDictionaryReadException) {
             throw pending
         } catch (_: RuntimeException) {
@@ -581,6 +598,7 @@ class BasicSkkEngine(
             val values = dictionary.complete(CompletionQuery(
                 prefix = buffer.text,
                 abbrev = phase == InputPhase.ABBREV,
+                commonReading = touchReading,
                 limit = 1,
                 scope = CompletionScope.PERSONAL_ONLY,
             )).toList()
@@ -612,6 +630,8 @@ class BasicSkkEngine(
     private fun restoreReadingForCompletion(saved: ReadingSnapshot) {
         phase = saved.phase
         buffer = EditableBuffer(saved.text, saved.cursor)
+        touchReading = saved.touchReading
+        pendingTouchBoundary = saved.pendingTouchBoundary
         okuriBoundary = saved.okuriBoundary
         okuriConsonant = saved.okuriConsonant
         romanizer = Romanizer(romanRuleSet).also {
@@ -810,6 +830,18 @@ class BasicSkkEngine(
                 BasicSkkAction.Right -> return editRegistrationBody(frame) { it.moveRight() }
                 BasicSkkAction.Home -> return editRegistrationBody(frame) { it.moveHome() }
                 BasicSkkAction.End -> return editRegistrationBody(frame) { it.moveEnd() }
+                is BasicSkkAction.TouchText -> Unit
+                is BasicSkkAction.StartTouchReading -> Unit
+                BasicSkkAction.CommitTouchReading -> Unit
+                is BasicSkkAction.ConvertTouchReading -> Unit
+                BasicSkkAction.CycleTouchKana -> {
+                    if (frame.body.text.isEmpty() && frame.returnState.okuriBoundary != null) {
+                        restoreRegistrationReturn(frame)
+                        return afterInput(result(cycleTouchKana()))
+                    }
+                    if (cyclePreviousKana(frame.body)) frame.revision++
+                    return result(Outcome(true))
+                }
                 is BasicSkkAction.Text -> Unit
                 BasicSkkAction.Halfwidth -> Unit
                 BasicSkkAction.DeleteCandidate -> Unit
@@ -862,6 +894,11 @@ class BasicSkkEngine(
     }
 
     private fun dispatchInner(action: BasicSkkAction): Outcome = when (action) {
+        is BasicSkkAction.TouchText -> onTouchText(action)
+        is BasicSkkAction.StartTouchReading -> startTouchReading(action.kanaMode)
+        BasicSkkAction.CommitTouchReading -> commitTouchReading()
+        is BasicSkkAction.ConvertTouchReading -> convertTouchReading(action.halfwidth)
+        BasicSkkAction.CycleTouchKana -> cycleTouchKana()
         is BasicSkkAction.Text -> onText(action.text, action.interpretCommands)
         is BasicSkkAction.Edit -> onEdit(action.command)
         BasicSkkAction.Enter -> onEnter(false)
@@ -966,6 +1003,7 @@ class BasicSkkEngine(
             candidateText = frame.body.text,
             okuriCondition = frame.query.okuri,
             committedText = committedText,
+            commonReading = frame.query.commonReading,
         )
         return result(Outcome(true, effects = listOf(BasicSkkEffect.SaveRegistration(request))))
     }
@@ -1001,7 +1039,15 @@ class BasicSkkEngine(
     ): BasicSkkResult {
         check(registrations.lastOrNull() === frame)
         registrations.removeAt(registrations.lastIndex)
-        if (restoreAutomaticReturnOnCancel && frame.restoreReturnOnCancel ||
+        if (restoreAutomaticReturnOnCancel && frame.returnState.okuriBoundary != null) {
+            restoreEngine(frame.returnState)
+            if (phase == InputPhase.SELECTING) restoreSelectionReturnState()
+            // 送りあり登録の取消後は、送りを含めた全文を通常の読みとして編集します。
+            okuriBoundary = null
+            okuriConsonant = null
+            pendingTargetsOkuri = false
+            pendingTouchBoundary = false
+        } else if (restoreAutomaticReturnOnCancel && frame.restoreReturnOnCancel ||
             frame.returnState.phase == InputPhase.SELECTING
         ) {
             restoreEngine(frame.returnState)
@@ -1424,6 +1470,87 @@ class BasicSkkEngine(
         return Outcome(true)
     }
 
+    private fun startTouchReading(kanaMode: InputMode): Outcome {
+        if (phase == InputPhase.READING) {
+            if (buffer.cursor > 0 && okuriBoundary == null) pendingTouchBoundary = !pendingTouchBoundary
+            return Outcome(true)
+        }
+        if (phase != InputPhase.IDLE) return Outcome(true)
+        val pending = finishIdlePending()
+        clearComposition()
+        phase = InputPhase.READING
+        readingStartMode = kanaMode.takeIf { it.isKana } ?: InputMode.HIRAGANA
+        touchReading = true
+        return Outcome(true, pending)
+    }
+
+    private fun onTouchText(action: BasicSkkAction.TouchText): Outcome {
+        EditableBuffer(action.text)
+        if (phase == InputPhase.SELECTING) {
+            return commitCandidate(touchPageStart()).then(onTouchText(action))
+        }
+        var outcome = Outcome(true)
+        val boundary = action.boundary || pendingTouchBoundary
+        pendingTouchBoundary = false
+        if (phase == InputPhase.IDLE && boundary) outcome = startTouchReading(action.kanaMode)
+        if (phase == InputPhase.IDLE) return outcome.then(Outcome(true, finishIdlePending() + action.text))
+        finishPendingIntoBuffer()
+        if (phase == InputPhase.READING) touchReading = true
+        val text = TouchKana.canonical(action.text)
+        if (phase == InputPhase.READING && boundary && okuriBoundary == null &&
+            buffer.cursor > 0 && text.isNotEmpty() && TouchKana.consonant(text.first()) != null) {
+            okuriBoundary = buffer.cursor
+            okuriConsonant = TouchKana.consonant(text.first())
+        }
+        insertBuffer(text, okuriBoundary?.let { buffer.cursor >= it } == true)
+        return if (okuriBoundary != null && okuriText().isNotEmpty()) outcome.then(lookup()) else outcome
+    }
+
+    private fun convertTouchReading(halfwidth: Boolean): Outcome {
+        if (phase == InputPhase.SELECTING) restoreSelectionReturnState()
+        if (phase != InputPhase.READING && phase != InputPhase.ABBREV) return Outcome(true)
+        finishPendingIntoBuffer()
+        val canonical = TouchKana.canonical(buffer.text)
+        val output = when {
+            halfwidth -> buildString {
+                canonical.forEach { character ->
+                    append(if (character in 'ぁ'..'ゖ' || character == 'ー') {
+                        KanaTransforms.toHalfwidthKana(character.toString())
+                    } else character.toString())
+                }
+            }
+            readingStartMode == InputMode.KATAKANA -> canonical
+            else -> KanaTransforms.hiraganaToKatakana(canonical)
+        }
+        clearComposition()
+        mode = readingStartMode
+        return Outcome(true, output)
+    }
+
+    private fun cyclePreviousKana(target: EditableBuffer): Boolean {
+        if (target.cursor == 0) return false
+        val start = GraphemeBoundary.previous(target.text, target.cursor)
+        val previous = target.text.substring(start, target.cursor)
+        val next = TouchKana.cycle(previous) ?: return false
+        target.backspace()
+        target.insert(next)
+        return true
+    }
+
+    private fun cycleTouchKana(): Outcome {
+        val selecting = phase == InputPhase.SELECTING
+        val saved = if (selecting) snapshotEngine() else null
+        if (selecting) restoreSelectionReturnState()
+        if (phase != InputPhase.READING && phase != InputPhase.ABBREV) return Outcome(true)
+        if (!cyclePreviousKana(buffer)) {
+            if (saved != null) restoreEngine(saved)
+            return Outcome(true)
+        }
+        val okuri = okuriText()
+        if (okuri.isNotEmpty()) okuriConsonant = TouchKana.consonant(okuri.first())
+        return if (okuriBoundary != null && okuri.isNotEmpty()) lookup() else Outcome(true)
+    }
+
     private fun startReading(): Outcome {
         clearComposition()
         phase = InputPhase.READING
@@ -1558,6 +1685,7 @@ class BasicSkkEngine(
             readingKey = item.historyTarget.readingKey,
             okuri = item.historyTarget.okuriCondition,
             abbrev = phase == InputPhase.ABBREV,
+            commonReading = touchReading,
         )
         val effects = if (learningEnabled && registrationPolicy.savingAllowed && registrations.isEmpty()) {
             val learnedCandidate = DictionaryCandidate(
@@ -1615,6 +1743,7 @@ class BasicSkkEngine(
             readingKey = if (okuriBoundary == null) stem else stem + okuriConsonant,
             okuri = okuriText().nullIfEmpty(),
             abbrev = phase == InputPhase.ABBREV,
+            commonReading = touchReading,
         )
         val registrationQuery = try {
             dictionary.registrationQuery(query)
@@ -1640,6 +1769,7 @@ class BasicSkkEngine(
             readingKey = if (okuriBoundary == null) stem else stem + okuriConsonant,
             okuri = okuriText().nullIfEmpty(),
             abbrev = phase == InputPhase.ABBREV,
+            commonReading = touchReading,
         )
         val registrationQuery: DictionaryQuery
         candidates = try {
@@ -1792,6 +1922,8 @@ class BasicSkkEngine(
         phase = phase,
         text = buffer.text,
         cursor = buffer.cursor,
+        touchReading = touchReading,
+        pendingTouchBoundary = pendingTouchBoundary,
         okuriBoundary = okuriBoundary,
         okuriConsonant = okuriConsonant,
         pendingRomaji = romanizer.pending,
@@ -1802,6 +1934,8 @@ class BasicSkkEngine(
         val saved = checkNotNull(selectionReturnState) { "候補選択前の読み状態がありません" }
         phase = saved.phase
         buffer = EditableBuffer(saved.text, saved.cursor)
+        touchReading = saved.touchReading
+        pendingTouchBoundary = saved.pendingTouchBoundary
         okuriBoundary = saved.okuriBoundary
         okuriConsonant = saved.okuriConsonant
         romanizer = Romanizer(romanRuleSet).also {
@@ -1847,6 +1981,17 @@ class BasicSkkEngine(
     private fun commitRawReading(): Outcome {
         finishPendingIntoBuffer()
         val committed = renderKana(buffer.text, readingStartMode)
+        clearComposition()
+        mode = readingStartMode
+        return Outcome(true, committed)
+    }
+
+    private fun commitTouchReading(): Outcome {
+        if (phase != InputPhase.READING && phase != InputPhase.ABBREV) return onEnter(false)
+        val prefix = buffer.text.substring(0, buffer.cursor)
+        val suffix = buffer.text.substring(buffer.cursor)
+        val committed = if (phase == InputPhase.ABBREV) prefix + romanizer.pending + suffix else
+            renderKana(prefix, readingStartMode) + romanizer.pending + renderKana(suffix, readingStartMode)
         clearComposition()
         mode = readingStartMode
         return Outcome(true, committed)
@@ -2074,6 +2219,8 @@ class BasicSkkEngine(
         text = buffer.text,
         cursor = buffer.cursor,
         readingStartMode = readingStartMode,
+        touchReading = touchReading,
+        pendingTouchBoundary = pendingTouchBoundary,
         okuriBoundary = okuriBoundary,
         okuriConsonant = okuriConsonant,
         pendingRomaji = romanizer.pending,
@@ -2104,6 +2251,8 @@ class BasicSkkEngine(
         phase = snapshot.phase
         buffer = EditableBuffer(snapshot.text, snapshot.cursor)
         readingStartMode = snapshot.readingStartMode
+        touchReading = snapshot.touchReading
+        pendingTouchBoundary = snapshot.pendingTouchBoundary
         okuriBoundary = snapshot.okuriBoundary
         okuriConsonant = snapshot.okuriConsonant
         romanizer = Romanizer(romanRuleSet).also {
@@ -2148,6 +2297,8 @@ class BasicSkkEngine(
 
     private fun clearComposition() {
         phase = InputPhase.IDLE
+        touchReading = false
+        pendingTouchBoundary = false
         buffer = EditableBuffer()
         okuriBoundary = null
         okuriConsonant = null
@@ -2171,6 +2322,8 @@ class BasicSkkEngine(
         val phase: InputPhase,
         val text: String,
         val cursor: Int,
+        val touchReading: Boolean,
+        val pendingTouchBoundary: Boolean,
         val okuriBoundary: Int?,
         val okuriConsonant: Char?,
         val pendingRomaji: String,
@@ -2183,6 +2336,8 @@ class BasicSkkEngine(
         val text: String,
         val cursor: Int,
         val readingStartMode: InputMode,
+        val touchReading: Boolean,
+        val pendingTouchBoundary: Boolean,
         val okuriBoundary: Int?,
         val okuriConsonant: Char?,
         val pendingRomaji: String,

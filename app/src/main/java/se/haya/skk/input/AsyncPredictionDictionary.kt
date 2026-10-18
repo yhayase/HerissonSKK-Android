@@ -9,6 +9,7 @@ import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchFailure
 import se.haya.skk.core.PredictionSearchResult
 import se.haya.skk.core.rankPredictionCandidates
+import se.haya.skk.core.predictionCandidateRetainedChars
 import se.haya.skk.core.dictionary.DeferredDictionaryReadException
 import se.haya.skk.core.dictionary.DictionaryReadScope
 
@@ -168,11 +169,7 @@ internal class AsyncPredictionDictionary(
             ))) {
                 is PredictionSearchResult.Ready -> {
                     result.items.forEach { item ->
-                        retainedChars += item.committedText.length + item.candidate.text.length +
-                            (item.candidate.annotation?.length ?: 0) + item.historyTarget.readingKey.length +
-                            item.historyTarget.templateText.length +
-                            (item.historyTarget.okuriCondition?.length ?: 0) +
-                            item.historyTarget.committedText.length
+                        retainedChars += predictionCandidateRetainedChars(item)
                     }
                     if (retainedChars > query.totalResultCharsLimit) {
                         return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
@@ -225,10 +222,7 @@ internal class AsyncPredictionDictionary(
     private fun retainedChars(key: CacheKey, result: PredictionSearchResult): Long {
         var chars = key.query.prefixes.sumOf { it.length.toLong() }
         if (result is PredictionSearchResult.Ready) result.items.forEach { item ->
-            chars += item.committedText.length + item.candidate.text.length +
-                (item.candidate.annotation?.length ?: 0) +
-                item.historyTarget.readingKey.length + item.historyTarget.templateText.length +
-                (item.historyTarget.okuriCondition?.length ?: 0) + item.historyTarget.committedText.length
+            chars += predictionCandidateRetainedChars(item)
         }
         return chars
     }

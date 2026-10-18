@@ -1,9 +1,14 @@
 package se.haya.skk
 
 import android.content.Context
+import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.graphics.Paint
+import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.graphics.text.LineBreaker
 import android.text.Layout
 import android.text.SpannableString
@@ -22,6 +27,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import se.haya.skk.input.KeyboardColors
 import com.ibm.icu.text.BreakIterator
 import com.ibm.icu.util.ULocale
 import kotlin.math.max
@@ -210,7 +216,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
     val statusTextView = TextView(context).apply {
         id = R.id.input_status
         textSize = 18f
-        setTextColor(0xff202124.toInt())
+        setTextColor(KeyboardColors.resolve(context).text)
         isFocusable = false
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
@@ -225,7 +231,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
     private val detailText = TextView(context).apply {
         id = R.id.candidate_detail_text
         textSize = 17f
-        setTextColor(0xff202124.toInt())
+        setTextColor(KeyboardColors.resolve(context).text)
         setTextIsSelectable(false)
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
@@ -292,6 +298,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
         set(value) {
             if (field != value) {
                 field = value
+                closeDetail()
                 renderedMenuItems = emptyList()
                 updateMenuDividers()
             }
@@ -311,6 +318,8 @@ internal class CandidateStatusView @JvmOverloads constructor(
     private var sections: List<CandidateDetailSection> = emptyList()
     private var annotationDetailTarget: CandidateTapTarget? = null
     private var annotationDetailText: String? = null
+    internal var annotationPopup: CandidateAnnotationPopup? = null
+        private set
     private var selectedCandidateText: TextView? = null
     private var selectedAnnotationText: TextView? = null
     private var selectedPreviewTruncated = false
@@ -323,7 +332,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
         isFillViewport = false
         isFocusable = false
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-        setBackgroundColor(0xfff1f3f4.toInt())
+        setBackgroundColor(KeyboardColors.resolve(context).panelBackground)
         val horizontal = dp(16)
         val vertical = dp(8)
         content.setPadding(horizontal, vertical, horizontal, vertical)
@@ -382,7 +391,13 @@ internal class CandidateStatusView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         modeHandler.removeCallbacks(hideTransientMode)
+        closeDetail()
         super.onDetachedFromWindow()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        closeDetail()
+        super.onConfigurationChanged(newConfig)
     }
 
     fun setOnPageListeners(previous: () -> Unit, next: () -> Unit, cancel: () -> Unit) {
@@ -469,7 +484,33 @@ internal class CandidateStatusView @JvmOverloads constructor(
         return maxOf(registrationHeight + wrappedTextHeight(presentation.text.toString(), 18f, textWidth), dp(48))
     }
 
+    fun refreshColors() {
+        val colors = KeyboardColors.resolve(context)
+        setBackgroundColor(colors.panelBackground)
+        registrationEditor.refreshColors()
+        updateMenuDividers()
+        fun refresh(view: View) {
+            if (view === registrationEditor) return
+            if (view is TextView) view.setTextColor(colors.text)
+            if (view is Button) {
+                fun face(color: Int) = GradientDrawable().apply {
+                    setColor(color); cornerRadius = dp(5).toFloat(); setStroke(dp(1).coerceAtLeast(1), colors.border)
+                }
+                view.background = StateListDrawable().apply {
+                    addState(intArrayOf(android.R.attr.state_pressed), face(colors.pressed))
+                    addState(intArrayOf(), face(colors.functionBackground))
+                }
+            }
+            if (view is ViewGroup) for (index in 0 until view.childCount) refresh(view.getChildAt(index))
+        }
+        refresh(content)
+        renderedAnnotationTexts.forEach { it?.setTextColor(annotationColor()) }
+        pagePrevious.setTextColor(pageControlColors())
+        pageNext.setTextColor(pageControlColors())
+    }
+
     fun show(presentation: CandidateStatusPresentation) {
+        refreshColors()
         expandedStatus = presentation.expandedStatus || presentation.registration != null
         presentation.registration?.let(registrationEditor::show)
         registrationEditor.visibility = if (presentation.registration == null) View.GONE else View.VISIBLE
@@ -489,32 +530,52 @@ internal class CandidateStatusView @JvmOverloads constructor(
             val candidateTexts = mutableListOf<TextView>()
             val annotationTexts = mutableListOf<TextView?>()
             presentation.menuItems.chunked(columns).forEach { items ->
-                val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    if (!physicalPresentation) {
+                        dividerDrawable = object : ColorDrawable(touchDividerColor()) {
+                            override fun getIntrinsicWidth() = dp(1).coerceAtLeast(1)
+                        }
+                        showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
+                    }
+                }
                 items.forEach { item ->
                     val tile = LinearLayout(context).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = Gravity.TOP
                         setPadding(dp(4), dp(2), dp(4), dp(2))
                         isFocusable = false
+                        if (!physicalPresentation) background = touchCandidateBackground()
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
                         contentDescription = buildString {
                             if (physicalPresentation) append(item.label).append(": ")
                             append(if (item.text.length > LongCandidateBodyView.CHUNK_SIZE)
                                 "候補本文（スクロールして全文を表示）" else item.text)
-                            item.annotation?.let { append("、注釈: ").append(CandidateTextBounds.preview(it, 128).text) }
+                            if (physicalPresentation) {
+                                item.annotation?.let { append("、注釈: ").append(CandidateTextBounds.preview(it, 128).text) }
+                            }
                         }
                         isClickable = item.target != null
                         item.target?.let { target ->
                             setOnClickListener { onCandidateTap?.invoke(target) }
                             setOnLongClickListener {
+                                closeDetail()
                                 annotationDetailTarget = target
                                 annotationDetailText = item.annotation
-                                sections = listOfNotNull(item.annotation?.let { CandidateDetailSection("注釈", it) })
-                                if (sections.isNotEmpty()) {
-                                    history.clear(); history += 0 to 0; historyIndex = 0
-                                    detailContainer.visibility = View.VISIBLE
-                                    renderPage()
-                                    onContentSizeChanged?.invoke()
+                                if (!item.annotation.isNullOrEmpty()) {
+                                    if (physicalPresentation) {
+                                        sections = listOf(CandidateDetailSection("注釈", item.annotation))
+                                        history.clear(); history += 0 to 0; historyIndex = 0
+                                        detailContainer.visibility = View.VISIBLE
+                                        renderPage()
+                                        onContentSizeChanged?.invoke()
+                                    } else {
+                                        annotationPopup = CandidateAnnotationPopup(context, item.annotation) {
+                                            annotationPopup = null
+                                            annotationDetailTarget = null
+                                            annotationDetailText = null
+                                        }.also { it.show(this@CandidateStatusView) }
+                                    }
                                 }
                                 // 長押しは注釈がなくても消費し、その指離しで確定しません。
                                 true
@@ -524,34 +585,39 @@ internal class CandidateStatusView @JvmOverloads constructor(
                     if (physicalPresentation) TextView(context).apply {
                         text = "${item.label}:"
                         textSize = 18f
-                        setTextColor(0xff202124.toInt())
+                        setTextColor(KeyboardColors.resolve(context).text)
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }.also { tile.addView(it, LinearLayout.LayoutParams(
                         dp(PHYSICAL_LABEL_WIDTH_DP), ViewGroup.LayoutParams.WRAP_CONTENT)) }
                     val candidateText = TextView(context).apply {
                         text = item.text
                         textSize = 18f
-                        setTextColor(0xff202124.toInt())
+                        setTextColor(KeyboardColors.resolve(context).text)
                         maxLines = Int.MAX_VALUE
                         ellipsize = null
                         breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
                         hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        if (!physicalPresentation && !item.annotation.isNullOrEmpty()) {
+                            paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
+                        }
                     }
                     if (item.text.length > LongCandidateBodyView.CHUNK_SIZE) {
-                        tile.addView(LongCandidateBodyView(context, item.text,
+                        val longBody = LongCandidateBodyView(context, item.text,
                             onTap = { item.target?.let { onCandidateTap?.invoke(it) } },
-                            onDetail = { tile.performLongClick() }), LinearLayout.LayoutParams(
+                            onDetail = { tile.performLongClick() },
+                            underline = !physicalPresentation && !item.annotation.isNullOrEmpty())
+                        tile.addView(longBody, LinearLayout.LayoutParams(
                             0, dp(LONG_BODY_HEIGHT_DP), 1f))
                     } else tile.addView(candidateText, LinearLayout.LayoutParams(
                         0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                    val annotationText = item.annotation?.let { annotation ->
+                    val annotationText = item.annotation?.takeIf { physicalPresentation }?.let { annotation ->
                         TextView(context).apply {
                             text = CandidateTextBounds.preview(annotation, 128).let {
                                 it.text + if (it.truncated) "…" else ""
                             }
                             textSize = 13f
-                            setTextColor(0xff5f6368.toInt())
+                            setTextColor(annotationColor())
                             maxLines = 1
                             ellipsize = TextUtils.TruncateAt.END
                             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -597,7 +663,9 @@ internal class CandidateStatusView @JvmOverloads constructor(
         val newSections = if (retainedAnnotation != null) sections
             else presentation.detailSections.filter { it.value.isNotEmpty() }
         val sameIdentity = presentation.detailIdentity?.sameAs(identity) ?: (identity == null)
-        val changed = !sameIdentity || !sameSectionReferences(sections, newSections) ||
+        val changed = if (annotationDetailTarget != null && !physicalPresentation) {
+            retainedAnnotation == null
+        } else !sameIdentity || !sameSectionReferences(sections, newSections) ||
             (annotationDetailTarget != null && retainedAnnotation == null)
         if (changed) closeDetail()
         identity = presentation.detailIdentity
@@ -606,7 +674,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
         selectedCandidateText = presentation.selectedMenuIndex?.let { renderedCandidateTexts.getOrNull(it) }
         selectedAnnotationText = presentation.selectedMenuIndex?.let { renderedAnnotationTexts.getOrNull(it) }
         detailButton.visibility = View.GONE
-        if (sections.isEmpty()) closeDetail()
+        if (sections.isEmpty() && annotationPopup == null) closeDetail()
         if (changed) scrollTo(0, 0)
     }
 
@@ -617,7 +685,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     fun handleDetailPaging(event: KeyEvent): Boolean {
-        if (!isDetailOpen || event.isShiftPressed || event.isCtrlPressed || event.isAltPressed ||
+        if (detailContainer.visibility != View.VISIBLE || event.isShiftPressed || event.isCtrlPressed || event.isAltPressed ||
             event.isMetaPressed) return false
         return when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> { previousPage(); true }
@@ -626,10 +694,13 @@ internal class CandidateStatusView @JvmOverloads constructor(
         }
     }
 
-    val isDetailOpen: Boolean get() = detailContainer.visibility == View.VISIBLE
+    val isDetailOpen: Boolean get() = detailContainer.visibility == View.VISIBLE ||
+        annotationPopup?.isShowing == true
 
     fun closeDetail() {
-        val wasOpen = isDetailOpen
+        val wasOpen = detailContainer.visibility == View.VISIBLE
+        annotationPopup?.dismiss()
+        annotationPopup = null
         detailContainer.visibility = View.GONE
         annotationDetailTarget = null
         annotationDetailText = null
@@ -663,13 +734,13 @@ internal class CandidateStatusView @JvmOverloads constructor(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val windowHeight = (resources.configuration.screenHeightDp * resources.displayMetrics.density)
             .toInt().takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-        val cap = if (isDetailOpen || expandedStatus || menuContainer.visibility == View.VISIBLE) (windowHeight * MAX_HEIGHT_FRACTION).toInt().coerceAtLeast(dp(48))
+        val cap = if (detailContainer.visibility == View.VISIBLE || expandedStatus || menuContainer.visibility == View.VISIBLE) (windowHeight * MAX_HEIGHT_FRACTION).toInt().coerceAtLeast(dp(48))
             else minOf(dp(96), (windowHeight * 0.25f).toInt().coerceAtLeast(dp(48)))
         val available = MeasureSpec.getSize(heightMeasureSpec).takeIf {
             MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED && it > 0
         } ?: cap
         val boundedHeight = MeasureSpec.makeMeasureSpec(minOf(available, cap),
-            if (isDetailOpen || expandedStatus || menuContainer.visibility == View.VISIBLE) MeasureSpec.AT_MOST else MeasureSpec.EXACTLY)
+            MeasureSpec.AT_MOST)
         super.onMeasure(widthMeasureSpec, boundedHeight)
     }
 
@@ -743,11 +814,24 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     private fun updateMenuDividers() {
-        menuContainer.dividerDrawable = if (physicalPresentation) object : ColorDrawable(ROW_DIVIDER_COLOR) {
+        menuContainer.dividerDrawable = if (physicalPresentation) object : ColorDrawable(KeyboardColors.resolve(context).border) {
             override fun getIntrinsicHeight() = dp(1)
         } else null
         menuContainer.showDividers = if (physicalPresentation) LinearLayout.SHOW_DIVIDER_MIDDLE
             else LinearLayout.SHOW_DIVIDER_NONE
+    }
+
+    private fun touchDividerColor(): Int {
+        val border = KeyboardColors.resolve(context).border
+        return Color.argb(100, Color.red(border), Color.green(border), Color.blue(border))
+    }
+
+    private fun touchCandidateBackground() = StateListDrawable().apply {
+        fun face(fill: Int) = GradientDrawable().apply {
+            setColor(fill)
+        }
+        addState(intArrayOf(android.R.attr.state_pressed), face(KeyboardColors.resolve(context).pressed))
+        addState(intArrayOf(), face(android.graphics.Color.TRANSPARENT))
     }
 
     private fun wrappedTextHeight(value: String, sizeSp: Float, width: Int): Int {
@@ -766,9 +850,13 @@ internal class CandidateStatusView @JvmOverloads constructor(
     private fun physicalRowContentWidth(popupWidth: Int): Int =
         (popupWidth - dp(32) - dp(8) - dp(PHYSICAL_LABEL_WIDTH_DP)).coerceAtLeast(1)
 
+    private fun annotationColor(): Int =
+        if (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES)
+            0xffbdc1c6.toInt() else 0xff5f6368.toInt()
+
     private fun pageControlColors() = ColorStateList(
         arrayOf(intArrayOf(android.R.attr.state_enabled), intArrayOf()),
-        intArrayOf(0xff202124.toInt(), 0xff9aa0a6.toInt()),
+        intArrayOf(KeyboardColors.resolve(context).text, 0xff9aa0a6.toInt()),
     )
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()

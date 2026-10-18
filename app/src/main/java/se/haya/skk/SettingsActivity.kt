@@ -66,6 +66,7 @@ class SettingsIndexFragment : PreferenceFragmentCompat() {
         row(input, "句読点と記号") { customize(1) }
         row(input, "キー操作とEmacs編集") { customize(3) }
         row(input, "確定と改行") { basic("input") }
+        row(input, "画面キーボード") { startActivity(Intent(context, TouchKeyboardSettingsActivity::class.java)) }
         row(input, "アプリごとの編集キー") { startActivity(Intent(context, AppEmacsSettingsActivity::class.java)) }
         row(input, "物理キーボードの配列") { (requireActivity() as SettingsActivity).openPhysicalKeyboardLayoutSettings() }
         val display = category("表示")

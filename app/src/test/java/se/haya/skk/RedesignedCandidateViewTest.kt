@@ -3,9 +3,12 @@ package se.haya.skk
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.graphics.Paint
+import android.graphics.drawable.StateListDrawable
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
@@ -13,8 +16,47 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35])
 class RedesignedCandidateViewTest {
+    @Test fun `タッチ候補は淡い縦線で区切り注釈つき本文を下線表示し物理候補は維持する`() {
+        val view = attachedView()
+        val body = "候補本文"
+        val annotation = "注釈"
+        view.show(CandidateStatusPresentation("", menuItems = listOf(
+            CandidateMenuItem('a', body, annotation),
+        )))
+        val touchTile = descendants(view).single { it.contentDescription == body } as ViewGroup
+        assertTrue(touchTile.background is StateListDrawable)
+        val touchText = touchTile.getChildAt(0) as TextView
+        assertTrue(touchText.paintFlags and Paint.UNDERLINE_TEXT_FLAG != 0)
+        assertEquals(1, touchTile.childCount)
+
+        val longBody = "候".repeat(LongCandidateBodyView.CHUNK_SIZE + 1)
+        view.show(CandidateStatusPresentation("", menuItems = listOf(
+            CandidateMenuItem('a', longBody, annotation,
+                CandidateTapTarget(1, 1, 0, Any(), 0)),
+        )))
+        val longTile = descendants(view).single { it.contentDescription == "候補本文（スクロールして全文を表示）" } as ViewGroup
+        val longList = longTile.getChildAt(0) as android.widget.ListView
+        val adapterText = longList.adapter.getView(0, null, longList) as TextView
+        assertTrue(adapterText.paintFlags and Paint.UNDERLINE_TEXT_FLAG != 0)
+        layout(view)
+        assertTrue(longTile.performLongClick())
+        assertTrue(view.isDetailOpen)
+
+        view.physicalPresentation = true
+        view.show(CandidateStatusPresentation("", menuItems = listOf(
+            CandidateMenuItem('a', body, annotation),
+        )))
+        val physicalTile = descendants(view).single {
+            it.contentDescription?.toString()?.contains(annotation) == true
+        } as ViewGroup
+        assertNull(physicalTile.background)
+        assertEquals(body, (physicalTile.getChildAt(1) as TextView).text.toString())
+        assertTrue((physicalTile.getChildAt(1) as TextView).paintFlags and Paint.UNDERLINE_TEXT_FLAG == 0)
+        assertEquals(annotation, (physicalTile.getChildAt(2) as TextView).text.toString())
+    }
+
     @Test fun `候補本文は省略せず注釈の長押しでは確定しない`() {
-        val view = CandidateStatusView(RuntimeEnvironment.getApplication())
+        val view = attachedView()
         val body = "候補本文".repeat(80)
         val target = CandidateTapTarget(1, 2, 0, Any(), 0)
         var commits = 0
@@ -27,7 +69,7 @@ class RedesignedCandidateViewTest {
         val text = descendants(view).filterIsInstance<TextView>().single { it.text.toString() == body }
         assertNull(text.ellipsize)
         assertTrue(text.maxLines > 1)
-        val tile = descendants(view).single { it.contentDescription?.toString() == "$body、注釈: 注釈全文" }
+        val tile = descendants(view).single { it.contentDescription?.toString() == body }
         assertTrue(tile.performLongClick())
         assertEquals(0, commits)
         assertTrue(view.isDetailOpen)
@@ -52,7 +94,7 @@ class RedesignedCandidateViewTest {
             CandidateTapTarget(1, 3, 0, candidate, 0) to "別の注釈",
         )
         for (physical in listOf(false, true)) for ((replacement, nextAnnotation) in replacements) {
-            val view = CandidateStatusView(RuntimeEnvironment.getApplication()).apply {
+            val view = attachedView().apply {
                 physicalPresentation = physical
             }
             fun show(target: CandidateTapTarget, note: String) = view.show(
@@ -61,12 +103,29 @@ class RedesignedCandidateViewTest {
                     detailSections = if (physical) listOf(CandidateDetailSection("注釈", annotation)) else emptyList(),
                     menuItems = listOf(CandidateMenuItem('a', "本文", note, target))))
             show(initial, annotation)
+            layout(view)
             descendants(view).single { it.isLongClickable && it.contentDescription != null }.performLongClick()
-            view.findViewById<View>(R.id.candidate_detail_next).performClick()
-            val page = view.findViewById<TextView>(R.id.candidate_detail_text).text.toString()
+            val popup = view.annotationPopup
+            val page = if (physical) {
+                view.findViewById<View>(R.id.candidate_detail_next).performClick()
+                view.findViewById<TextView>(R.id.candidate_detail_text).text.toString()
+            } else {
+                val list = requireNotNull(popup).body
+                list.setSelection(2)
+                list.measure(View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY))
+                list.layout(0, 0, 300, 200)
+                null
+            }
+            val firstVisible = popup?.body?.firstVisiblePosition
             show(redrawn, annotation)
             assertTrue("描画世代だけで注釈を閉じません", view.isDetailOpen)
-            assertEquals(page, view.findViewById<TextView>(R.id.candidate_detail_text).text.toString())
+            if (physical) assertEquals(page,
+                view.findViewById<TextView>(R.id.candidate_detail_text).text.toString())
+            else {
+                assertSame(popup, view.annotationPopup)
+                assertEquals(firstVisible, view.annotationPopup?.body?.firstVisiblePosition)
+            }
             assertNotEquals("確定用の描画世代の比較は維持します", initial, redrawn)
             show(replacement, nextAnnotation)
             assertFalse("別の注釈対象へページ位置を持ち越しません", view.isDetailOpen)
@@ -109,6 +168,17 @@ class RedesignedCandidateViewTest {
         val text = "a".repeat(2047) + "😀" + "b".repeat(5000)
         val count = (text.length + LongCandidateBodyView.CHUNK_SIZE - 1) / LongCandidateBodyView.CHUNK_SIZE
         assertEquals(text, (0 until count).joinToString("") { LongCandidateBodyView.chunk(text, it) })
+    }
+
+    private fun attachedView(): CandidateStatusView {
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        return CandidateStatusView(activity).also { activity.setContentView(it) }
+    }
+
+    private fun layout(view: CandidateStatusView) {
+        view.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.AT_MOST))
+        view.layout(0, 0, view.measuredWidth, view.measuredHeight)
     }
 
     private fun descendants(view: View): List<View> = listOf(view) + if (view is ViewGroup)

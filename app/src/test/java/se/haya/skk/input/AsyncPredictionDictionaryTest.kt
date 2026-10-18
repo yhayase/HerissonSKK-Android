@@ -10,6 +10,9 @@ import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchFailure
 import se.haya.skk.core.PredictionSearchResult
 import se.haya.skk.core.dictionary.DeferredDictionaryReadException
+import se.haya.skk.core.dictionary.CandidateSelection
+import se.haya.skk.core.dictionary.SelectedCandidateOrigin
+import se.haya.skk.core.predictionCandidateRetainedChars
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -247,6 +250,24 @@ class AsyncPredictionDictionaryTest {
 
         assertEquals(listOf(revision), notified)
         assertTrue(dictionary.predict(query) is PredictionSearchResult.Ready)
+    }
+
+    @Test fun `予測キャッシュの文字数は候補由来のメタデータも含める`() {
+        val result = ready("候補") as PredictionSearchResult.Ready
+        val item = result.items.single().let { value ->
+            value.copy(candidate = value.candidate.copy(selection = CandidateSelection(1, listOf(
+                SelectedCandidateOrigin("辞書".repeat(100), 1, false, "読み".repeat(100), "元候補".repeat(100), null),
+            ))))
+        }
+        val delegate = object : BasicSkkDictionary {
+            override fun lookup(query: DictionaryQuery) = emptyList<DictionaryCandidate>()
+            override fun predict(query: PredictionQuery) = PredictionSearchResult.Ready(listOf(item), false)
+        }
+        val direct = Executor { it.run() }
+        val dictionary = AsyncPredictionDictionary(delegate, direct, direct, { AsyncPredictionRevision(1, 1, 1) }) { _, _ -> }
+        assertTrue(dictionary.predict(PredictionQuery("あ")) is PredictionSearchResult.Ready)
+        assertEquals(1L + predictionCandidateRetainedChars(item), dictionary.cacheStats.retainedChars)
+        dictionary.close()
     }
 
     @Test fun `終了後の作業と通知は無効になりキャッシュは有限に保つ`() {

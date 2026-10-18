@@ -2,6 +2,7 @@ package se.haya.skk
 
 import android.content.Context
 import android.graphics.text.LineBreaker
+import android.graphics.Paint
 import android.text.Layout
 import android.view.View
 import android.view.ViewGroup
@@ -15,6 +16,7 @@ internal class LongCandidateBodyView(
     private val source: String,
     onTap: () -> Unit,
     onDetail: () -> Unit,
+    private val underline: Boolean = false,
 ) : ListView(context) {
     init {
         isFocusable = false
@@ -33,7 +35,11 @@ internal class LongCandidateBodyView(
                     ellipsize = null
                     breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
                     hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
-                }).apply { text = getItem(position) }
+                }).apply {
+                    text = getItem(position)
+                    if (underline) paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
+                    else paintFlags = paintFlags and Paint.UNDERLINE_TEXT_FLAG.inv()
+                }
         }
         setOnItemClickListener { _, _, _, _ -> onTap() }
         setOnItemLongClickListener { _, _, _, _ -> onDetail(); true }

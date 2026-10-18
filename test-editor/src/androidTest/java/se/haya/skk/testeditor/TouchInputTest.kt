@@ -57,7 +57,7 @@ class TouchInputTest {
             }
 
             touchRomaji("Nihon")
-            tap("Space")
+            tap("␣")
             awaitText(editor, "にほん")
             // 読みと予測候補は変換前にも存在するため、通常変換の表示完了後に座標を取ります。
             awaitNode("▶", exact = true)
@@ -76,7 +76,7 @@ class TouchInputTest {
             scenario.onActivity { editor.setText("") }
             awaitKey("q")
             touchRomaji("Tesuto")
-            tap("Space")
+            tap("␣")
             awaitText(editor, "てすと")
             val shownCandidate = awaitNode("候補", exact = false).let {
                 (it.contentDescription ?: it.text).toString().substringBefore("、注釈: ")
@@ -88,7 +88,7 @@ class TouchInputTest {
             scenario.onActivity { editor.setText("") }
             awaitKey("q")
             touchRomaji("Nihon")
-            tap("Space")
+            tap("␣")
             tap("a")
             awaitText(editor, "日本あ")
             awaitText(counter, "入力先への Enter／アクション: 0 回")
@@ -96,13 +96,13 @@ class TouchInputTest {
             scenario.onActivity { editor.setText("") }
             awaitKey("q")
             touchRomaji("Mitorokupamyu")
-            tap("Space")
+            tap("␣")
             awaitImeText("単語登録：みとろくぱみゅ")
             touchRomaji("Goropazu")
-            tap("Space")
+            tap("␣")
             awaitImeText("単語登録：ごろぱず")
             touchRomaji("Nihon")
-            tap("Space")
+            tap("␣")
             awaitImeText("▼にほん")
             awaitNode("日本", exact = false)
             device.waitForIdle()
@@ -127,7 +127,7 @@ class TouchInputTest {
             awaitKey("q")
 
             touchRomaji("Nihon")
-            tap("Space")
+            tap("␣")
             tap("⌫")
             tap("123")
             tap("1")
@@ -136,7 +136,7 @@ class TouchInputTest {
             listOf("\\", "{", "=").forEach(::tap)
             tap("ABC")
             tap("q")
-            tap("↵")
+            tap("⏎")
 
             awaitText(password, "Nihon1+\\{=q")
             awaitText(counter, "入力先への Enter／アクション: 1 回")
@@ -160,8 +160,8 @@ class TouchInputTest {
             awaitText(editor, "あ")
             tap("⌫")
             awaitText(editor, "")
-            tap("Space")
-            tap("↵")
+            tap("␣")
+            tap("⏎")
             awaitText(editor, " \n")
             tap("⌫")
             awaitText(editor, " ")

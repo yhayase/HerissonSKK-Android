@@ -9,6 +9,8 @@ data class PredictionQuery(
     val alternativePrefixes: List<String> = emptyList(),
     val workLimit: Int = MAX_WORK_ITEMS,
     val totalResultCharsLimit: Int = MAX_TOTAL_RESULT_CHARS,
+    /** 共通見出し語は末尾英字から送りを推定しません。 */
+    val commonReading: Boolean = false,
 ) {
     val prefixes: List<String> get() = listOf(prefix) + alternativePrefixes
 
@@ -57,17 +59,71 @@ fun rankPredictionCandidates(
     values: Collection<PredictionCandidate>,
     limit: Int,
 ): PredictionSearchResult {
-    if (values.isEmpty()) return PredictionSearchResult.ConfirmedEmpty
-    val representative = linkedMapOf<String, PredictionCandidate>()
-    values.forEach { value ->
-        val previous = representative[value.committedText]
-        if (previous == null || comparePrediction(value, previous) < 0) {
-            representative[value.committedText] = value
+    val collector = PredictionCandidateCollector(limit, Int.MAX_VALUE)
+    values.forEach(collector::add)
+    return collector.result()
+}
+
+/** 全件を走査しながら、確定文字列ごとの上位候補だけを保持します。 */
+class PredictionCandidateCollector(
+    private val limit: Int,
+    private val totalResultCharsLimit: Int,
+) {
+    private val representatives = linkedMapOf<String, PredictionCandidate>()
+    private var hasMore = false
+
+    init {
+        require(limit > 0)
+        require(totalResultCharsLimit > 0)
+    }
+
+    fun add(value: PredictionCandidate) {
+        val previous = representatives[value.committedText]
+        if (previous != null) {
+            if (comparePrediction(value, previous) < 0) representatives[value.committedText] = value
+            return
+        }
+        if (representatives.size < limit) {
+            representatives[value.committedText] = value
+            return
+        }
+        hasMore = true
+        val worst = representatives.values.maxWithOrNull(::comparePrediction)!!
+        if (comparePrediction(value, worst) < 0) {
+            representatives.remove(worst.committedText)
+            representatives[value.committedText] = value
         }
     }
-    val ordered = representative.values.sortedWith(::comparePrediction)
-    val items = ordered.take(limit)
-    return PredictionSearchResult.Ready(items, ordered.size > items.size)
+
+    /** 未走査の候補がないときだけ、確定可能な結果として公開します。 */
+    fun result(): PredictionSearchResult {
+        if (representatives.isEmpty()) return PredictionSearchResult.ConfirmedEmpty
+        val items = representatives.values.sortedWith(::comparePrediction)
+        if (items.sumOf(::predictionCandidateRetainedChars) > totalResultCharsLimit) {
+            return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
+        }
+        return PredictionSearchResult.Ready(items, hasMore)
+    }
+}
+
+/** 表示と学習・削除に必要な文字列を、由来も含めて数えます。 */
+fun predictionCandidateRetainedChars(value: PredictionCandidate): Long {
+    val candidate = value.candidate
+    val target = value.historyTarget
+    var chars = candidate.text.length.toLong() + (candidate.annotation?.length ?: 0) +
+        (candidate.okuriCondition?.length ?: 0) + value.committedText.length +
+        target.readingKey.length + target.templateText.length +
+        (target.okuriCondition?.length ?: 0) + target.committedText.length
+    candidate.selection?.origins?.forEach { origin ->
+        chars += origin.dictionaryId.length + origin.entryKey.length + origin.text.length +
+            (origin.okuriCondition?.length ?: 0)
+    }
+    candidate.learningTarget?.let { learning ->
+        chars += learning.query.readingKey.length + (learning.query.okuri?.length ?: 0) +
+            learning.templateText.length + (learning.annotation?.length ?: 0) +
+            (learning.okuriCondition?.length ?: 0)
+    }
+    return chars
 }
 
 private fun comparePrediction(left: PredictionCandidate, right: PredictionCandidate): Int {

@@ -22,6 +22,7 @@ data class RegistrationSaveRequest(
     val candidateText: String,
     val okuriCondition: String?,
     val committedText: String,
+    val commonReading: Boolean = false,
 )
 
 sealed interface BasicSkkEffect {

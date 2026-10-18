@@ -76,7 +76,7 @@ class CandidateStatusViewTest {
 
     @Test fun `候補変更で全文を閉じ未修飾左右だけがページ操作になる`() {
         val context = RuntimeEnvironment.getApplication()
-        val view = CandidateStatusView(context)
+        val view = CandidateStatusView(context).apply { physicalPresentation = true }
         val first = "候補".repeat(3000)
         val identity = CandidateDetailIdentity(0, first, null)
         view.show(detailPresentation("状態", identity,
@@ -97,7 +97,7 @@ class CandidateStatusViewTest {
     }
 
     @Test fun `同じ候補識別子でも全文参照が変われば古いページ位置を破棄する`() {
-        val view = CandidateStatusView(RuntimeEnvironment.getApplication())
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication()).apply { physicalPresentation = true }
         val selected = "候補"
         val identity = CandidateDetailIdentity(0, selected, null)
         val long = "本文".repeat(4000)
@@ -117,7 +117,7 @@ class CandidateStatusViewTest {
     }
 
     @Test fun `候補本文が長くても一覧展開ボタンを出さない`() {
-        val view = CandidateStatusView(RuntimeEnvironment.getApplication())
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication()).apply { physicalPresentation = true }
         view.show(detailPresentation("", CandidateDetailIdentity(0, "長い本文", null),
             listOf(CandidateDetailSection("注釈", "長い注釈".repeat(100)))))
         layout(view, 480)
@@ -143,7 +143,7 @@ class CandidateStatusViewTest {
         val context = RuntimeEnvironment.getApplication()
         val previousFontScale = context.resources.configuration.fontScale
         context.resources.configuration.fontScale = 2f
-        val view = CandidateStatusView(context)
+        val view = CandidateStatusView(context).apply { physicalPresentation = true }
         view.show(detailPresentation("長い状態\n".repeat(200),
             CandidateDetailIdentity(0, "候補".repeat(2000), "注釈"), listOf(
                 CandidateDetailSection("候補本文", "候補".repeat(2000)),
@@ -176,7 +176,7 @@ class CandidateStatusViewTest {
 
     @Test fun `全文表示は通常表示より拡張しても画面高の四割以内に収まる`() {
         val context = RuntimeEnvironment.getApplication()
-        val view = CandidateStatusView(context)
+        val view = CandidateStatusView(context).apply { physicalPresentation = true }
         val width = View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY)
         val height = View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.AT_MOST)
         view.show(CandidateStatusPresentation("ひらがな",
@@ -228,21 +228,53 @@ class CandidateStatusViewTest {
     @Test
     @Config(qualifiers = "w640dp-h320dp")
     fun `注釈は候補より小さく淡く表示しラベルとともに読み上げる`() {
-        val view = CandidateStatusView(RuntimeEnvironment.getApplication())
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication()).apply {
+            physicalPresentation = true
+        }
         view.show(CandidateStatusPresentation("状態", menuItems = listOf(
             CandidateMenuItem('a', "候補", "説明"))))
         view.measure(View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.AT_MOST))
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
-        val tile = descendants(view).first { it.contentDescription?.toString() == "候補、注釈: 説明" } as android.view.ViewGroup
-        val candidate = tile.getChildAt(0) as TextView
-        val annotation = tile.getChildAt(1) as TextView
+        val tile = descendants(view).first { it.contentDescription?.toString() == "a: 候補、注釈: 説明" } as android.view.ViewGroup
+        val candidate = tile.getChildAt(1) as TextView
+        val annotation = tile.getChildAt(2) as TextView
         assertEquals("候補", candidate.text.toString())
         assertEquals("説明", annotation.text.toString())
         assertTrue(annotation.textSize < candidate.textSize)
         assertTrue(annotation.currentTextColor != candidate.currentTextColor)
-        assertTrue(tile.contentDescription.contains("候補、注釈: 説明"))
+        assertTrue(tile.contentDescription.contains("a: 候補、注釈: 説明"))
         assertTrue(tile.right <= view.width)
+    }
+
+    @Test
+    fun `タッチ候補の注釈は行に出さず長押し詳細に残し物理表示では表示する`() {
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val view = CandidateStatusView(activity)
+        activity.setContentView(view)
+        listOf(CandidateTargetKind.PREDICTION, CandidateTargetKind.CONVERSION).forEachIndexed { index, kind ->
+            val target = CandidateTapTarget(1, 1, index, Any(), 0, kind)
+            val candidate = "候補$index"
+            val annotation = "注釈$index"
+            val item = CandidateMenuItem(('a'.code + index).toChar(), candidate, annotation, target)
+            view.show(CandidateStatusPresentation("", menuItems = listOf(item)))
+            val tile = descendants(view).first { it.contentDescription == candidate } as android.view.ViewGroup
+            assertEquals(1, tile.childCount)
+            layout(view, 480)
+            assertTrue(tile.performLongClick())
+            val popup = requireNotNull(view.annotationPopup)
+            assertTrue(popup.isShowing)
+            assertEquals(annotation, popup.body.adapter.getItem(0))
+            assertEquals(View.GONE, (view.findViewById<View>(R.id.candidate_detail_text).parent as View).visibility)
+        }
+
+        val physicalItem = CandidateMenuItem('a', "物理候補", "物理注釈",
+            CandidateTapTarget(1, 1, 0, Any(), 0, CandidateTargetKind.CONVERSION))
+        view.physicalPresentation = true
+        view.show(CandidateStatusPresentation("", menuItems = listOf(physicalItem)))
+        val physicalTile = descendants(view).first { it.contentDescription?.toString()?.contains("物理注釈") == true }
+            as android.view.ViewGroup
+        assertEquals("物理注釈", (physicalTile.getChildAt(2) as TextView).text.toString())
     }
 
     @Test
@@ -373,7 +405,7 @@ class CandidateStatusViewTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue("変更した候補の読み上げキャッシュが更新されません",
             changes.any { it and AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE != 0 })
-        assertTrue(descendants(view).any { it.contentDescription?.toString() == "候補5、注釈: 注釈5" })
+        assertTrue(descendants(view).any { it.contentDescription?.toString() == "候補5" })
     }
 
     @Test
@@ -391,6 +423,90 @@ class CandidateStatusViewTest {
         view.measure(width, height)
         assertTrue(view.measuredHeight > ordinary)
         assertTrue(view.measuredHeight <= 320)
+    }
+
+    @Test fun `タッチ注釈窓は候補帯を広げず巨大本文を有界の行としてスクロールする`() {
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val view = CandidateStatusView(activity)
+        activity.setContentView(view)
+        val annotation = "注釈👩‍💻".repeat(20_000)
+        val target = CandidateTapTarget(1, 1, 0, Any(), 0)
+        val item = CandidateMenuItem('a', "候補", annotation, target)
+        val presentation = CandidateStatusPresentation("", menuItems = listOf(item))
+        view.show(presentation)
+        layout(view, 480)
+        val initialHeight = view.measuredHeight
+        val initialContentHeight = (view.getChildAt(0)).measuredHeight
+        var commits = 0
+        var sizeChanges = 0
+        view.setOnCandidateTapListener { commits++ }
+        view.onContentSizeChanged = { sizeChanges++ }
+        assertTrue(candidateTile(view).performLongClick())
+        val popup = requireNotNull(view.annotationPopup)
+        assertTrue(popup.isShowing)
+        assertEquals(android.widget.PopupWindow.INPUT_METHOD_NOT_NEEDED, popup.window.inputMethodMode)
+        assertEquals(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING,
+            popup.window.softInputMode)
+        assertFalse(popup.window.isFocusable)
+        assertTrue(popup.window.isOutsideTouchable)
+        layout(view, 480)
+        assertEquals(initialHeight, view.measuredHeight)
+        assertEquals(initialContentHeight, view.getChildAt(0).measuredHeight)
+        assertEquals(0, commits)
+        assertEquals(0, sizeChanges)
+        assertFalse(descendants(popup.content).filterIsInstance<TextView>()
+            .any { it.text == "前へ" || it.text == "次へ" || it.text == "閉じる" })
+        val adapter = popup.body.adapter
+        assertTrue(adapter.count > 1)
+        val chunks = (0 until adapter.count).map { adapter.getItem(it) as String }
+        assertEquals(annotation, chunks.joinToString(""))
+        chunks.forEach { assertTrue(it.length <= LongCandidateBodyView.CHUNK_SIZE + 1); assertValidUtf16(it) }
+        // 確定操作用の描画世代更新だけでは、同じ注釈のスクロール位置を失いません。
+        view.show(presentation.copy(menuItems = listOf(item.copy(
+            target = CandidateTapTarget(1, 2, 0, target.candidate, 0)))))
+        assertTrue(popup.isShowing)
+        view.show(presentation.copy(menuItems = listOf(item.copy(annotation = "別注釈"))))
+        assertFalse(popup.isShowing)
+        assertFalse(view.isDetailOpen)
+    }
+
+    @Test fun `注釈窓は構成変更と切離しで閉じる`() {
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val view = CandidateStatusView(activity)
+        activity.setContentView(view)
+        view.show(CandidateStatusPresentation("", menuItems = listOf(CandidateMenuItem(
+            'a', "候補", "注釈", CandidateTapTarget(1, 1, 0, Any(), 0)))))
+        layout(view, 480)
+        candidateTile(view).performLongClick()
+        val first = requireNotNull(view.annotationPopup)
+        view.dispatchConfigurationChanged(android.content.res.Configuration(view.resources.configuration))
+        assertFalse(first.isShowing)
+        candidateTile(view).performLongClick()
+        val second = requireNotNull(view.annotationPopup)
+        activity.setContentView(View(activity))
+        assertFalse(second.isShowing)
+        assertFalse(view.isDetailOpen)
+    }
+
+    @Test fun `タッチ候補は外枠を持たず隣同士の縦線だけで区切る`() {
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication())
+        view.show(CandidateStatusPresentation("", menuItems = listOf(
+            CandidateMenuItem('a', "候補", "注釈"), CandidateMenuItem('s', "次候補"))))
+        layout(view, 480)
+        val tiles = descendants(view).filter { it.contentDescription == "候補" || it.contentDescription == "次候補" }
+        val row = tiles.first().parent as android.widget.LinearLayout
+        assertEquals(android.widget.LinearLayout.HORIZONTAL, row.orientation)
+        assertEquals(android.widget.LinearLayout.SHOW_DIVIDER_MIDDLE, row.showDividers)
+        assertTrue(row.dividerDrawable.intrinsicWidth > 0)
+        assertEquals(2, row.childCount)
+        val menu = row.parent as android.widget.LinearLayout
+        assertEquals(android.widget.LinearLayout.SHOW_DIVIDER_NONE, menu.showDividers)
+        assertEquals(null, menu.dividerDrawable)
+        val body = (tiles.first() as android.view.ViewGroup).getChildAt(0) as TextView
+        assertTrue(body.paintFlags and android.graphics.Paint.UNDERLINE_TEXT_FLAG != 0)
+        // 枠のない通常背景は透明で、上下・外側の境界線を描画しません。
+        val background = tiles.first().background as android.graphics.drawable.StateListDrawable
+        assertTrue(background.current is android.graphics.drawable.GradientDrawable)
     }
 
     private fun pages(value: String): List<DetailPage> {

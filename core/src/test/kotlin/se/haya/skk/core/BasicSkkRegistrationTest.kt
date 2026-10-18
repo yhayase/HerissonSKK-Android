@@ -198,6 +198,25 @@ class BasicSkkRegistrationTest {
         assertNull(canceled.commit)
     }
 
+    @Test fun `物理キーの送り登録取消も送りなし読みとして編集と再変換を続ける`() {
+        val queries = mutableListOf<DictionaryQuery>()
+        val engine = BasicSkkEngine(BasicSkkDictionary { queries += it; emptyList() },
+            RegistrationPolicy(enabled = true))
+        engine.type("RiYo")
+        assertEquals(DictionaryQuery("りy", "よ"), queries.single())
+        assertEquals(1, engine.state.registrationDepth)
+        engine.dispatch(BasicSkkAction.Cancel)
+        assertEquals("りよ", engine.state.reading)
+        assertEquals("", engine.state.okuri)
+        assertNull(engine.state.okuriConsonant)
+        engine.type("u")
+        assertEquals("りよう", engine.state.reading)
+        assertEquals(0, engine.state.registrationDepth)
+        assertEquals(1, queries.size)
+        engine.dispatch(BasicSkkAction.ConvertNext)
+        assertEquals(DictionaryQuery("りよう"), queries.last())
+    }
+
     @Test fun `再帰登録の取消は単独候補とメニューの最終選択へ戻る`() {
         for (count in listOf(1, 4)) {
             val choices = (1..count).map { DictionaryCandidate("候補$it") }
@@ -329,6 +348,25 @@ class BasicSkkRegistrationTest {
         assertEquals(0, engine.state.registrationDepth)
         assertFalse(engine.completeRegistration(
             RegistrationSaveCompletion(closed.token, RegistrationSaveOutcome.Applied),
+        ).handled)
+    }
+
+    @Test fun `送りあり登録も保存中のフレーム取消を無視しCg後の遅い完了を反映しない`() {
+        val engine = engine()
+        engine.type("RiYo")
+        engine.type("riyou")
+        val request = engine.dispatch(BasicSkkAction.Enter).saveRequest()
+        assertEquals("りy", request.readingKey)
+        assertEquals("よ", request.okuriCondition)
+        engine.dispatch(BasicSkkAction.CancelRegistrationFrame)
+        assertTrue(engine.state.registrationSaving)
+        assertEquals(1, engine.state.registrationDepth)
+        val canceled = engine.dispatch(BasicSkkAction.Cancel)
+        assertEquals(InputPhase.IDLE, engine.state.phase)
+        assertEquals(0, engine.state.registrationDepth)
+        assertNull(canceled.view.composing)
+        assertFalse(engine.completeRegistration(
+            RegistrationSaveCompletion(request.token, RegistrationSaveOutcome.Applied),
         ).handled)
     }
 

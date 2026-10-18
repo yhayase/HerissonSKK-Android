@@ -3,7 +3,6 @@ package se.haya.skk.input
 import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
-import android.graphics.Color
 import android.graphics.Insets
 import android.os.SystemClock
 import android.os.Looper
@@ -13,8 +12,11 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.TextView
+import se.haya.skk.SkkInputMethodService
 import se.haya.skk.core.BasicSkkAction
 import se.haya.skk.core.InputMode
+import se.haya.skk.settings.ScreenKeyboardLayout
+import se.haya.skk.settings.TouchKeyboardSettings
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +28,8 @@ import org.robolectric.shadows.ShadowLooper
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
+import org.robolectric.util.ReflectionHelpers
+import org.robolectric.util.ReflectionHelpers.ClassParameter
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
@@ -39,11 +43,12 @@ class TouchKeyboardViewTest {
         return view
     }
 
-    @Test fun `英字面は四段で最下段はSpace読点句点の順になる`() {
+    @Test fun `英字面は四段で最下段は空白記号と読点句点の順になる`() {
         val view = view()
         val area = view.getChildAt(1) as ViewGroup
         assertEquals(4, area.childCount)
-        assertEquals(listOf("123", "あ", "🌐", "Space", ",", ".", "↵"),
+        assertEquals("空白", key(view, "␣").contentDescription)
+        assertEquals(listOf("123", "あ", "🌐", "␣", ",", ".", "⏎"),
             buttons(area.getChildAt(3)).map { it.text.toString() })
         assertTrue(buttons(area.getChildAt(2)).any { it.text.toString() == "-" })
     }
@@ -220,18 +225,18 @@ class TouchKeyboardViewTest {
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
         assertEquals(TouchKeyboardController.Flick.TAP, view.activeFlickGuide)
         assertEquals("・  q", guideOption(view, 1).text)
-        assertEquals(Color.WHITE, guideOption(view, 1).currentTextColor)
+        assertEquals(KeyboardColors.resolve(view.context).text, guideOption(view, 1).currentTextColor)
         event(q, MotionEvent.ACTION_MOVE, y = -50f)
         assertEquals(TouchKeyboardController.Flick.UP, view.activeFlickGuide)
         assertEquals("↑  Q", guideOption(view, 0).text)
-        assertEquals(Color.WHITE, guideOption(view, 0).currentTextColor)
+        assertEquals(KeyboardColors.resolve(view.context).text, guideOption(view, 0).currentTextColor)
         event(q, MotionEvent.ACTION_MOVE, y = 60f)
         assertEquals(TouchKeyboardController.Flick.DOWN, view.activeFlickGuide)
         assertEquals("↓  1", guideOption(view, 2).text)
-        assertEquals(Color.WHITE, guideOption(view, 2).currentTextColor)
+        assertEquals(KeyboardColors.resolve(view.context).text, guideOption(view, 2).currentTextColor)
         event(q, MotionEvent.ACTION_MOVE)
         assertEquals(TouchKeyboardController.Flick.TAP, view.activeFlickGuide)
-        assertEquals(Color.WHITE, guideOption(view, 1).currentTextColor)
+        assertEquals(KeyboardColors.resolve(view.context).text, guideOption(view, 1).currentTextColor)
         event(q, MotionEvent.ACTION_CANCEL)
         assertEquals(null, view.activeFlickGuide)
     }
@@ -381,15 +386,215 @@ class TouchKeyboardViewTest {
         assertEquals(28f, q.textSize / context.resources.displayMetrics.density, .1f)
     }
 
-    @Test @Config(sdk = [35]) fun `ナビゲーション余白は画面キーボードだけに適用する`() {
-        val view = view()
+    @Test @Config(sdk = [35]) fun `両配列はInsetsが未通知か消費済みでもOSボタンの下部領域を確保する`() {
+        ScreenKeyboardLayout.entries.forEach { layout ->
+            val view = view().apply { configure(TouchKeyboardSettings(layout = layout)) }
+            val minimum = (48 * view.resources.displayMetrics.density).toInt()
+            assertEquals(minimum, view.paddingBottom)
+            listOf(WindowInsets.Builder().build(), WindowInsets.CONSUMED).forEach { insets ->
+                repeat(3) { view.dispatchApplyWindowInsets(insets) }
+                assertEquals(minimum, view.paddingBottom)
+                view.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.AT_MOST))
+                view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+                assertTrue(view.getChildAt(1).bottom <= view.height - minimum)
+                view.setCharacterAreaVisible(false)
+                assertEquals(0, view.paddingBottom)
+                view.dispatchApplyWindowInsets(insets)
+                assertEquals(0, view.paddingBottom)
+                view.setCharacterAreaVisible(true)
+                assertEquals(minimum, view.paddingBottom)
+            }
+        }
+    }
+
+    @Test @Config(sdk = [35]) fun `両配列の下部余白はOS領域の最大値を使い再通知で加算しない`() {
+        ScreenKeyboardLayout.entries.forEach { layout ->
+            val view = view().apply { configure(TouchKeyboardSettings(layout = layout)) }
+            val minimum = (48 * view.resources.displayMetrics.density).toInt()
+            listOf(WindowInsets.Type.navigationBars(), WindowInsets.Type.systemGestures(),
+                WindowInsets.Type.mandatorySystemGestures(), WindowInsets.Type.tappableElement()).forEach { type ->
+                val reported = minimum + 24
+                val insets = WindowInsets.Builder().setInsets(type, Insets.of(0, 0, 0, reported))
+                    .setInsets(WindowInsets.Type.ime(), Insets.of(0, 0, 0, 600)).build()
+                repeat(3) { view.dispatchApplyWindowInsets(insets) }
+                assertEquals(reported, view.paddingBottom)
+                view.setCharacterAreaVisible(false)
+                assertEquals(0, view.paddingBottom)
+                view.setCharacterAreaVisible(true)
+                assertEquals(reported, view.paddingBottom)
+                view.dispatchApplyWindowInsets(WindowInsets.CONSUMED)
+                assertEquals(minimum, view.paddingBottom)
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    @Test @Config(sdk = [29]) fun `API29のジェスチャー領域も下部余白に反映する`() {
+        ScreenKeyboardLayout.entries.forEach { layout ->
+            val view = view().apply { configure(TouchKeyboardSettings(layout = layout)) }
+            val reported = (72 * view.resources.displayMetrics.density).toInt()
+            // API29のBuilderはシステム領域が消費済みだと、build時にジェスチャー情報も破棄します。
+            val insets = WindowInsets.Builder()
+                .setSystemWindowInsets(Insets.of(0, 1, 0, 0))
+                .setSystemGestureInsets(Insets.of(0, 0, 0, reported)).build()
+            assertEquals(reported, insets.systemGestureInsets.bottom)
+            assertFalse(insets.isConsumed)
+            view.dispatchApplyWindowInsets(insets)
+            assertEquals(reported, view.paddingBottom)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    @Test @Config(sdk = [26]) fun `旧APIでも両配列のOS領域と最小余白を確保する`() {
+        fun insets(bottom: Int): WindowInsets = ReflectionHelpers.callConstructor(
+            WindowInsets::class.java,
+            ClassParameter.from(android.graphics.Rect::class.java, android.graphics.Rect(0, 0, 0, bottom)),
+        )
+        ScreenKeyboardLayout.entries.forEach { layout ->
+            val view = view().apply { configure(TouchKeyboardSettings(layout = layout)) }
+            val minimum = (48 * view.resources.displayMetrics.density).toInt()
+            view.dispatchApplyWindowInsets(insets(minimum + 24))
+            assertEquals(minimum + 24, view.paddingBottom)
+            repeat(3) { view.dispatchApplyWindowInsets(insets(0)) }
+            assertEquals(minimum, view.paddingBottom)
+            view.setCharacterAreaVisible(false)
+            assertEquals(0, view.paddingBottom)
+            view.setCharacterAreaVisible(true)
+            assertEquals(minimum, view.paddingBottom)
+        }
+    }
+
+    @Test @Config(sdk = [35]) fun `10キーの最大高さは候補とOSボタン領域を除く高さに収まる`() {
+        val view = view().apply {
+            configure(TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY, tenKeyHeightDp = 400))
+        }
+        val reserve = (72 * view.resources.displayMetrics.density).toInt()
         view.dispatchApplyWindowInsets(WindowInsets.Builder()
-            .setInsets(WindowInsets.Type.navigationBars(), Insets.of(0, 0, 0, 24)).build())
-        assertEquals(24, view.paddingBottom)
-        view.setCharacterAreaVisible(false)
-        assertEquals(0, view.paddingBottom)
-        view.setCharacterAreaVisible(true)
-        assertEquals(24, view.paddingBottom)
+            .setInsets(WindowInsets.Type.navigationBars(), Insets.of(0, 0, 0, reserve)).build())
+        view.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.AT_MOST))
+        view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+        val area = view.getChildAt(1) as ViewGroup
+        val keyboard = area.getChildAt(0)
+        assertEquals(300 - view.candidateStatusView.measuredHeight - reserve, keyboard.measuredHeight)
+        assertEquals(reserve, view.paddingBottom)
+        assertTrue(area.top + keyboard.bottom <= view.height - reserve)
+        assertTrue(view.height <= 300)
+    }
+
+    @Test fun `非表示候補の古い測定値は10キーの高さを減らさない`() {
+        val view = view().apply { configure(TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY)) }
+        val width = View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY)
+        val height = View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.AT_MOST)
+        view.measure(width, height)
+        view.candidateStatusView.visibility = View.GONE
+        view.measure(width, height)
+        val keyboard = (view.getChildAt(1) as ViewGroup).getChildAt(0)
+        assertEquals((256 * view.resources.displayMetrics.density).toInt(), keyboard.measuredHeight)
+        assertEquals(keyboard.measuredHeight + view.paddingBottom, view.measuredHeight)
+    }
+
+    @Test fun `形状調整は文字面の上に表示し下の余白を追加して縮小時も下端を固定する`() {
+        val view = view().apply {
+            configure(TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY, tenKeyBottomPaddingDp = 24))
+            candidateStatusView.visibility = View.GONE
+        }
+        fun layout() {
+            view.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.AT_MOST))
+            view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+        }
+        layout()
+        assertEquals((72 * view.resources.displayMetrics.density).toInt(), view.paddingBottom)
+        view.showGeometryAdjustment()
+        layout()
+        val panel = view.getChildAt(1)
+        val area = view.getChildAt(2) as ViewGroup
+        assertTrue(panel.bottom <= area.top)
+        assertEquals(view.height - view.paddingBottom, area.bottom)
+        assertTrue(descendants(panel).any { it.contentDescription == "10キーの下の余白" })
+        assertTrue(buttons(panel).any { it.text.toString() == "調整を閉じる" })
+        view.setTenKeyGeometry(160, 100, 50)
+        layout()
+        assertEquals(view.height - view.paddingBottom, area.bottom)
+    }
+
+    @Test @LooperMode(LooperMode.Mode.PAUSED)
+    fun `入力面終了と窓非表示は接続中のキーの削除リピートを止める`() {
+        ScreenKeyboardLayout.entries.forEach { layout ->
+            listOf(false, true).forEach { hideWindow ->
+                val commands = mutableListOf<TouchKeyboardCommand>()
+                val activity = Robolectric.buildActivity(Activity::class.java).setup()
+                val service = Robolectric.buildService(SkkInputMethodService::class.java).create()
+                try {
+                    val keyboard = view(commands).apply { configure(TouchKeyboardSettings(layout = layout)) }
+                    activity.get().setContentView(keyboard)
+                    ReflectionHelpers.setField(service.get(), "touchKeyboardView", keyboard)
+                    assertTrue(keyboard.isAttachedToWindow)
+                    event(key(keyboard, "⌫"), MotionEvent.ACTION_DOWN)
+                    assertEquals(1, commands.size)
+                    if (hideWindow) service.get().onWindowHidden() else service.get().onFinishInputView(false)
+                    assertTrue(keyboard.isAttachedToWindow)
+                    Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+                    assertEquals(1, commands.size)
+                } finally {
+                    service.destroy()
+                    activity.pause().stop().destroy()
+                }
+            }
+        }
+    }
+
+    @Test fun `広がったIME入力フレーム内でも調整前後と閉じた後の文字面下端を固定する`() {
+        val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
+        try {
+            val service = controller.get()
+            val host = service.onCreateInputView()
+            service.setInputView(host)
+            val frame = host.parent as ViewGroup
+            val keyboard = descendants(host).filterIsInstance<TouchKeyboardView>().single().apply {
+                configure(TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY))
+                visibility = View.VISIBLE
+                setCharacterAreaVisible(true)
+                candidateStatusView.visibility = View.GONE
+            }
+            fun lowerEdge(): Int {
+                frame.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(900, View.MeasureSpec.EXACTLY))
+                frame.layout(0, 0, frame.measuredWidth, frame.measuredHeight)
+                val face = descendants(keyboard).filterIsInstance<TenKeyKeyboardView>().single()
+                val bounds = android.graphics.Rect(0, 0, face.width, face.height)
+                frame.offsetDescendantRectToMyCoords(face, bounds)
+                return bounds.bottom
+            }
+            val initialBottom = lowerEdge()
+            assertTrue(initialBottom > 0)
+            keyboard.showGeometryAdjustment()
+            keyboard.setTenKeyGeometry(160, 60, 100)
+            assertEquals(initialBottom, lowerEdge())
+            key(keyboard, "調整を閉じる").performClick()
+            assertEquals(initialBottom, lowerEdge())
+        } finally {
+            controller.destroy()
+        }
+    }
+
+    @Test fun `縮小後のIME窓を再測定しても調整面を連鎖して縮めない`() {
+        val keyboard = view().apply {
+            configure(TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY))
+            candidateStatusView.visibility = View.GONE
+            showGeometryAdjustment()
+        }
+        val width = View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY)
+        keyboard.measure(width, View.MeasureSpec.makeMeasureSpec(2000, View.MeasureSpec.AT_MOST))
+        val panelHeight = keyboard.getChildAt(1).measuredHeight
+        val shrink = (96 * keyboard.resources.displayMetrics.density).toInt()
+        val resizedWindowHeight = keyboard.measuredHeight - shrink
+        keyboard.setTenKeyGeometry(160, 60, 100)
+        keyboard.measure(width, View.MeasureSpec.makeMeasureSpec(resizedWindowHeight, View.MeasureSpec.AT_MOST))
+        assertEquals(panelHeight, keyboard.getChildAt(1).measuredHeight)
+        assertEquals(resizedWindowHeight, keyboard.measuredHeight)
     }
 
     private fun flick(button: Button, delta: Float) {
@@ -416,4 +621,26 @@ class TouchKeyboardViewTest {
     private fun buttons(view: View): List<Button> = descendants(view).filterIsInstance<Button>()
     private fun descendants(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
+    @Test fun `入力モード一覧の長押し補助記号は主ラベルと更新を保つ`() {
+        val view = view(mutableListOf())
+        val mode = key(view, "あ") as AlternativeFunctionButton
+        assertEquals("…", mode.alternativeHint)
+        mode.layout(0, 0, 60, 46)
+        assertTrue(mode.alternativeHintBounds().top > mode.height / 2f)
+        view.updateMode(InputMode.DIRECT)
+        assertEquals("A", mode.text.toString())
+        assertFalse(key(view, "🌐") is AlternativeFunctionButton)
+        assertFalse(key(view, "⌫") is AlternativeFunctionButton)
+    }
+    @Test fun `読み確定の可否は十キーへの切替と再構築を越えて保持する`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = view(commands)
+        view.updateReadingConversion(true)
+        view.configure(TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY))
+        val kind = key(view, "ア")
+        event(kind, MotionEvent.ACTION_DOWN)
+        event(kind, MotionEvent.ACTION_UP, x = 30f, y = -40f)
+        assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.ConvertTouchReading())), commands)
+    }
+
 }

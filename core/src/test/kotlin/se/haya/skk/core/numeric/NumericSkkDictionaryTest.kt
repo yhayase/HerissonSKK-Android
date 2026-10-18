@@ -19,6 +19,22 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class NumericSkkDictionaryTest {
+    @Test fun `数値を含まない予測の再順位付けは後続候補の存在を保持する`() {
+        val target = se.haya.skk.core.PredictionHistoryTarget("か", "蚊", null, "蚊")
+        val raw = object : BasicSkkDictionary {
+            override fun lookup(query: DictionaryQuery) = emptyList<DictionaryCandidate>()
+            override fun predict(query: se.haya.skk.core.PredictionQuery) =
+                se.haya.skk.core.PredictionSearchResult.Ready(listOf(
+                    se.haya.skk.core.PredictionCandidate(DictionaryCandidate("蚊"), "蚊", target),
+                ), hasMore = true)
+            override fun predictionUsage(target: se.haya.skk.core.PredictionHistoryTarget) = 7L
+        }
+        val result = NumericSkkDictionary(raw).predict(se.haya.skk.core.PredictionQuery("か"))
+            as se.haya.skk.core.PredictionSearchResult.Ready
+        assertTrue(result.hasMore)
+        assertEquals(7L, result.items.single().lastUsedSequence)
+    }
+
     @Test fun `数値候補の個人注釈由来を展開と予測学習で保持する`() {
         val dictionary = facade(mapOf("だい#" to listOf(DictionaryCandidate("独自第#0", "独自数値注", annotationIsPersonal = true))))
         val expanded = dictionary.lookup(DictionaryQuery("だい12")).single()

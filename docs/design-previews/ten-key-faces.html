@@ -1,0 +1,133 @@
+<style>
+  #skk-face-cycle-preview > section { min-height: 620px; }
+  #skk-face-cycle-preview .skk-product { --skk-bg:light-dark(#f3f4f6,#191b20); --skk-panel:light-dark(#fff,#252830); --skk-text:light-dark(#242832,#f0f2f6); --skk-muted:light-dark(#586271,#b4bdca); --skk-border:light-dark(#d6dbe3,#454c59); --skk-accent:light-dark(#215daf,#a5c6ff); --skk-selected:light-dark(#e6eefb,#344765); color:var(--skk-text); font:400 14px/1.4 system-ui,sans-serif; }
+  #skk-face-cycle-preview .skk-product * { box-sizing:border-box; }
+  #skk-face-cycle-preview .phone { width:min(100%,420px); margin:0 auto; border:1px solid var(--skk-border); border-radius:22px; overflow:hidden; background:var(--skk-bg); }
+  #skk-face-cycle-preview .status { padding:6px 16px; color:var(--skk-muted); font-size:12px; }
+  #skk-face-cycle-preview .appbar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; background:var(--skk-panel); border-bottom:1px solid var(--skk-border); }
+  #skk-face-cycle-preview .appname { font-weight:500; }
+  #skk-face-cycle-preview .skk-product button, #skk-face-cycle-preview .skk-product select { font:inherit; color:var(--skk-text); background:var(--skk-panel); border:1px solid var(--skk-border); border-radius:9px; min-height:44px; padding:6px 8px; }
+  #skk-face-cycle-preview .skk-product button:disabled { color:var(--skk-muted); opacity:.65; }
+  #skk-face-cycle-preview .skk-product button[aria-pressed="true"] { background:var(--skk-selected); color:var(--skk-accent); }
+  #skk-face-cycle-preview .compose { padding:14px; background:var(--skk-panel); min-height:147px; }
+  #skk-face-cycle-preview .compose-label, #skk-face-cycle-preview .prediction-label, #skk-face-cycle-preview .result-label { color:var(--skk-muted); font-size:12px; }
+  #skk-face-cycle-preview .reading { font-size:23px; min-height:36px; overflow-wrap:anywhere; }
+  #skk-face-cycle-preview .predictions { display:flex; flex-wrap:wrap; gap:6px 14px; color:var(--skk-accent); margin-top:3px; }
+  #skk-face-cycle-preview .predictions span[aria-current="true"] { text-decoration:underline; }
+  #skk-face-cycle-preview .result { margin-top:8px; padding-top:8px; border-top:1px solid var(--skk-border); overflow-wrap:anywhere; }
+  #skk-face-cycle-preview .kind-header { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:8px 9px 0; }
+  #skk-face-cycle-preview .kind-header select { flex:1; min-width:120px; }
+  #skk-face-cycle-preview .keyboard { position:relative; display:grid; grid-template-columns:minmax(52px,.9fr) minmax(0,3fr) minmax(52px,.9fr); gap:6px; padding:10px 7px 14px; }
+  #skk-face-cycle-preview .side { display:grid; grid-template-rows:repeat(4,minmax(var(--skk-key-height,56px),auto)); gap:6px; }
+  #skk-face-cycle-preview .keys { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-rows:minmax(var(--skk-key-height,56px),auto); gap:6px; }
+  #skk-face-cycle-preview .skk-product .key { display:flex; flex-direction:column; justify-content:center; align-items:center; gap:2px; min-width:0; padding:3px; font-size:15px; background:var(--skk-panel); border:1px solid var(--skk-border); border-radius:9px; box-shadow:0 1px 2px light-dark(#0001,#0007); }
+  #skk-face-cycle-preview .side .key { font-size:12px; }
+  #skk-face-cycle-preview .kana-confirm { touch-action:none; }
+  #skk-face-cycle-preview .cycle-next { font-size:11px; color:var(--skk-muted); }
+  #skk-face-cycle-preview .keyboard-menu { position:absolute; z-index:2; inset:8px 8px auto; padding:12px; background:var(--skk-panel); border:1px solid var(--skk-border); border-radius:12px; box-shadow:0 5px 20px light-dark(#0003,#0008); }
+  #skk-face-cycle-preview .menu-heading { margin-bottom:8px; font-weight:500; }
+  #skk-face-cycle-preview .menu-actions { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  #skk-face-cycle-preview .settings { padding:14px; background:var(--skk-panel); }
+  #skk-face-cycle-preview .settings h2 { margin:0 0 10px; font-size:14px; font-weight:500; }
+  #skk-face-cycle-preview .setting-row { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:8px; padding:8px 0; border-top:1px solid var(--skk-border); }
+  #skk-face-cycle-preview .setting-row input { width:22px; height:22px; }
+  #skk-face-cycle-preview .settings-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; margin-top:10px; }
+  #skk-face-cycle-preview .feedback { min-height:32px; padding:0 12px 10px; color:var(--skk-muted); font-size:12px; }
+  #skk-face-cycle-preview [hidden] { display:none; }
+  @media(max-width:360px) { #skk-face-cycle-preview .keyboard { gap:4px; padding-inline:5px; } #skk-face-cycle-preview .keys, #skk-face-cycle-preview .side { gap:4px; } #skk-face-cycle-preview .skk-product .key { font-size:13px; } #skk-face-cycle-preview .side .key { font-size:11px; } }
+</style>
+<div id="skk-face-cycle-preview" class="viz-carousel viz-dotted-background" aria-label="10キー入力画面のデザイン案" data-previous-label="前の案" data-next-label="次の案">
+  <section data-variant="長押しで半カナ" aria-label="長押しで半カナ">
+    <div id="skk-cycle-independent" class="skk-product" data-layout="independent">
+      <div class="phone">
+        <div class="status">9:41　● ● ●</div>
+        <header class="appbar"><span class="appname">SKK</span><button type="button" class="settings-toggle cursor-interaction" aria-expanded="false">設定案</button></header>
+        <main class="product-view">
+          <div class="compose" aria-live="polite"><div class="compose-label">読み入力</div><div class="reading">▽APIのせってい</div><div class="prediction-label">予測候補の例</div><div class="predictions"><span>APIの設定</span><span>APIの設計</span></div><div class="result" hidden><div class="result-label">文字種確定の例</div><div class="result-text"></div></div></div>
+
+          <div class="keyboard" role="group" aria-label="かな入力キーボード">
+            <div class="side" role="group" aria-label="入力面と文字種確定"><button type="button" class="key cycle cursor-interaction"><span class="cycle-current">かな</span><span class="cycle-next">次：ABC</span></button><button type="button" class="key kind-toggle cursor-interaction">ひらがな</button><button type="button" class="key kana-confirm cursor-interaction" data-gesture="hold"><span>カナ確定</span><span class="cycle-next">長押し:半カナ</span></button><button type="button" class="key" disabled aria-label="IME切替（表示案）">IME</button></div>
+            <div class="keys" role="group" aria-label="かなキー配置"></div>
+            <div class="side controls" role="group" aria-label="操作キー"><button type="button" class="key cursor-interaction" data-action="delete" aria-label="1文字削除">⌫</button><button type="button" class="key cursor-interaction" data-action="space">変換</button><button type="button" class="key cursor-interaction" data-action="boundary">境界</button><button type="button" class="key cursor-interaction" data-action="confirm">確定</button></div>
+          </div>
+          <div class="feedback" aria-live="polite"></div>
+        </main>
+        <section class="settings" hidden aria-label="10キー設定案"><h2>10キー設定案・初期値は提案</h2><div class="setting-row"><label for="skk-method-independent">10キー操作</label><select id="skk-method-independent" class="cursor-interaction"><option>通常のタップ・フリック</option><option selected>ホールド境界</option><option>ホールド＋往復</option></select></div><div class="setting-row"><label for="skk-wait-independent">境界の待ち時間（案）</label><select id="skk-wait-independent" class="cursor-interaction"><option>短め</option><option selected>標準</option><option>長め</option></select></div><div class="setting-row"><label for="skk-haptic-independent">ホールド境界で振動</label><input id="skk-haptic-independent" class="haptic-setting cursor-interaction" type="checkbox" checked></div><div class="settings-actions"><button type="button" disabled>標準に戻す</button><button type="button" disabled>保存</button><button type="button" class="back cursor-interaction">戻る</button></div></section>
+      </div>
+    </div>
+  </section>
+  <section data-variant="上フリックで半カナ" aria-label="上フリックで半カナ" hidden>
+    <div id="skk-cycle-combined" class="skk-product" data-layout="combined">
+      <div class="phone">
+        <div class="status">9:41　● ● ●</div>
+        <header class="appbar"><span class="appname">SKK</span><button type="button" class="settings-toggle cursor-interaction" aria-expanded="false">設定案</button></header>
+        <main class="product-view">
+          <div class="compose" aria-live="polite"><div class="compose-label">読み入力</div><div class="reading">▽APIのせってい</div><div class="prediction-label">予測候補の例</div><div class="predictions"><span>APIの設定</span><span>APIの設計</span></div><div class="result" hidden><div class="result-label">文字種確定の例</div><div class="result-text"></div></div></div>
+          <div class="keyboard" role="group" aria-label="かな入力キーボード">
+            <div class="side" role="group" aria-label="入力面と文字種"><button type="button" class="key cycle cursor-interaction"><span class="cycle-current">かな</span><span class="cycle-next">次：ABC</span></button><button type="button" class="key kind-toggle cursor-interaction">ひらがな</button><button type="button" class="key kana-confirm cursor-interaction" data-gesture="flick"><span>カナ確定</span><span class="cycle-next">↑:半カナ</span></button><button type="button" class="key" disabled aria-label="IME切替（表示案）">IME</button></div>
+            <div class="keys" role="group" aria-label="かなキー配置"></div>
+            <div class="side controls" role="group" aria-label="操作キー"><button type="button" class="key cursor-interaction" data-action="delete" aria-label="1文字削除">⌫</button><button type="button" class="key cursor-interaction" data-action="space">変換</button><button type="button" class="key cursor-interaction" data-action="boundary">境界</button><button type="button" class="key cursor-interaction" data-action="confirm">確定</button></div>
+
+          </div>
+          <div class="feedback" aria-live="polite"></div>
+        </main>
+        <section class="settings" hidden aria-label="10キー設定案"><h2>10キー設定案・初期値は提案</h2><div class="setting-row"><label for="skk-method-combined">10キー操作</label><select id="skk-method-combined" class="cursor-interaction"><option>通常のタップ・フリック</option><option selected>ホールド境界</option><option>ホールド＋往復</option></select></div><div class="setting-row"><label for="skk-wait-combined">境界の待ち時間（案）</label><select id="skk-wait-combined" class="cursor-interaction"><option>短め</option><option selected>標準</option><option>長め</option></select></div><div class="setting-row"><label for="skk-haptic-combined">ホールド境界で振動</label><input id="skk-haptic-combined" class="haptic-setting cursor-interaction" type="checkbox" checked></div><div class="settings-actions"><button type="button" disabled>標準に戻す</button><button type="button" disabled>保存</button><button type="button" class="back cursor-interaction">戻る</button></div></section>
+      </div>
+    </div>
+  </section>
+</div>
+<script>
+(() => {
+  const preview=document.getElementById('skk-face-cycle-preview');
+  const order=['kana','alpha','numbers'];
+  const faces={kana:{label:'かな',short:'かな',keys:['あ','か','さ','た','な','は','ま','や','ら','小゛゜','わ','、']},alpha:{label:'英字',short:'ABC',keys:['@#/&_','abc','def','ghi','jkl','mno','pqrs','tuv','wxyz','a/A',"'\"()",'.,?!']},numbers:{label:'数字',short:'123',keys:['1','2','3','4','5','6','7','8','9','符号','0','小数点']}};
+  const kinds={kana:['ひらがな','カタカナ'],alpha:['半角英字','全角英字'],numbers:['半角数字','全角数字']};
+  const fullwidth=value=>value.replace(/[A-Za-z0-9]/g,char=>String.fromCharCode(char.charCodeAt(0)+0xfee0));
+  const kata=value=>value.replace(/[ぁ-ゖ]/g,char=>String.fromCharCode(char.charCodeAt(0)+0x60));
+  const map=Object.fromEntries(Array.from('。「」、・ヲァィゥェォャュョッーアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン゛゜').map((char,index)=>[char,String.fromCharCode(0xff61+index)]));
+  const half=value=>kata(value).replace(/[。「」、・ヲァ-ヶー゛゜]/g,char=>Array.from(char.normalize('NFD').replace(/\u3099/g,'゛').replace(/\u309a/g,'゜')).map(part=>map[part]||part).join(''));
+  preview.querySelectorAll('.skk-product').forEach(root=>{
+    const state={face:'kana',kind:{kana:0,alpha:0,numbers:0},caps:false,reading:true,result:'',keyHeight:56};
+    const q=selector=>root.querySelector(selector), grid=q('.keys'), convert=q('.kana-confirm');
+    function restore(saved){if(!saved||!order.includes(saved.face))return;state.face=saved.face;Object.keys(kinds).forEach(face=>state.kind[face]=saved.kind?.[face]===1?1:0);state.caps=!!saved.caps;}
+    restore(window.openai?.widgetState?.privateContent?.[root.id]);
+    function save(){if(!window.openai?.setWidgetState)return;const snapshots={};preview.querySelectorAll('.skk-product').forEach(product=>{snapshots[product.id]=product.skkSnapshot;});window.openai.setWidgetState({modelContent:{選択案:root.closest('[data-variant]').dataset.variant,入力面:faces[state.face].label},privateContent:snapshots}).catch(()=>{});}
+    function draw(){
+      const face=faces[state.face],next=faces[order[(order.indexOf(state.face)+1)%3]];
+      q('.cycle-current').textContent=face.short;q('.cycle-next').textContent=`次：${next.short}`;q('.cycle').setAttribute('aria-label',`入力面：${face.label}。次は${next.label}`);
+      q('.kind-toggle').textContent=kinds[state.face][state.kind[state.face]];q('.kind-toggle').setAttribute('aria-label',`入力文字種：${kinds[state.face][state.kind[state.face]]}。切替`);
+      grid.replaceChildren(...face.keys.map((original,index)=>{
+        let label=original;if(state.face==='kana'&&state.kind.kana===1)label=kata(label);if(state.face==='alpha'&&state.caps&&index>0&&index<9)label=label.toUpperCase();if(state.face!=='kana'&&state.kind[state.face]===1)label=fullwidth(label);
+        const isCase=state.face==='alpha'&&index===9,element=document.createElement(isCase?'button':'div');element.className='key';element.textContent=label;
+        if(isCase){element.type='button';element.classList.add('cursor-interaction');element.dataset.case='true';element.setAttribute('aria-pressed',String(state.caps));element.setAttribute('aria-label',`次に入力する英字：${state.caps?'大文字':'小文字'}。切替`);}return element;
+      }));
+      grid.setAttribute('aria-label',`${face.label}キー配置（表示案）`);q('.keyboard').setAttribute('aria-label',`${face.label}入力キーボード`);root.style.setProperty('--skk-key-height',`${state.keyHeight}px`);
+      q('.compose-label').textContent=state.reading?'読み入力':'直接入力';q('.reading').textContent=state.reading?'▽APIのせってい':'';q('.prediction-label').hidden=!state.reading;q('.predictions').hidden=!state.reading;
+      q('[data-action="boundary"]').textContent=state.reading?'境界':'読み開始';q('[data-action="boundary"]').disabled=state.reading;
+      q('[data-action="space"]').textContent=state.reading?'変換':'空白';q('[data-action="space"]').disabled=true;q('[data-action="delete"]').disabled=true;q('[data-action="confirm"]').disabled=!state.reading;
+      convert.disabled=!state.reading;convert.setAttribute('aria-label',`カナ確定。${convert.dataset.gesture==='hold'?'長押し':'上フリック'}で半カナ確定（表示例）`);
+      q('.result').hidden=!state.result;q('.result-text').textContent=state.result;root.skkSnapshot={face:state.face,kind:{...state.kind},caps:state.caps};
+    }
+    function update(){draw();save();}
+    function confirm(isHalf=false){if(!state.reading)return;state.result=isHalf?half('APIのせってい'):kata('APIのせってい');state.reading=false;q('.result-label').textContent='文字種確定の例';q('.feedback').textContent=isHalf?'半カナ確定の例':'カナ確定の例';update();}
+    q('.cycle').addEventListener('click',()=>{state.face=order[(order.indexOf(state.face)+1)%3];update();});q('.kind-toggle').addEventListener('click',()=>{state.kind[state.face]=1-state.kind[state.face];update();});
+    grid.addEventListener('click',event=>{if(event.target.closest('[data-case]')){state.caps=!state.caps;update();}});
+    q('[data-action="boundary"]').addEventListener('click',()=>{state.reading=true;state.result='';q('.feedback').textContent='読み入力の例';update();});
+    q('[data-action="confirm"]').addEventListener('click',()=>{state.reading=false;state.result='APIのせってい';q('.result-label').textContent='確定結果の例';q('.feedback').textContent='確定の例';update();});
+    let pointer=null,timer=null,suppress=false;
+    function clearGesture(){clearTimeout(timer);timer=null;pointer=null;}
+    convert.addEventListener('pointerdown',event=>{
+      if(pointer!==null||!event.isPrimary||event.button!==0||!state.reading)return;
+      suppress=false;pointer={id:event.pointerId,y:event.clientY,half:false};convert.setPointerCapture(event.pointerId);
+      if(convert.dataset.gesture==='hold')timer=setTimeout(()=>{if(pointer){pointer.half=true;}},600);
+    });
+    convert.addEventListener('pointermove',event=>{if(pointer?.id===event.pointerId&&convert.dataset.gesture==='flick'&&pointer.y-event.clientY>=28)pointer.half=true;});
+    convert.addEventListener('pointerup',event=>{if(pointer?.id!==event.pointerId)return;const special=pointer.half;clearGesture();if(special){suppress=true;confirm(true);}});
+    convert.addEventListener('pointercancel',event=>{if(pointer?.id===event.pointerId){suppress=true;clearGesture();}});convert.addEventListener('lostpointercapture',event=>{if(pointer?.id===event.pointerId){suppress=true;clearGesture();}});
+    convert.addEventListener('click',()=>{if(suppress){suppress=false;return;}confirm(false);});
+    const settings=q('.settings'),product=q('.product-view'),toggle=q('.settings-toggle');const showSettings=show=>{settings.hidden=!show;product.hidden=show;toggle.setAttribute('aria-expanded',String(show));};toggle.addEventListener('click',()=>showSettings(settings.hidden));q('.back').addEventListener('click',()=>{showSettings(false);toggle.focus();});
+    window.addEventListener('openai:set_globals',event=>{restore(event.detail?.globals?.widgetState?.privateContent?.[root.id]);draw();});draw();
+    if(globalThis.Tweak){const tweak=new Tweak({container:q('.keyboard'),onChange:draw});tweak.addSlider(state,'keyHeight',{label:'キーの高さ',min:48,max:64,step:2,unit:'px',reference:'keyboard.keyHeight'});}
+  });
+})();
+</script>

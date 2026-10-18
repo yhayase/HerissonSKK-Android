@@ -10,6 +10,13 @@ import android.view.inputmethod.ExtractedTextRequest
 import se.haya.skk.core.BasicSkkAction
 import se.haya.skk.core.InputMode
 import se.haya.skk.core.InputPhase
+import se.haya.skk.core.BasicSkkDictionary
+import se.haya.skk.core.DictionaryCandidate
+import se.haya.skk.core.DictionaryQuery
+import se.haya.skk.core.PredictionQuery
+import se.haya.skk.core.PredictionSearchResult
+import se.haya.skk.core.PredictionCandidate
+import se.haya.skk.core.PredictionHistoryTarget
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -209,7 +216,7 @@ class EditorSessionTest {
         assertEquals(listOf(EditorInfo.IME_ACTION_SEND), connection.editorActions)
     }
 
-    @Test fun `予測結果が未判定の読みは画面右下キーで推測確定しない`() {
+    @Test fun `予測結果が未判定の読みも画面右下キーで文字を変えず確定する`() {
         val connection = Connection()
         val unsupported = se.haya.skk.core.BasicSkkDictionary {
             emptyList<se.haya.skk.core.DictionaryCandidate>()
@@ -222,7 +229,7 @@ class EditorSessionTest {
         assertNotNull(current.view.prediction?.failure)
         assertTrue(current.handleTouchPrimary())
         assertEquals("か", connection.editable.toString())
-        assertEquals(InputPhase.READING, current.engine.state.phase)
+        assertEquals(InputPhase.IDLE, current.engine.state.phase)
         assertTrue(connection.editorActions.isEmpty())
     }
 
@@ -516,7 +523,7 @@ class EditorSessionTest {
         assertFalse(connection.editable.toString().contains("あ"))
     }
 
-    @Test fun `画面予測の右下キーは先頭を確定して入力欄アクションを続けない`() {
+    @Test fun `画面予測の右下キーは読みを変えず確定して入力欄アクションを続けない`() {
         val connection = Connection()
         val target = se.haya.skk.core.PredictionHistoryTarget("か", "蚊", null, "蚊")
         val dictionary = object : se.haya.skk.core.BasicSkkDictionary {
@@ -538,7 +545,98 @@ class EditorSessionTest {
         assertEquals("蚊", current.view.prediction?.items?.single()?.committedText)
 
         assertTrue(current.handleTouchPrimary())
-        assertEquals("蚊", connection.editable.toString())
+        assertEquals("か", connection.editable.toString())
+        assertEquals(InputPhase.IDLE, current.engine.state.phase)
+        assertTrue(connection.editorActions.isEmpty())
+    }
+
+    private fun touchPrimaryDictionary() = object : BasicSkkDictionary {
+        override fun lookup(query: DictionaryQuery) = listOf(DictionaryCandidate("明示候補"))
+        override fun predict(query: PredictionQuery) = PredictionSearchResult.Ready(listOf(
+            PredictionCandidate(DictionaryCandidate("書"), "書く",
+                PredictionHistoryTarget("かk", "書", "く", "書く")),
+        ), false)
+    }
+
+    @Test fun `画面確定は予測があっても混在文字と未消化ローマ字を表示どおりに確定する`() {
+        val inputs = listOf(
+            listOf(BasicSkkAction.StartTouchReading(), BasicSkkAction.TouchText("か")),
+            listOf(BasicSkkAction.StartTouchReading(), BasicSkkAction.TouchText("APIの設定１２ｶﾅ")),
+            listOf(BasicSkkAction.StartTouchReading(InputMode.KATAKANA), BasicSkkAction.TouchText("かなAPI１２")),
+            listOf(BasicSkkAction.StartReading, BasicSkkAction.Text("ten", interpretCommands = false)),
+            listOf(BasicSkkAction.StartAbbrev, BasicSkkAction.Text("APIがn", interpretCommands = false)),
+        )
+        for (actions in inputs) {
+            val connection = Connection()
+            val direct = java.util.concurrent.Executor { it.run() }
+            val current = EditorSession(1, connection, false, true, 0, 0, touchPrimaryDictionary(),
+                callbackExecutor = direct, dictionaryExecutor = direct,
+                touchEditorAction = EditorInfo.IME_ACTION_SEND)
+            current.setTouchCandidatePresentation(true)
+            actions.forEach { assertTrue(current.handleTouch(it)) }
+            val displayed = current.view.composing
+            assertEquals(if (BasicSkkAction.StartTouchReading(InputMode.KATAKANA) in actions) "書ク" else "書く",
+                current.view.prediction?.items?.first()?.committedText)
+            assertTrue(current.handleTouchPrimary())
+            assertEquals(displayed, connection.editable.toString())
+            assertEquals(InputPhase.IDLE, current.engine.state.phase)
+            assertTrue(connection.editorActions.isEmpty())
+        }
+    }
+
+    @Test fun `登録内の画面確定も予測を採用せず読みを本文へ入れて保存しない`() {
+        val connection = Connection()
+        val direct = java.util.concurrent.Executor { it.run() }
+        var saves = 0
+        val current = EditorSession(1, connection, false, true, 0, 0, touchPrimaryDictionary(),
+            registrationSaver = { _, _ -> saves++ }, callbackExecutor = direct, dictionaryExecutor = direct,
+            touchEditorAction = EditorInfo.IME_ACTION_SEND)
+        current.setTouchCandidatePresentation(true)
+        current.handleTouch(BasicSkkAction.TouchText("おや", boundary = true))
+        current.handleTouch(BasicSkkAction.RegisterCandidate)
+        current.handleTouch(BasicSkkAction.TouchText("親本文"))
+        current.handleTouch(BasicSkkAction.StartTouchReading())
+        current.handleTouch(BasicSkkAction.TouchText("かAPI１２"))
+        assertEquals("書く", current.view.prediction?.items?.first()?.committedText)
+        assertTrue(current.handleTouchPrimary())
+        assertEquals("親本文かAPI１２", current.view.registration?.body)
+        assertEquals(1, current.engine.state.registrationDepth)
+        assertEquals(InputPhase.IDLE, current.engine.state.phase)
+        assertEquals(0, saves)
+        assertEquals("おや", connection.editable.toString())
+        assertTrue(connection.editorActions.isEmpty())
+    }
+
+    @Test fun `予測候補を直接選ぶ操作はその候補を確定する`() {
+        val connection = Connection()
+        val direct = java.util.concurrent.Executor { it.run() }
+        val current = EditorSession(1, connection, false, true, 0, 0, touchPrimaryDictionary(),
+            callbackExecutor = direct, dictionaryExecutor = direct)
+        current.setTouchCandidatePresentation(true)
+        current.handleTouch(BasicSkkAction.TouchText("か", boundary = true))
+        val prediction = current.view.prediction!!
+        assertTrue(current.handleTouch(BasicSkkAction.CommitPrediction(0, prediction.items.first(), prediction)))
+        assertEquals("書く", connection.editable.toString())
+        assertEquals(InputPhase.IDLE, current.engine.state.phase)
+    }
+
+    @Test fun `送りありの読みの画面確定は語幹と送りだけを変えず確定する`() {
+        val connection = Connection()
+        val direct = java.util.concurrent.Executor { it.run() }
+        val current = EditorSession(1, connection, false, true, 0, 0, touchPrimaryDictionary(),
+            callbackExecutor = direct, dictionaryExecutor = direct,
+            candidateDisplayConfig = se.haya.skk.core.CandidateDisplayConfig(showCompositionMarkers = true),
+            touchEditorAction = EditorInfo.IME_ACTION_SEND)
+        current.setTouchCandidatePresentation(true)
+        current.handleTouch(BasicSkkAction.TouchText("か", boundary = true))
+        current.handleTouch(BasicSkkAction.TouchText("く", boundary = true))
+        current.handleTouchBackspace()
+        assertEquals(InputPhase.READING, current.engine.state.phase)
+        assertEquals("か", current.engine.state.reading)
+        assertEquals("く", current.engine.state.okuri)
+        assertTrue(current.handleTouchPrimary())
+        assertEquals("かく", connection.editable.toString())
+        assertEquals(InputPhase.IDLE, current.engine.state.phase)
         assertTrue(connection.editorActions.isEmpty())
     }
 

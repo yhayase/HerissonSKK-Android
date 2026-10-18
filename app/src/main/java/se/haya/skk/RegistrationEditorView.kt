@@ -26,6 +26,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.widget.AppCompatTextView
 import kotlin.math.abs
+import se.haya.skk.input.KeyboardColors
 
 /** フォーカスや入力接続を持たず、IME 内の登録バッファだけを描画します。 */
 internal class RegistrationEditorView @JvmOverloads constructor(
@@ -111,6 +112,18 @@ internal class RegistrationEditorView @JvmOverloads constructor(
         addView(parentView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(editorScroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         editorView.setOnTouchListener { _, event -> handleCaretTouch(event) }
+        refreshColors()
+    }
+
+    internal fun refreshColors() {
+        val colors = KeyboardColors.resolve(context)
+        listOf(titleView, parentView, editorView, modeView).forEach { it.setTextColor(colors.text) }
+        editorView.setBackgroundColor(colors.characterBackground)
+        modeView.setBackgroundColor(colors.functionBackground)
+        listOf(registerButton, cancelButton).forEach {
+            it.setTextColor(colors.text)
+            it.setBackgroundColor(colors.functionBackground)
+        }
     }
 
     fun setCallbacks(onRegister: () -> Unit, onCancel: () -> Unit, onCaret: (Int) -> Unit) {
@@ -120,6 +133,7 @@ internal class RegistrationEditorView @JvmOverloads constructor(
     }
 
     fun show(value: RegistrationPresentation) {
+        refreshColors()
         presentation = value
         titleView.text = "単語登録：${value.titleReading}"
         parentView.text = value.parentReading?.let { "親：$it" }.orEmpty()
@@ -240,6 +254,7 @@ internal class RegistrationTextView(context: Context) : AppCompatTextView(contex
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        cursorPaint.color = currentTextColor
         val layout = layout ?: return
         val offset = cursor.coerceIn(0, text.length)
         val line = layout.getLineForOffset(offset)

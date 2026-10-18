@@ -22,7 +22,8 @@ import se.haya.skk.core.PredictionHistoryTarget
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchFailure
 import se.haya.skk.core.PredictionSearchResult
-import se.haya.skk.core.rankPredictionCandidates
+import se.haya.skk.core.PredictionCandidateCollector
+import se.haya.skk.core.predictionCandidateRetainedChars
 import se.haya.skk.core.dictionary.DictionaryUnavailableException
 import se.haya.skk.core.dictionary.DictionaryUnavailableReason
 import se.haya.skk.core.dictionary.CompositeSkkDictionary
@@ -63,11 +64,6 @@ internal data class DictionaryReadStats(
     val prefixReads: Long,
     val fullSnapshotReads: Long,
 )
-
-private sealed interface PredictionPrefixRows<out T> {
-    data class Ready<T>(val value: T) : PredictionPrefixRows<T>
-    data class Limited(val failure: PredictionSearchFailure) : PredictionPrefixRows<Nothing>
-}
 
 /** 候補行を読まずに固定する公開世代です。 */
 data class DictionaryMetadata(
@@ -598,69 +594,122 @@ class SQLiteDictionaryRepository internal constructor(
         return database.inReadTransaction {
             checkReadRevision(database, expectedRevision)
             if (query.prefix.isEmpty() || query.prefix.length > PredictionQuery.MAX_PREFIX_CHARS ||
+                query.prefix.codePoints().anyMatch { it in 0xd800..0xdfff } ||
                 query.limit !in 1..PredictionQuery.MAX_RESULTS ||
                 query.workLimit !in 1..PredictionQuery.MAX_WORK_ITEMS ||
                 query.totalResultCharsLimit !in 1..PredictionQuery.MAX_TOTAL_RESULT_CHARS
             ) return@inReadTransaction PredictionSearchResult.Indeterminate(PredictionSearchFailure.INVALID_INPUT)
             val upper = prefixUpperBound(query.prefix)
-            val args = mutableListOf<String>(query.prefix)
-            val upperClause = if (upper == null) "" else " AND c.$COLUMN_ENTRY_KEY < ?".also { args += upper }
-            val builders = linkedMapOf<String, SnapshotBuilder>()
-            val sourceInfo = querySources(database).filter { it.enabled }
-            sourceInfo.forEach { source ->
-                builders[source.id] = SnapshotBuilder(source.id, source.generation,
-                    source.kind == DictionarySourceKind.PERSONAL)
-            }
+            val args = mutableListOf(query.prefix)
+            val upperClause = if (upper == null) "" else " AND entry_key < ?".also { args += upper }
+            val allSources = querySources(database)
+            val sourceInfo = allSources.filter { it.enabled }
+            val storedIds = allSources.map { it.id }.toSet()
+            val fallbacks = if (readAllowFallback(database)) {
+                fallbackSystems.filter { it.enabled && it.id !in storedIds }
+            } else emptyList()
+            val fallbackIterators = fallbacks.map { it.completionKeys(query.prefix).iterator() }
+            val fallbackKeys = fallbackIterators.map { if (it.hasNext()) it.next() else null }.toMutableList()
+            val collector = PredictionCandidateCollector(query.limit, query.totalResultCharsLimit)
             var work = 0
-            var totalChars = 0L
+            // SQL の BINARY 順と代替辞書のコードポイント順を同じ順序で併合します。
+            val keyOrder = Comparator<String> { left, right ->
+                val a = left.codePoints().iterator()
+                val b = right.codePoints().iterator()
+                var result = 0
+                while (a.hasNext() && b.hasNext() && result == 0) result = a.nextInt().compareTo(b.nextInt())
+                if (result != 0) result else a.hasNext().compareTo(b.hasNext())
+            }
             database.rawQuery(
                 """
-                SELECT s.$COLUMN_ID,s.$COLUMN_GENERATION,s.$COLUMN_KIND,
-                       c.$COLUMN_ENTRY_KEY,c.$COLUMN_TEXT,c.$COLUMN_ANNOTATION,c.$COLUMN_OKURI,c.$COLUMN_SECTION,c.$COLUMN_ANNOTATION_IS_PERSONAL
-                  FROM $TABLE_SOURCES s JOIN $TABLE_CANDIDATES c ON c.$COLUMN_SOURCE_ID=s.$COLUMN_ID
+                SELECT c.$COLUMN_ENTRY_KEY,c.$COLUMN_SOURCE_ID,c.$COLUMN_TEXT,c.$COLUMN_ANNOTATION,
+                       c.$COLUMN_OKURI,c.$COLUMN_SECTION,c.$COLUMN_ANNOTATION_IS_PERSONAL
+                  FROM $TABLE_CANDIDATES c JOIN $TABLE_SOURCES s ON c.$COLUMN_SOURCE_ID=s.$COLUMN_ID
                  WHERE s.$COLUMN_ENABLED=1 AND c.$COLUMN_DATE_EXPRESSION=0 AND c.$COLUMN_ENTRY_KEY>=?$upperClause
                  ORDER BY c.$COLUMN_ENTRY_KEY,s.$COLUMN_KIND,s.$COLUMN_ORDER,c.$COLUMN_ORDINAL
                  LIMIT ${query.workLimit + 1}
                 """.trimIndent(), args.toTypedArray(),
-            ).use { cursor ->
-                while (cursor.moveToNext()) {
-                    if (++work > query.workLimit) {
-                        return@inReadTransaction PredictionSearchResult.Indeterminate(PredictionSearchFailure.WORK_LIMIT)
+            ).use { candidates ->
+                database.rawQuery(
+                    "SELECT $COLUMN_ENTRY_KEY,$COLUMN_SOURCE_ID,$COLUMN_TEXT,$COLUMN_OKURI FROM $TABLE_SUPPRESSIONS WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY>=?$upperClause ORDER BY $COLUMN_ENTRY_KEY LIMIT ${query.workLimit + 1}",
+                    args.toTypedArray(),
+                ).use { suppressions ->
+                    database.rawQuery(
+                        "SELECT $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE FROM $TABLE_USAGE WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY>=?$upperClause ORDER BY $COLUMN_ENTRY_KEY LIMIT ${query.workLimit + 1}",
+                        args.toTypedArray(),
+                    ).use { usages ->
+                        var candidateReady = candidates.moveToNext()
+                        var suppressionReady = suppressions.moveToNext()
+                        var usageReady = usages.moveToNext()
+                        while (candidateReady || suppressionReady || usageReady || fallbackKeys.any { it != null }) {
+                            val key = (listOfNotNull(
+                                if (candidateReady) candidates.getString(0) else null,
+                                if (suppressionReady) suppressions.getString(0) else null,
+                                if (usageReady) usages.getString(0) else null,
+                            ) + fallbackKeys.filterNotNull()).minWith(keyOrder)
+                            var scratchChars = 0L
+                            fun charge(chars: Long): PredictionSearchResult.Indeterminate? {
+                                if (++work > query.workLimit) return PredictionSearchResult.Indeterminate(PredictionSearchFailure.WORK_LIMIT)
+                                scratchChars += chars
+                                if (scratchChars > query.totalResultCharsLimit) return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
+                                return null
+                            }
+                            // 空の辞書も残し、読みごとに辞書順位と個人辞書世代が変わることを防ぎます。
+                            val builders = sourceInfo.associate { source ->
+                                source.id to SnapshotBuilder(source.id, source.generation, source.kind == DictionarySourceKind.PERSONAL)
+                            }
+                            while (candidateReady && candidates.getString(0) == key) {
+                                val id = candidates.getString(1)
+                                val text = candidates.getString(2)
+                                val annotation = candidates.nullableString(3)
+                                val okuri = candidates.nullableString(4)
+                                charge(key.length.toLong() + id.length + text.length + (annotation?.length ?: 0) + (okuri?.length ?: 0))?.let { return@inReadTransaction it }
+                                builders.getValue(id).sections.putIfAbsent(key, readSection(candidates.getString(5)))
+                                builders.getValue(id).entries.getOrPut(key) { mutableListOf() } +=
+                                    SkkDictionaryCandidate(text, annotation, okuri, candidates.getInt(6) != 0)
+                                candidateReady = candidates.moveToNext()
+                            }
+                            val hidden = mutableListOf<SuppressedDictionaryCandidate>()
+                            while (suppressionReady && suppressions.getString(0) == key) {
+                                val id = suppressions.getString(1)
+                                val text = suppressions.getString(2)
+                                val okuri = suppressions.getString(3).takeIf(String::isNotEmpty)
+                                charge(key.length.toLong() + id.length + text.length + (okuri?.length ?: 0))?.let { return@inReadTransaction it }
+                                hidden += SuppressedDictionaryCandidate(id, key, text, okuri)
+                                suppressionReady = suppressions.moveToNext()
+                            }
+                            val history = linkedMapOf<PredictionHistoryTarget, Long>()
+                            while (usageReady && usages.getString(0) == key) {
+                                val text = usages.getString(1)
+                                val okuri = usages.getString(2).takeIf(String::isNotEmpty)
+                                val committed = usages.getString(3)
+                                charge(key.length.toLong() + text.length + (okuri?.length ?: 0) + committed.length)?.let { return@inReadTransaction it }
+                                history[PredictionHistoryTarget(key, text, okuri, committed)] = usages.getLong(4)
+                                usageReady = usages.moveToNext()
+                            }
+                            fallbacks.forEachIndexed { index, source ->
+                                if (fallbackKeys[index] == key) {
+                                    source.candidates(key).forEach { candidate ->
+                                        charge(key.length.toLong() + source.id.length + candidate.text.length +
+                                            (candidate.annotation?.length ?: 0) + (candidate.okuriCondition?.length ?: 0))?.let { return@inReadTransaction it }
+                                    }
+                                    val iterator = fallbackIterators[index]
+                                    fallbackKeys[index] = if (iterator.hasNext()) iterator.next() else null
+                                }
+                            }
+                            val personal = builders.values.firstOrNull { it.personal }?.asSource()
+                            val systems = builders.values.filterNot { it.personal }.map { it.asSource() }
+                            val composite = CompositeSkkDictionary(personal, systems + fallbacks, hidden, history::get)
+                            val resolved = composite.predictionCandidatesForReading(key, query.abbrev)
+                            if (resolved.sumOf(::predictionCandidateRetainedChars) > query.totalResultCharsLimit) {
+                                return@inReadTransaction PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
+                            }
+                            resolved.forEach(collector::add)
+                        }
                     }
-                    val entryKey = cursor.getString(3)
-                    val text = cursor.getString(4)
-                    val annotation = cursor.nullableString(5)
-                    val okuri = cursor.nullableString(6)
-                    totalChars += entryKey.length + text.length + (annotation?.length ?: 0) + (okuri?.length ?: 0)
-                    if (totalChars > query.totalResultCharsLimit) {
-                        return@inReadTransaction PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
-                    }
-                    val id = cursor.getString(0)
-                    builders.getValue(id).sections.putIfAbsent(entryKey, readSection(cursor.getString(7)))
-                    builders.getValue(id).entries.getOrPut(entryKey) { mutableListOf() } +=
-                        SkkDictionaryCandidate(text, annotation, okuri, cursor.getInt(8) != 0)
                 }
             }
-            val personal = builders.values.firstOrNull { it.personal }?.asSource()
-            val systems = builders.values.filterNot { it.personal }.map { it.asSource() }
-            val storedIds = sourceInfo.map { it.id }.toSet()
-            val fallbacks = if (readAllowFallback(database)) fallbackSystems.filterNot { it.id in storedIds } else emptyList()
-            val suppressions = when (val rows = readSuppressionsForPrefix(
-                database, query.prefix, upper, query.workLimit, query.totalResultCharsLimit,
-            )) {
-                is PredictionPrefixRows.Ready -> rows.value
-                is PredictionPrefixRows.Limited -> return@inReadTransaction PredictionSearchResult.Indeterminate(rows.failure)
-            }
-            val usages = when (val rows = readPredictionUsageForPrefix(
-                database, query.prefix, upper, query.workLimit, query.totalResultCharsLimit,
-            )) {
-                is PredictionPrefixRows.Ready -> rows.value
-                is PredictionPrefixRows.Limited -> return@inReadTransaction PredictionSearchResult.Indeterminate(rows.failure)
-            }
-            val composite = CompositeSkkDictionary(personal, systems + fallbacks, suppressions.map {
-                SuppressedDictionaryCandidate(it.key.sourceId, it.key.entryKey, it.key.templateText, it.key.okuriCondition, it.key.dateExpression)
-            }, usageLookup = usages::get)
-            composite.predict(query)
+            collector.result()
         }
     }
 
@@ -678,74 +727,6 @@ class SQLiteDictionaryRepository internal constructor(
             "$COLUMN_ENTRY_KEY=? AND $COLUMN_TEMPLATE_TEXT=? AND $COLUMN_OKURI=? AND $COLUMN_COMMITTED_TEXT=? AND $COLUMN_DATE_EXPRESSION=?",
             arrayOf(target.readingKey, target.templateText, target.okuriCondition ?: NO_OKURI, target.committedText, if (target.dateExpression) "1" else "0"),
             null, null, null, "1").use { if (it.moveToFirst()) it.getLong(0) else null }
-
-    private fun readPredictionUsageForPrefix(
-        database: SQLiteDatabase,
-        prefix: String,
-        upper: String?,
-        workLimit: Int,
-        totalCharsLimit: Int,
-    ): PredictionPrefixRows<Map<PredictionHistoryTarget, Long>> {
-        val args = mutableListOf(prefix)
-        val upperClause = if (upper == null) "" else " AND $COLUMN_ENTRY_KEY < ?".also { args += upper }
-        var work = 0
-        var totalChars = 0L
-        val values = linkedMapOf<PredictionHistoryTarget, Long>()
-        database.rawQuery(
-            "SELECT $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE FROM $TABLE_USAGE WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY>=?$upperClause LIMIT ${workLimit + 1}",
-            args.toTypedArray(),
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                if (++work > workLimit) {
-                    return PredictionPrefixRows.Limited(PredictionSearchFailure.WORK_LIMIT)
-                }
-                val readingKey = cursor.getString(0)
-                val templateText = cursor.getString(1)
-                val okuri = cursor.getString(2).takeIf(String::isNotEmpty)
-                val committedText = cursor.getString(3)
-                totalChars += readingKey.length + templateText.length + (okuri?.length ?: 0) + committedText.length
-                if (totalChars > totalCharsLimit) {
-                    return PredictionPrefixRows.Limited(PredictionSearchFailure.RESULT_LIMIT)
-                }
-                values[PredictionHistoryTarget(readingKey, templateText, okuri, committedText)] = cursor.getLong(4)
-            }
-        }
-        return PredictionPrefixRows.Ready(values)
-    }
-
-    private fun readSuppressionsForPrefix(
-        database: SQLiteDatabase,
-        prefix: String,
-        upper: String?,
-        workLimit: Int,
-        totalCharsLimit: Int,
-    ): PredictionPrefixRows<List<CandidateSuppressionInfo>> {
-        val args = mutableListOf(prefix)
-        val upperClause = if (upper == null) "" else " AND $COLUMN_ENTRY_KEY < ?".also { args += upper }
-        var work = 0
-        var totalChars = 0L
-        val values = mutableListOf<CandidateSuppressionInfo>()
-        database.rawQuery(
-            "SELECT $COLUMN_SOURCE_ID,$COLUMN_ENTRY_KEY,$COLUMN_TEXT,$COLUMN_OKURI FROM $TABLE_SUPPRESSIONS WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY>=?$upperClause LIMIT ${workLimit + 1}",
-            args.toTypedArray(),
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                if (++work > workLimit) {
-                    return PredictionPrefixRows.Limited(PredictionSearchFailure.WORK_LIMIT)
-                }
-                val sourceId = cursor.getString(0)
-                val entryKey = cursor.getString(1)
-                val templateText = cursor.getString(2)
-                val okuri = cursor.getString(3).takeIf(String::isNotEmpty)
-                totalChars += sourceId.length + entryKey.length + templateText.length + (okuri?.length ?: 0)
-                if (totalChars > totalCharsLimit) {
-                    return PredictionPrefixRows.Limited(PredictionSearchFailure.RESULT_LIMIT)
-                }
-                values += CandidateSuppressionInfo(CandidateSuppressionKey(sourceId, entryKey, templateText, okuri))
-            }
-        }
-        return PredictionPrefixRows.Ready(values)
-    }
 
     private fun prefixUpperBound(prefix: String): String? {
         val points = prefix.codePoints().toArray()

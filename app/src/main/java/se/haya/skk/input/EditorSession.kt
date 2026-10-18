@@ -222,7 +222,23 @@ class EditorSession(
                 it.selectionStart in 0..it.text.length && it.selectionEnd in 0..it.text.length &&
                 it.startOffset.toLong() + it.text.length <= Int.MAX_VALUE }
 
-    private data class Selection(val start: Int, val end: Int, val composingStart: Int, val composingEnd: Int)
+    private data class ConfirmedEditorSnapshot(
+        val startOffset: Int,
+        val text: String,
+        val selectionStart: Int,
+        val selectionEnd: Int,
+    )
+    private data class Selection(
+        val start: Int,
+        val end: Int,
+        val composingStart: Int,
+        val composingEnd: Int,
+        val blocksExternalEditing: Boolean = true,
+        val confirmation: ConfirmedEditorSnapshot? = null,
+    ) {
+        fun samePosition(other: Selection): Boolean = start == other.start && end == other.end &&
+            composingStart == other.composingStart && composingEnd == other.composingEnd
+    }
     private val expectedSelections = ArrayDeque<Selection>()
 
     private data class ExternalSelection(val revision: Long, val target: Int)
@@ -381,7 +397,7 @@ class EditorSession(
             }
             editState.updateAndGet { old -> EditorEditState(active && !failed, generation, selectionStart,
                 selectionEnd, old.revision + if (invalidate) 1 else 0, protectedInput,
-                hasComposition || expectedSelections.isNotEmpty()) }
+                hasComposition || expectedSelections.any { it.blocksExternalEditing }) }
         }
     }
 
@@ -422,7 +438,73 @@ class EditorSession(
 
     /** タッチ操作を、このセッションに固定した接続と EditorInfo 契約へ配送します。 */
     fun handleTouch(action: BasicSkkAction): Boolean {
-        return handleTouch(action, forwardConfirmedEnter = true)
+        return when (action) {
+            is BasicSkkAction.TouchText -> handleTouchLiteralText(action)
+            BasicSkkAction.CycleTouchKana -> handleTouchCycleKana()
+            else -> handleTouch(action, forwardConfirmedEnter = true)
+        }
+    }
+
+    /** 10キーの文字は候補ラベルやローマ字にせず、現在の入力対象へ一度だけ挿入します。 */
+    private fun handleTouchLiteralText(action: BasicSkkAction.TouchText): Boolean {
+        if (deferTouchSemantic { handleTouchLiteralText(action) }) return true
+        if (!active || failed) return false
+        if (!protectedInput && (view.candidate != null || view.registration?.innerCandidate != null) &&
+            !handleTouch(touchPageHeadAction(), forwardConfirmedEnter = false)) return false
+        return handleTouch(action, forwardConfirmedEnter = false)
+    }
+
+    /** 通常入力の直前かなは、入力先の本文とカーソルを照合してから置き換えます。 */
+    private fun handleTouchCycleKana(): Boolean {
+        if (deferTouchSemantic(::handleTouchCycleKana)) return true
+        if (!active || failed || protectedInput) return false
+        if (engine.state.phase != InputPhase.IDLE || view.registration != null) {
+            return handleTouch(BasicSkkAction.CycleTouchKana, forwardConfirmedEnter = false)
+        }
+        val snapshot = readEditorSnapshot() ?: return false
+        val originalText = snapshot.text.toString()
+        val cursor = snapshot.selectionStart
+        val absolute = snapshot.startOffset + cursor
+        if (cursor < 1 || cursor != snapshot.selectionEnd || absolute != selectionStart ||
+            absolute != selectionEnd || hasEditorComposition) return false
+        val old = originalText.substring(cursor - 1, cursor)
+        val replacement = se.haya.skk.core.TouchKana.cycle(old) ?: return false
+        cachedConfigurationCheckpoint = null
+        publishEditState(invalidate = true)
+        connection.beginBatchEdit()
+        try {
+            if (!connection.setComposingRegion(absolute - 1, absolute)) return false
+            composingStart = absolute - 1
+            composingEnd = absolute
+            expectReplacement(replacement.length, composing = false)
+            if (!connection.commitText(replacement, 1)) return fail()
+            connection.finishComposingText()
+            hasEditorComposition = false
+            lastEditorText = ""
+            lastEditorMarkerLength = 0
+        } finally {
+            connection.endBatchEdit()
+        }
+        val applied = readEditorSnapshot()
+        if (applied != null && active && !failed && !hasComposition &&
+            selectionStart == absolute && selectionEnd == absolute &&
+            applied.startOffset == snapshot.startOffset && applied.selectionStart == cursor &&
+            applied.selectionEnd == cursor &&
+            applied.text.toString() == originalText.replaceRange(cursor - 1, cursor, replacement)
+        ) {
+            // 本文と位置が置換後も一致した場合だけ、適用済みの通知待ちを編集の障害から外します。
+            // 履歴は遅延通知の識別に残し、後続の編集も新しい本文照合を行います。
+            val confirmation = ConfirmedEditorSnapshot(applied.startOffset, applied.text.toString(),
+                applied.selectionStart, applied.selectionEnd)
+            val confirmed = expectedSelections.map {
+                it.copy(blocksExternalEditing = false, confirmation = confirmation)
+            }
+            expectedSelections.clear()
+            expectedSelections.addAll(confirmed)
+            publishEditState()
+        }
+        refreshConfigurationCheckpoint()
+        return true
     }
 
     private fun handleTouch(action: BasicSkkAction, forwardConfirmedEnter: Boolean): Boolean {
@@ -455,10 +537,9 @@ class EditorSession(
         if (!active || failed) return false
         if (protectedInput) return dispatchEditorEnter()
         val action = when {
-            view.prediction != null -> view.prediction!!.let {
-                BasicSkkAction.CommitPrediction(0, it.items.firstOrNull(), it)
-            }
             view.registration?.innerCandidate != null || view.candidate != null -> touchPageHeadAction()
+            engine.state.phase == InputPhase.READING || engine.state.phase == InputPhase.ABBREV ->
+                BasicSkkAction.CommitTouchReading
             view.registration != null || engine.state.phase != InputPhase.IDLE ||
                 engine.state.pendingRomaji.isNotEmpty() -> BasicSkkAction.Enter
             else -> return dispatchEditorEnter()
@@ -489,13 +570,13 @@ class EditorSession(
         }
     }
 
-    fun handleTouchSpaceOrConvert(): Boolean {
-        if (deferTouchSemantic(::handleTouchSpaceOrConvert)) return true
+    fun handleTouchSpaceOrConvert(fullWidthSpace: Boolean = false): Boolean {
+        if (deferTouchSemantic { handleTouchSpaceOrConvert(fullWidthSpace) }) return true
         return when {
             view.prediction != null -> handleTouch(BasicSkkAction.ConvertNext)
             view.candidate != null || view.registration?.innerCandidate != null -> handleTouchText(" ")
             protectedInput || engine.state.phase == InputPhase.IDLE ->
-                handleTouch(BasicSkkAction.Text(" ", interpretCommands = false))
+                handleTouch(BasicSkkAction.Text(if (fullWidthSpace) "　" else " ", interpretCommands = false))
             else -> handleTouch(BasicSkkAction.ConvertNext)
         }
     }
@@ -584,6 +665,7 @@ class EditorSession(
 
     private fun handleProtectedTouch(action: BasicSkkAction): Boolean = when (action) {
         is BasicSkkAction.Text -> connection.commitText(action.text, 1)
+        is BasicSkkAction.TouchText -> connection.commitText(action.text, 1)
         BasicSkkAction.Backspace -> connection.deleteSurroundingTextInCodePoints(1, 0)
         BasicSkkAction.Delete -> connection.deleteSurroundingTextInCodePoints(0, 1)
         BasicSkkAction.Left -> sendTouchNavigation(KeyEvent.KEYCODE_DPAD_LEFT)
@@ -875,6 +957,28 @@ class EditorSession(
 
     fun onSelection(start: Int, end: Int, candidatesStart: Int, candidatesEnd: Int): Boolean {
         if (!active || failed) return false
+        val observed = Selection(start, end, candidatesStart, candidatesEnd)
+        val confirmedIndex = expectedSelections.indexOfFirst {
+            !it.blocksExternalEditing && it.samePosition(observed)
+        }
+        if (confirmedIndex >= 0 && !hasComposition && candidatesStart == -1 && candidatesEnd == -1) {
+            val confirmation = expectedSelections.elementAt(confirmedIndex).confirmation
+            val current = readEditorSnapshot()
+            val cursorStillCurrent = current != null &&
+                current.startOffset + current.selectionStart == selectionStart &&
+                current.startOffset + current.selectionEnd == selectionEnd
+            val confirmedText = confirmation != null && current != null &&
+                current.startOffset == confirmation.startOffset &&
+                current.selectionStart == confirmation.selectionStart &&
+                current.selectionEnd == confirmation.selectionEnd &&
+                current.text.toString() == confirmation.text
+            if (cursorStillCurrent && (confirmedText || start != selectionStart || end != selectionEnd)) {
+                // 遅延通知で位置を戻さず、本文まで確認済みの場合だけ後続編集の版を維持します。
+                repeat(confirmedIndex + 1) { expectedSelections.removeFirst() }
+                publishEditState(invalidate = !confirmedText)
+                return false
+            }
+        }
         if (editPort.isNativeNavigation && !hasComposition &&
             candidatesStart == -1 && candidatesEnd == -1) {
             // ネイティブ移動の通知は途中の位置へ遅れて届くことがあり、連打を取り消しません。
@@ -909,7 +1013,6 @@ class EditorSession(
         // 自分が発行した外部編集の通知でない限り、位置が同じでも待機中の編集計画を失効します。
         // 構成変更用スナップショットは本文の変化が判明した分岐だけで別途破棄します。
         publishEditState(invalidate = true)
-        val observed = Selection(start, end, candidatesStart, candidatesEnd)
         if (selectionStart < 0 && hasEditorComposition && candidatesStart >= 0 &&
             start == end && end in candidatesStart..candidatesEnd &&
             candidatesEnd - candidatesStart == lastEditorText.length) {
@@ -926,11 +1029,15 @@ class EditorSession(
             candidatesEnd == -1 && readEditorSnapshot()?.let {
                 it.startOffset + it.selectionStart == start && it.startOffset + it.selectionEnd == end
             } == true
-        val index = if (markerFinishedExternally) -1 else expectedSelections.indexOf(observed)
+        val index = if (markerFinishedExternally) -1 else expectedSelections.indexOfFirst {
+            it.samePosition(observed)
+        }
         if (index >= 0) {
             val hasNewerExpectedSelection = index < expectedSelections.lastIndex
+            val expected = expectedSelections.elementAt(index)
             repeat(index + 1) { expectedSelections.removeFirst() }
-            if (!hasNewerExpectedSelection) {
+            if (!hasNewerExpectedSelection && (expected.blocksExternalEditing ||
+                    start == selectionStart && end == selectionEnd)) {
                 selectionStart = start
                 selectionEnd = end
                 composingStart = candidatesStart

@@ -34,7 +34,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
             return attachUsage(raw.predict(query), query.limit)
         }
         // 数値を含む現在の読みは、通常変換と同じ経路でテンプレートを展開します。
-        val expanded = try { lookup(DictionaryQuery(query.prefix, abbrev = query.abbrev)) } catch (_: RuntimeException) {
+        val expanded = try { lookup(DictionaryQuery(query.prefix, abbrev = query.abbrev, commonReading = query.commonReading)) } catch (_: RuntimeException) {
             return PredictionSearchResult.Indeterminate(PredictionSearchFailure.UNAVAILABLE)
         }
         val values = expanded.filterNot { it.dateExpression }.mapIndexed { order, candidate ->
@@ -47,8 +47,12 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
     }
 
     private fun attachUsage(result: PredictionSearchResult, limit: Int): PredictionSearchResult = when (result) {
-        is PredictionSearchResult.Ready -> rankPredictionCandidates(
-            result.items.filterNot { it.candidate.dateExpression || it.historyTarget.dateExpression }.map { it.copy(lastUsedSequence = raw.predictionUsage(it.historyTarget)) }, limit)
+        is PredictionSearchResult.Ready -> when (val ranked = rankPredictionCandidates(
+            result.items.filterNot { it.candidate.dateExpression || it.historyTarget.dateExpression }
+                .map { it.copy(lastUsedSequence = raw.predictionUsage(it.historyTarget)) }, limit)) {
+            is PredictionSearchResult.Ready -> ranked.copy(hasMore = ranked.hasMore || result.hasMore)
+            else -> ranked
+        }
         PredictionSearchResult.ConfirmedEmpty -> result
         is PredictionSearchResult.Indeterminate -> result
     }

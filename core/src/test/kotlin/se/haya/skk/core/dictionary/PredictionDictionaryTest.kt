@@ -56,10 +56,10 @@ class PredictionDictionaryTest {
         )
     }
 
-    @Test fun `重なる複数接頭辞は見出し語文字数を一度だけ保持量へ数える`() {
+    @Test fun `重なる複数接頭辞は同じ読みの作業領域を重複して保持しない`() {
         val result = CompositeSkkDictionary(systems = listOf(source("system", "かな /仮名/")))
             .predict(PredictionQuery(
-                "か", alternativePrefixes = listOf("かな"), totalResultCharsLimit = 4,
+                "か", alternativePrefixes = listOf("かな"), totalResultCharsLimit = 16,
             ))
         assertTrue(result is PredictionSearchResult.Ready)
     }
@@ -74,4 +74,33 @@ class PredictionDictionaryTest {
             result,
         )
     }
+    @Test fun `一文字に六千見出しが一致しても全件の使用順を調べて上位だけ保持する`() {
+        val entries = List(6_000) { index ->
+            val suffix = index.toString().padStart(4, '0')
+            SkkDictionaryEntry("か$suffix", listOf(SkkDictionaryCandidate("候補$suffix")))
+        }
+        val dictionary = CompositeSkkDictionary(systems = listOf(SkkDictionarySource("system", 1, entries)),
+            usageLookup = { if (it.readingKey == "か5999") 10 else null })
+        val result = dictionary.predict(PredictionQuery("か")) as PredictionSearchResult.Ready
+        assertEquals("候補5999", result.items.first().committedText)
+        assertEquals(64, result.items.size)
+        assertTrue(result.hasMore)
+    }
+
+    @Test fun `読みごとの解決は抑止と注釈の補完と全由来と辞書順位を保持する`() {
+        val personal = source("personal", "かな /共通/")
+        val first = source("first", "かな /非表示/共通;注釈/")
+        val second = source("second", "かな /共通/別/")
+        val dictionary = CompositeSkkDictionary(personal, listOf(first, second), setOf(
+            SuppressedDictionaryCandidate("first", "かな", "非表示", null),
+        ))
+        val candidates = dictionary.predictionCandidatesForReading("かな")
+        assertEquals(listOf("共通", "別"), candidates.map { it.committedText })
+        assertEquals("注釈", candidates.first().candidate.annotation)
+        assertEquals(listOf("personal", "first", "second"),
+            candidates.first().candidate.selection!!.origins.map { it.dictionaryId })
+        assertEquals(listOf(0, 2), candidates.map { it.dictionaryOrder })
+        assertEquals(listOf(0, 1), candidates.map { it.candidateOrder })
+    }
+
 }

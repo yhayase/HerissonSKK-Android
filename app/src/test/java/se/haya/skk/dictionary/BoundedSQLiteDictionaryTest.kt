@@ -276,7 +276,7 @@ class BoundedSQLiteDictionaryTest {
         manager.close()
     }
 
-    @Test fun `一文字予測はUIスレッドで走査せず五万件の資料を文字上限で未判定にする`() {
+    @Test fun `一文字予測はUIスレッドで走査せず五万件を超える資料を作業上限で未判定にする`() {
         val repository = repository()
         repository.importSystem("large", "辞書", document(
             (0..PredictionQuery.MAX_WORK_ITEMS).joinToString("\n") { index ->
@@ -295,7 +295,7 @@ class BoundedSQLiteDictionaryTest {
         val result = manager.readBlocking { manager.predict(PredictionQuery("あ", limit = 7)) }
         val elapsedMillis = (System.nanoTime() - started) / 1_000_000
         assertEquals(
-            PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT),
+            PredictionSearchResult.Indeterminate(PredictionSearchFailure.WORK_LIMIT),
             result,
         )
         assertEquals(1, repository.readStats.prefixReads)
@@ -333,4 +333,60 @@ class BoundedSQLiteDictionaryTest {
             )
         }
     }
+    @Test fun `一文字予測は全読みの文字数を蓄積せず末尾の最新履歴を先頭へ返す`() {
+        repository().use { repository ->
+            repository.importSystem("large", "辞書", document((0 until 6_000).joinToString("\n") { index ->
+                "あ${index.toString().padStart(5, '0')} /候補$index/"
+            }))
+            val target = PredictionHistoryTarget("あ05999", "候補5999", null, "候補5999")
+            repository.promotePersonalCandidate("あ05999", SkkDictionaryCandidate("候補5999"), target)
+            val result = repository.predict(PredictionQuery("あ"), repository.dictionaryRevision()) as PredictionSearchResult.Ready
+            assertEquals(64, result.items.size)
+            assertTrue(result.hasMore)
+            assertEquals("候補5999", result.items.first().committedText)
+            assertEquals(listOf(true, false), result.items.first().candidate.selection!!.origins.map { it.personal })
+            assertEquals(0, repository.readStats.fullSnapshotReads)
+        }
+    }
+
+    @Test fun `孤立した履歴と抑止も読み単位で文字数を制限し全件で作業数を制限する`() {
+        repository().use { repository ->
+            repository.dictionaryRevision()
+            SQLiteDatabase.openDatabase(context.getDatabasePath(names.last()).path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+                db.beginTransaction()
+                try {
+                    repeat(2_000) { index ->
+                        val key = "あ${index.toString().padStart(5, '0')}"
+                        db.execSQL("INSERT INTO candidate_usage(entry_key,template_text,okuri_condition,committed_text,last_used_sequence) VALUES(?,?,'',?,?)",
+                            arrayOf(key, "履歴".repeat(10), "確定".repeat(10), index))
+                        db.execSQL("INSERT INTO candidate_suppressions(source_id,entry_key,candidate_text,okuri_condition) VALUES('removed',?,?,'')",
+                            arrayOf(key, "抑止".repeat(10)))
+                    }
+                    db.setTransactionSuccessful()
+                } finally { db.endTransaction() }
+            }
+            assertEquals(PredictionSearchResult.ConfirmedEmpty,
+                repository.predict(PredictionQuery("あ"), repository.dictionaryRevision()))
+            assertEquals(PredictionSearchResult.Indeterminate(PredictionSearchFailure.WORK_LIMIT),
+                repository.predict(PredictionQuery("あ", workLimit = 3_999), repository.dictionaryRevision()))
+        }
+    }
+
+    @Test fun `同じ読みの候補作業領域は候補が採用されなくても文字上限を守る`() {
+        repository().use { repository ->
+            repository.importSystem("system", "辞書", document("あ /一/二/三/四/五/"))
+            assertEquals(PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT),
+                repository.predict(PredictionQuery("あ", limit = 1, totalResultCharsLimit = 20), repository.dictionaryRevision()))
+        }
+    }
+
+    @Test fun `読みを持たない辞書も予測の辞書順位に含める`() {
+        repository().use { repository ->
+            repository.importSystem("first", "辞書", document("い /別候補/"))
+            repository.importSystem("second", "辞書", document("あ /候補/"))
+            val result = repository.predict(PredictionQuery("あ"), repository.dictionaryRevision()) as PredictionSearchResult.Ready
+            assertEquals(2, result.items.single().dictionaryOrder)
+        }
+    }
+
 }

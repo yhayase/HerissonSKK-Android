@@ -4,7 +4,7 @@ import se.haya.skk.core.BasicSkkAction
 
 internal sealed interface TouchKeyboardCommand {
     data class Skk(val action: BasicSkkAction) : TouchKeyboardCommand
-    data object SpaceOrConvert : TouchKeyboardCommand
+    data class SpaceOrConvert(val fullWidthSpace: Boolean = false) : TouchKeyboardCommand
     data object SwitchIme : TouchKeyboardCommand
 }
 
