@@ -15,7 +15,6 @@ data class TouchKeyboardSettings(
     val tenKeyWidthPercent: Int = 100,
     val tenKeyPositionPercent: Int = 50,
     val tenKeyBottomPaddingDp: Int = 0,
-    val tenKeyAutoStartReading: Boolean = false,
 ) {
     init {
         require(holdMillis in HOLD_MILLIS)
@@ -41,7 +40,6 @@ object TouchKeyboardSettingsStore {
     private const val OPERATION = "ten_key_operation"
     private const val HOLD_MILLIS = "ten_key_hold_millis"
     private const val VIBRATE = "ten_key_vibrate_on_boundary"
-    private const val AUTO_START_READING = "ten_key_auto_start_reading"
     private const val HEIGHT = "ten_key_height_dp"
     private const val WIDTH = "ten_key_width_percent"
     private const val POSITION = "ten_key_position_percent"
@@ -73,7 +71,6 @@ object TouchKeyboardSettingsStore {
         holdMillis = runCatching { preferences.getInt(HOLD_MILLIS, 350) }.getOrDefault(350)
             .takeIf { it in TouchKeyboardSettings.HOLD_MILLIS } ?: 350,
         vibrateOnBoundary = runCatching { preferences.getBoolean(VIBRATE, true) }.getOrDefault(true),
-        tenKeyAutoStartReading = runCatching { preferences.getBoolean(AUTO_START_READING, false) }.getOrDefault(false),
         tenKeyHeightDp = runCatching { preferences.getInt(HEIGHT, 256) }.getOrDefault(256)
             .takeIf { it in TouchKeyboardSettings.TEN_KEY_HEIGHT_DP } ?: 256,
         tenKeyWidthPercent = runCatching { preferences.getInt(WIDTH, 100) }.getOrDefault(100)
@@ -90,7 +87,7 @@ object TouchKeyboardSettingsStore {
         commit: (SharedPreferences.Editor) -> Boolean = { it.commit() },
     ): Boolean {
         if (!settings.isValid()) return false
-        val keys = listOf(LAYOUT, OPERATION, HOLD_MILLIS, VIBRATE, HEIGHT, WIDTH, POSITION, BOTTOM, AUTO_START_READING)
+        val keys = listOf(LAYOUT, OPERATION, HOLD_MILLIS, VIBRATE, HEIGHT, WIDTH, POSITION, BOTTOM)
         val previous = keys.associateWith { key ->
             preferences.all[key]
         }
@@ -100,7 +97,6 @@ object TouchKeyboardSettingsStore {
                 .putString(OPERATION, settings.operation.name)
                 .putInt(HOLD_MILLIS, settings.holdMillis)
                 .putBoolean(VIBRATE, settings.vibrateOnBoundary)
-                .putBoolean(AUTO_START_READING, settings.tenKeyAutoStartReading)
                 .putInt(HEIGHT, settings.tenKeyHeightDp)
                 .putInt(WIDTH, settings.tenKeyWidthPercent)
                 .putInt(POSITION, settings.tenKeyPositionPercent)

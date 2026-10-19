@@ -181,35 +181,77 @@ class TenKeyInputTest {
         composition(editor, false)
     }
 
-    @Test fun automaticReadingStartsForKanaLettersNumbersAndSymbols() {
-        configureLayout("10キー", autoReading = true)
-        try {
-            withEditor { editor, _ ->
-                tap("か")
-                tap("か")
-                awaitText(editor, "かか")
-                composition(editor, true)
-                tap("確定")
-                tap("ABC")
-                tap("abc")
-                awaitText(editor, "かかa")
-                composition(editor, true)
-                tap("確定")
-                tap("123")
-                tap("1")
-                awaitText(editor, "かかa1")
-                composition(editor, true)
-                tap("確定")
-                tap("かな")
-                tap("、")
-                awaitText(editor, "かかa1、")
-                composition(editor, true)
-                tap("確定")
-                composition(editor, false)
+    @Test fun upwardShiftFlickRemembersEachFaceWithoutChangingTheCurrentReading() = withEditor { editor, _ ->
+        fun face(next: String) {
+            repeat(3) {
+                val current = automation.windows.asSequence().mapNotNull { it.root }
+                    .filter { it.packageName?.toString() == "se.haya.skk" }
+                    .flatMap { root -> listOf("ABC", "123", "かな").asSequence().flatMap {
+                        root.findAccessibilityNodeInfosByText(it).asSequence()
+                    } }
+                    .first { it.isVisibleToUser && it.text?.toString() in setOf("ABC", "123", "かな") }
+                    .text.toString()
+                if (current == next) return
+                tap(current)
             }
+            error("目的の文字面へ切り替えられません")
+        }
+        fun automatic(enabled: Boolean) {
+            if (key("⇧").isSelected != enabled) gesture("⇧", listOf(0 to -1))
+            assertEquals(enabled, key("⇧").isSelected)
+        }
+        try {
+            face("ABC"); automatic(false)
+            face("123"); automatic(false)
+            face("かな"); automatic(false)
+            face("ABC"); automatic(true)
+            tap("か")
+            awaitText(editor, "か")
+            composition(editor, true)
+            tap("ABC")
+            assertEquals(false, key("⇧").isSelected)
+            tap("abc")
+            awaitText(editor, "かa")
+            composition(editor, true)
+            tap("確定")
+            tap("abc")
+            awaitText(editor, "かaa")
+            composition(editor, false)
+            automatic(true)
+            tap("def")
+            awaitText(editor, "かaad")
+            composition(editor, true)
+            tap("確定")
+            tap("123")
+            assertEquals(false, key("⇧").isSelected)
+            tap("1")
+            awaitText(editor, "かaad1")
+            composition(editor, false)
+            automatic(true)
+            tap("1")
+            automatic(false)
+            tap("1")
+            awaitText(editor, "かaad111")
+            composition(editor, true)
+            tap("確定")
+            tap("かな")
+            assertTrue(key("⇧").isSelected)
+            tap("⇧")
+            tap("か")
+            awaitText(editor, "かaad111か")
+            composition(editor, true)
+            tap("⇧")
+            gesture("か", listOf(0 to -1))
+            awaitText(editor, "かaad111かく")
+            key("書く")
+            tap("確定")
+            awaitText(editor, "かaad111書く")
+            capture("per-face-automatic-reading")
         } finally {
-            device.pressBack()
-            configureLayout("10キー", autoReading = false)
+            face("ABC"); automatic(false)
+            face("123"); automatic(false)
+            face("かな"); automatic(false)
+            face("ABC")
         }
     }
 
@@ -669,7 +711,7 @@ class TenKeyInputTest {
         }
     }
 
-    private fun configureLayout(layout: String, autoReading: Boolean? = null) {
+    private fun configureLayout(layout: String) {
         device.executeShellCommand("am start -W -a android.intent.action.VIEW -f 0x14000000 -n se.haya.skk/.SettingsActivity")
         device.waitForIdle()
         if (!device.findObject(UiSelector().text("画面キーボード")).waitForExists(1_000)) {
@@ -684,28 +726,7 @@ class TenKeyInputTest {
         if (layout == "10キー") {
             select("10キーの操作", "ホールド＋往復")
             select("ホールド判定", "標準（350 ms）")
-            if (autoReading != null) {
-                val title = "ホールドなしで見出し語入力を開始"
-                UiScrollable(UiSelector().scrollable(true)).scrollIntoView(UiSelector().text(title))
-                fun checkable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-                    if (node.isCheckable) return node
-                    for (index in 0 until node.childCount) {
-                        node.getChild(index)?.let { child -> checkable(child)?.let { return it } }
-                    }
-                    return null
-                }
-                val label = automation.windows.asSequence().mapNotNull { it.root }
-                    .flatMap { it.findAccessibilityNodeInfosByText(title).asSequence() }
-                    .first { it.text?.toString() == title }
-                var parent: AccessibilityNodeInfo? = label
-                var toggle: AccessibilityNodeInfo? = null
-                while (parent != null && toggle == null) {
-                    toggle = checkable(parent)
-                    parent = parent.parent
-                }
-                val switch = checkNotNull(toggle)
-                if (switch.isChecked != autoReading) assertTrue(device.findObject(UiSelector().text(title)).click())
-            }
+
         }
         assertTrue(device.findObject(UiSelector().text("保存").className("android.widget.Button")).click())
         device.waitForIdle()

@@ -34,20 +34,22 @@ class TouchKeyboardSettingsStoreTest {
 
     @Test fun `設定を一括保存して再読込し未設定の旧ユーザーも保持する`() {
         val expected = TouchKeyboardSettings(ScreenKeyboardLayout.TEN_KEY, TenKeyOperation.HOLD,
-            250, false, tenKeyAutoStartReading = true)
+            250, false)
         assertTrue(TouchKeyboardSettingsStore.saveTo(preferences, expected))
         assertEquals(expected, TouchKeyboardSettingsStore.readFrom(preferences))
         assertEquals(setOf("touch_keyboard_layout", "ten_key_operation", "ten_key_hold_millis",
             "ten_key_vibrate_on_boundary", "ten_key_height_dp", "ten_key_width_percent",
-            "ten_key_position_percent", "ten_key_bottom_padding_dp", "ten_key_auto_start_reading"), preferences.all.keys)
+            "ten_key_position_percent", "ten_key_bottom_padding_dp"), preferences.all.keys)
     }
 
     @Test fun `形状だけの保存では他の設定を変更しない`() {
         val settingsPreferences = RuntimeEnvironment.getApplication().getSharedPreferences("settings", 0)
         settingsPreferences.edit().clear().commit()
         val before = TouchKeyboardSettings(ScreenKeyboardLayout.TEN_KEY, TenKeyOperation.HOLD,
-            250, false, 224, 80, 25, 48, tenKeyAutoStartReading = true)
+            250, false, 224, 80, 25, 48)
         assertTrue(TouchKeyboardSettingsStore.saveTo(settingsPreferences, before))
+        val modes = TenKeyReadingModes(alpha = true)
+        assertTrue(TenKeyReadingModeStore.saveTo(settingsPreferences, modes))
         assertTrue(TouchKeyboardSettingsStore.saveGeometry(RuntimeEnvironment.getApplication(), 300, 70, 75))
         assertEquals(before.copy(tenKeyHeightDp = 300, tenKeyWidthPercent = 70,
             tenKeyPositionPercent = 75), TouchKeyboardSettingsStore.readFrom(settingsPreferences))
@@ -55,6 +57,7 @@ class TouchKeyboardSettingsStoreTest {
         assertEquals(160, TouchKeyboardSettingsStore.readFrom(settingsPreferences).tenKeyBottomPaddingDp)
         assertFalse(TouchKeyboardSettingsStore.saveGeometry(RuntimeEnvironment.getApplication(), 300, 70, 75, 161))
         assertFalse(TouchKeyboardSettingsStore.saveGeometry(RuntimeEnvironment.getApplication(), 401, 70, 75))
+        assertEquals(modes, TenKeyReadingModeStore.readFrom(settingsPreferences))
     }
 
     @Test fun `不正な保存値は保存せず不正な保存済み値は既定値へ戻す`() {
@@ -66,18 +69,15 @@ class TouchKeyboardSettingsStoreTest {
         assertEquals(valid, TouchKeyboardSettingsStore.readFrom(preferences))
     }
 
-    @Test fun `自動読み開始の型違いは無効へ戻す`() {
-        preferences.edit().putString("ten_key_auto_start_reading", "true").commit()
-        assertFalse(TouchKeyboardSettingsStore.readFrom(preferences).tenKeyAutoStartReading)
-    }
-
-    @Test fun `保存失敗では既存の自動読み開始設定も元へ戻す`() {
+    @Test fun `設定の保存と標準値への保存は現在の面別状態と旧設定を変更しない`() {
         preferences.edit().putBoolean("ten_key_auto_start_reading", true).commit()
-        assertFalse(TouchKeyboardSettingsStore.saveTo(preferences, TouchKeyboardSettings()) { editor ->
-            editor.commit()
-            false
-        })
-        assertTrue(TouchKeyboardSettingsStore.readFrom(preferences).tenKeyAutoStartReading)
+        val modes = TenKeyReadingModes(kana = true, number = true)
+        assertTrue(TenKeyReadingModeStore.saveTo(preferences, modes))
+        assertTrue(TouchKeyboardSettingsStore.saveTo(preferences,
+            TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY)))
+        assertTrue(TouchKeyboardSettingsStore.saveTo(preferences, TouchKeyboardSettings()))
+        assertEquals(modes, TenKeyReadingModeStore.readFrom(preferences))
+        assertTrue(preferences.getBoolean("ten_key_auto_start_reading", false))
     }
 
     @Test fun `commit失敗時はメモリー上の値も元へ戻す`() {
@@ -85,8 +85,7 @@ class TouchKeyboardSettingsStoreTest {
             .putString("ten_key_operation", "FLICK").putInt("ten_key_hold_millis", 500)
             .putBoolean("ten_key_vibrate_on_boundary", true).commit()
         val before = TouchKeyboardSettingsStore.readFrom(preferences)
-        val attempted = TouchKeyboardSettings(ScreenKeyboardLayout.TEN_KEY, TenKeyOperation.HOLD, 250, false,
-            tenKeyAutoStartReading = true)
+        val attempted = TouchKeyboardSettings(ScreenKeyboardLayout.TEN_KEY, TenKeyOperation.HOLD, 250, false)
         assertFalse(TouchKeyboardSettingsStore.saveTo(preferences, attempted) { editor ->
             editor.commit()
             false

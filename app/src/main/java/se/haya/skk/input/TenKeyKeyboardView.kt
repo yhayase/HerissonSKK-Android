@@ -11,6 +11,12 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.os.Vibrator
+import android.os.Bundle
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+import se.haya.skk.settings.TenKeyReadingModes
+import se.haya.skk.settings.TenKeyReadingModeStore
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -46,6 +52,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
     private var spaceConverts = false
     internal var pendingGuide: String? = null
         private set
+    private var readingModes = TenKeyReadingModeStore.read(context)
     private var skkEnabled = true
     private var readingConversionEnabled = false
     fun updateReadingConversion(enabled: Boolean) {
@@ -57,6 +64,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
         if (skkEnabled != enabled) cancelTouches()
         skkEnabled = enabled
         readingButton?.isEnabled = enabled
+        updateReadingIndicator()
     }
     private var primary: Button? = null
     private var primaryLabel = "⏎"
@@ -111,11 +119,98 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             row.addView(when(rowIndex) {
                 0 -> backspaceKey()
                 1 -> key(if (spaceConverts) "変換" else "␣") { send(TouchKeyboardCommand.SpaceOrConvert(controller.face == TenKeyController.Face.ALPHA && controller.wideAlpha)) }.also { spaceButton = it; it.contentDescription = if (spaceConverts) "変換" else "空白" }
-                2 -> key("⇧") { if (skkEnabled) action(BasicSkkAction.StartTouchReading(controller.kanaMode)) }.also { readingButton = it; it.contentDescription = "読み開始・送り境界"; it.isEnabled = skkEnabled }
+                2 -> readingKey()
                 else -> key(primaryLabel) { action(BasicSkkAction.Enter) }.also { primary = it; it.isEnabled = primaryEnabled }
             }, params())
             addView(row, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         }
+    }
+    private fun autoReading(face: TenKeyController.Face): Boolean = when (face) {
+        TenKeyController.Face.KANA -> readingModes.kana
+        TenKeyController.Face.ALPHA -> readingModes.alpha
+        TenKeyController.Face.NUMBER -> readingModes.number
+    }
+    private fun toggleReadingMode(): Boolean {
+        if (!skkEnabled) return false
+        val next = when (controller.face) {
+            TenKeyController.Face.KANA -> readingModes.copy(kana = !readingModes.kana)
+            TenKeyController.Face.ALPHA -> readingModes.copy(alpha = !readingModes.alpha)
+            TenKeyController.Face.NUMBER -> readingModes.copy(number = !readingModes.number)
+        }
+        if (!TenKeyReadingModeStore.save(context, next)) return false
+        readingModes = next
+        updateReadingIndicator()
+        return true
+    }
+    private fun updateReadingIndicator() {
+        val button = readingButton as? ReadingModeButton ?: return
+        val enabled = autoReading(controller.face)
+        button.isSelected = enabled && skkEnabled
+        button.showAuto = enabled && skkEnabled
+        val face = when (controller.face) {
+            TenKeyController.Face.KANA -> "かな面"
+            TenKeyController.Face.ALPHA -> "英字面"
+            TenKeyController.Face.NUMBER -> "数字面"
+        }
+        ViewCompat.setStateDescription(button, if (skkEnabled) "$face、自動読み開始${if (enabled) "オン" else "オフ"}、タップで読み開始・送り境界、上フリックで切替" else "$face、読み操作無効")
+    }
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun readingKey(): Button {
+        val capturedGeneration = generation
+        val button = key("⇧") { if (skkEnabled) action(BasicSkkAction.StartTouchReading(controller.kanaMode)) }
+        readingButton = button
+        button.contentDescription = "読み開始・送り境界"
+        button.isEnabled = skkEnabled
+        updateReadingIndicator()
+        button.accessibilityDelegate = object : View.AccessibilityDelegate() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                AccessibilityNodeInfoCompat.wrap(info).stateDescription = ViewCompat.getStateDescription(host)
+                if (skkEnabled) info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.toggle_ten_key_reading, "この面の自動読み開始を${if (autoReading(controller.face)) "オフ" else "オン"}にする"))
+            }
+            override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean =
+                if (action == R.id.toggle_ten_key_reading) capturedGeneration == generation && toggleReadingMode()
+                else super.performAccessibilityAction(host, action, args)
+        }
+        var active = false
+        var startX = 0f
+        var startY = 0f
+        var moved = false
+        var direction = TenKeyController.Direction.CENTER
+        fun clear() { active = false; moved = false; direction = TenKeyController.Direction.CENTER; button.isPressed = false; dismissGuide() }
+        cancellations += { clear() }
+        fun sample(x: Float, y: Float) {
+            val dx = x - startX
+            val dy = y - startY
+            val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+            val threshold = maxOf(slop, minOf(button.width, button.height) * .2f)
+            if (kotlin.math.hypot(dx, dy) > slop) moved = true
+            // 上方向へ入った後も、戻りの微小な揺れでは選択を解除しません。
+            val upThreshold = if (direction == TenKeyController.Direction.UP) threshold * .7f else threshold
+            direction = if (-dy > upThreshold && -dy > kotlin.math.abs(dx)) TenKeyController.Direction.UP else TenKeyController.Direction.CENTER
+        }
+        button.setOnTouchListener { _, event ->
+            if (capturedGeneration != generation || !skkEnabled || event.pointerCount > 1) { clear(); return@setOnTouchListener true }
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { clear(); active = true; startX = event.x; startY = event.y; button.isPressed = true }
+                MotionEvent.ACTION_MOVE -> if (active) {
+                    for (index in 0 until event.historySize) sample(event.getHistoricalX(index), event.getHistoricalY(index))
+                    sample(event.x, event.y)
+                    if (moved) showGuide(button, null, direction, null, shift = true)
+                }
+                MotionEvent.ACTION_UP -> if (active) {
+                    for (index in 0 until event.historySize) sample(event.getHistoricalX(index), event.getHistoricalY(index))
+                    sample(event.x, event.y)
+                    val toggle = direction == TenKeyController.Direction.UP
+                    val tap = !moved
+                    clear()
+                    if (toggle) toggleReadingMode() else if (tap) button.performClick()
+                }
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> clear()
+            }
+            true
+        }
+        return button
     }
     private fun kindKey(): Button {
         val label = when(controller.face) { TenKeyController.Face.KANA -> if (controller.katakana) "あ" else "ア"; TenKeyController.Face.ALPHA -> if (controller.wideAlpha) "A" else "全Ａ"; else -> if (controller.wideNumber) "1" else "全１" }
@@ -203,12 +298,13 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
     private fun emit(group: List<String>, direction: TenKeyController.Direction, modifier: TenKeyController.Direction?, boundary: Boolean) {
         controller.output(group, direction, modifier)?.let {
             action(BasicSkkAction.TouchText(it, skkEnabled && (boundary || controller.nextBoundary), controller.kanaMode,
-                autoStartReading = settings.tenKeyAutoStartReading && skkEnabled))
+                autoStartReading = autoReading(controller.face) && skkEnabled))
             controller.nextBoundary = false
         }
     }
-    private fun showGuide(anchor: Button, group: List<String>?, direction: TenKeyController.Direction, gesture: TenKeyGesture) {
-        val options = group?.let { controller.modifiedRow(it, gesture.modifier) }
+    private fun showGuide(anchor: Button, group: List<String>?, direction: TenKeyController.Direction, gesture: TenKeyGesture?, shift: Boolean = false) {
+        val options = if (shift) listOf("⇧", "", if (autoReading(controller.face)) "自動×" else "自動✓", "", "")
+            else group?.let { controller.modifiedRow(it, gesture?.modifier) }
             ?: if (controller.face == TenKeyController.Face.KANA && skkEnabled && readingConversionEnabled) listOf(anchor.text.toString(), "", "カナ", "ｶﾅ", "")
             else listOf(anchor.text.toString(), "", "", "", "")
         val chosen = options.getOrNull(direction.ordinal).orEmpty()
@@ -226,14 +322,14 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             }
         }
         fun returnHint(candidate: TenKeyController.Direction): String? =
-            if (settings.operation == TenKeyOperation.HOLD_AND_RETURN) modifierSymbol(candidate) else null
+            if (!shift && settings.operation == TenKeyOperation.HOLD_AND_RETURN) modifierSymbol(candidate) else null
         val hints = TenKeyController.Direction.entries.map { candidate ->
-            if (candidate == TenKeyController.Direction.CENTER) modifierSymbol(gesture.modifier) else returnHint(candidate)
+            if (candidate == TenKeyController.Direction.CENTER) modifierSymbol(gesture?.modifier) else returnHint(candidate)
         }
         val labels = TenKeyController.Direction.entries.map { candidate ->
             if (candidate == TenKeyController.Direction.CENTER) chosen else options.getOrNull(candidate.ordinal).orEmpty()
         }
-        pendingGuide = (if (gesture.boundary) "境界 " else "") + labels.mapIndexed { index, value ->
+        pendingGuide = (if ((gesture?.boundary == true)) "境界 " else "") + labels.mapIndexed { index, value ->
             value + hints[index]?.let { "\n$it" }.orEmpty()
         }.joinToString(" ")
         if (!anchor.isAttachedToWindow) return
@@ -283,19 +379,19 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             cell.text = label
             cell.hintSymbol = hints[index]
             cell.returnDirection = candidate.takeIf { it != TenKeyController.Direction.CENTER && hints[index] != null }
-            cell.modifierActive = hints[index] != null && (candidate == TenKeyController.Direction.CENTER || gesture.modifier == candidate)
+            cell.modifierActive = hints[index] != null && (candidate == TenKeyController.Direction.CENTER || gesture?.modifier == candidate)
             cell.invalidate()
             val description = when {
-                candidate == TenKeyController.Direction.CENTER -> group?.let { controller.modifierLabel(it, gesture.modifier) }?.let { "$label $it 選択中" } ?: label
+                candidate == TenKeyController.Direction.CENTER -> group?.let { controller.modifierLabel(it, gesture?.modifier) }?.let { "$label $it 選択中" } ?: label
                 group != null && hints[index] != null -> {
-                    val effect = if (gesture.modifier == candidate) "解除" else controller.modifierLabel(group, candidate)
+                    val effect = if (gesture?.modifier == candidate) "解除" else controller.modifierLabel(group, candidate)
                     "$label " + if (direction == candidate) "戻すと$effect" else "往復で$effect"
                 }
                 group == null && candidate == TenKeyController.Direction.UP && label == "カナ" -> "カナで確定"
                 group == null && candidate == TenKeyController.Direction.RIGHT && label == "ｶﾅ" -> "半角カナで確定"
                 else -> label
             }
-            cell.contentDescription = (if (candidate == TenKeyController.Direction.CENTER && gesture.boundary) "境界 " else "") + description
+            cell.contentDescription = (if (candidate == TenKeyController.Direction.CENTER && (gesture?.boundary == true)) "境界 " else "") + description
             cell.background = GradientDrawable().apply {
                 setColor(if (candidate == TenKeyController.Direction.CENTER) keyboardColors.selectedBackground else keyboardColors.panelBackground)
                 setStroke(dp(1), keyboardColors.border)
@@ -305,7 +401,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             outlineCells = assigned.map { (column(it) - minColumn) to (row(it) - minRow) }.toSet()
             outlineCellWidth = cellWidth.toFloat(); outlineCellHeight = cellHeight.toFloat()
             outlineColor = keyboardColors.text
-            boundary = gesture.boundary
+            boundary = (gesture?.boundary == true)
             invalidate()
         }
         val left = position[0] + (anchor.width - cellWidth) / 2 - (1 - minColumn) * cellWidth
@@ -322,9 +418,11 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
         cancelTouches()
         val capturedGeneration = generation
         val capturedPaletteRevision = paletteRevision
+        val originFace = controller.face
+        val originKanaMode = controller.kanaMode
         palette = CharacterPalette(context) { text ->
-            if (capturedGeneration == generation && capturedPaletteRevision == paletteRevision) action(BasicSkkAction.TouchText(text, kanaMode = controller.kanaMode,
-                autoStartReading = settings.tenKeyAutoStartReading && skkEnabled))
+            if (capturedGeneration == generation && capturedPaletteRevision == paletteRevision) action(BasicSkkAction.TouchText(text, kanaMode = originKanaMode,
+                autoStartReading = autoReading(originFace) && skkEnabled))
         }.also { it.show(anchor) }
     }
     private fun backspaceKey(): Button {
@@ -335,7 +433,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
     }
     private fun key(label: String, function: Boolean = true, alternative: Boolean = false, click: (Button) -> Unit): Button {
         val currentGeneration = generation
-        return (if (alternative) AlternativeFunctionButton(context) else Button(context)).apply {
+        return (if (label == "⇧") ReadingModeButton(context) else if (alternative) AlternativeFunctionButton(context) else Button(context)).apply {
             text = label; contentDescription = label; setTextColor(keyboardColors.text); textSize = if (label.length > 3) 12f else 16f
             updateSymbolWeight()
             gravity = Gravity.CENTER; includeFontPadding = false
@@ -343,6 +441,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             background = StateListDrawable().apply {
                 fun face(color: Int) = GradientDrawable().apply { setColor(color); setStroke(1, keyboardColors.border) }
                 addState(intArrayOf(android.R.attr.state_pressed), face(keyboardColors.pressed))
+                addState(intArrayOf(android.R.attr.state_selected), GradientDrawable().apply { setColor(keyboardColors.selectedBackground); setStroke(dp(2), keyboardColors.text) })
                 addState(intArrayOf(), face(if (function) keyboardColors.functionBackground else keyboardColors.characterBackground))
             }
             stateListAnimator = null
@@ -469,5 +568,20 @@ internal class FlickGuideLayout(context: Context) : FrameLayout(context) {
             outlinePath.close()
         }
         canvas.drawPath(outlinePath, outlinePaint)
+    }
+}
+
+/** 主記号の中心位置を保ち、自動読み開始の状態を補助文字でも示します。 */
+@android.annotation.SuppressLint("AppCompatCustomView")
+internal class ReadingModeButton(context: Context) : Button(context) {
+    internal var showAuto = false
+        set(value) { field = value; invalidate() }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (!showAuto) return
+        labelPaint.color = currentTextColor
+        labelPaint.textSize = minOf(10f * resources.displayMetrics.scaledDensity, height * .2f)
+        canvas.drawText("自動", width / 2f, height - 2f * resources.displayMetrics.density - labelPaint.fontMetrics.descent, labelPaint)
     }
 }

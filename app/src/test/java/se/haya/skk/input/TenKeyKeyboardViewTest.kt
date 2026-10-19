@@ -10,6 +10,9 @@ import android.view.ViewGroup
 import android.widget.Button
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+import se.haya.skk.R
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -24,17 +27,204 @@ import se.haya.skk.settings.*
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26])
 class TenKeyKeyboardViewTest {
+    @Before fun resetReadingModes() {
+        assertTrue(TenKeyReadingModeStore.save(RuntimeEnvironment.getApplication(), TenKeyReadingModes()))
+    }
+    private fun upShift(view: TenKeyKeyboardView) {
+        val shift = key(view, "⇧")
+        touch(shift, MotionEvent.ACTION_DOWN, 30f, 30f)
+        touch(shift, MotionEvent.ACTION_MOVE, 30f, -40f)
+        touch(shift, MotionEvent.ACTION_UP, 30f, -40f)
+    }
     private fun buttons(view: View): List<Button> = when(view) { is Button -> listOf(view); is ViewGroup -> (0 until view.childCount).flatMap { buttons(view.getChildAt(it)) }; else -> emptyList() }
     private fun key(view: View, label: String) = buttons(view).first { it.text.toString() == label }
     private fun touch(button: Button, action: Int, x: Float = 30f, y: Float = 30f) {
         MotionEvent.obtain(SystemClock.uptimeMillis(),SystemClock.uptimeMillis(),action,x,y,0).also { button.dispatchTouchEvent(it); it.recycle() }
     }
+    @Test fun `上フリックは全操作方式で離す時だけ現在面の自動開始を切り替える`() {
+        for (operation in TenKeyOperation.entries) {
+            for (face in TenKeyController.Face.entries) {
+                TenKeyReadingModeStore.save(RuntimeEnvironment.getApplication(), TenKeyReadingModes())
+                val commands = mutableListOf<TouchKeyboardCommand>()
+                val controller = TenKeyController().apply { repeat(face.ordinal) { cycleFace() } }
+                val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings(operation = operation), controller) { commands += it }
+                val shift = key(view, "⇧") as ReadingModeButton
+                touch(shift, MotionEvent.ACTION_DOWN)
+                touch(shift, MotionEvent.ACTION_MOVE, 30f, -40f)
+                assertFalse(shift.isSelected)
+                assertTrue(view.pendingGuide!!.contains("自動✓"))
+                assertTrue(commands.isEmpty())
+                touch(shift, MotionEvent.ACTION_UP, 30f, -40f)
+                assertTrue(shift.isSelected)
+                assertTrue(shift.showAuto)
+                assertTrue(commands.isEmpty())
+                touch(shift, MotionEvent.ACTION_DOWN)
+                touch(shift, MotionEvent.ACTION_UP)
+                assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.StartTouchReading(InputMode.HIRAGANA))), commands)
+                upShift(view)
+                assertFalse(shift.isSelected)
+                assertFalse(shift.showAuto)
+                assertEquals(1, commands.size)
+            }
+        }
+    }
+
+    @Test fun `面ごとの状態は文字種変更とビュー再生成でも共有され独立する`() {
+        val context = RuntimeEnvironment.getApplication() as android.content.Context
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = TenKeyKeyboardView(context, TouchKeyboardSettings()) { commands += it }
+        upShift(view)
+        key(view, "ア").performClick()
+        assertTrue(key(view, "⇧").isSelected)
+        key(view, "カ").performClick()
+        key(view, "ABC").performClick()
+        assertFalse(key(view, "⇧").isSelected)
+        key(view, "abc").performClick()
+        key(view, "123").performClick()
+        upShift(view)
+        key(view, "全１").performClick()
+        assertTrue(key(view, "⇧").isSelected)
+        key(view, "1").performClick()
+        key(view, "かな").performClick()
+        assertTrue(key(view, "⇧").isSelected)
+        val recreated = TenKeyKeyboardView(context, TouchKeyboardSettings(), view.controller) {}
+        assertTrue(key(recreated, "⇧").isSelected)
+        key(recreated, "ABC").performClick()
+        assertFalse(key(recreated, "⇧").isSelected)
+        key(recreated, "全Ａ").performClick()
+        assertFalse(key(recreated, "⇧").isSelected)
+        key(recreated, "123").performClick()
+        assertTrue(key(recreated, "⇧").isSelected)
+        val texts = commands.map { (it as TouchKeyboardCommand.Skk).action as BasicSkkAction.TouchText }
+        assertEquals(listOf(true, false, true), texts.map { it.autoStartReading })
+    }
+
+    @Test fun `中断や面変更後の古いシフトからは切替も読み開始も送らない`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
+        for (cancel in listOf<(Button) -> Unit>(
+            { touch(it, MotionEvent.ACTION_CANCEL) },
+            { touch(it, MotionEvent.ACTION_POINTER_DOWN) },
+            { view.cancelTouches() },
+        )) {
+            val shift = key(view, "⇧")
+            touch(shift, MotionEvent.ACTION_DOWN)
+            touch(shift, MotionEvent.ACTION_MOVE, 30f, -40f)
+            cancel(shift)
+            touch(shift, MotionEvent.ACTION_UP, 30f, -40f)
+            assertFalse(shift.isSelected)
+            assertTrue(commands.isEmpty())
+        }
+        val oldShift = key(view, "⇧")
+        touch(oldShift, MotionEvent.ACTION_DOWN)
+        key(view, "ABC").performClick()
+        touch(oldShift, MotionEvent.ACTION_UP, 30f, -40f)
+        assertEquals(TenKeyReadingModes(), TenKeyReadingModeStore.read(RuntimeEnvironment.getApplication()))
+        assertTrue(commands.isEmpty())
+        val currentShift = key(view, "⇧")
+        touch(currentShift, MotionEvent.ACTION_DOWN)
+        view.dispose()
+        touch(currentShift, MotionEvent.ACTION_UP, 30f, -40f)
+        assertTrue(commands.isEmpty())
+    }
+
+    @Test fun `上フリックの戻りには余裕を持たせ横移動をタップに戻さない`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
+        val shift = key(view, "⇧")
+        shift.layout(0, 0, 100, 100)
+        touch(shift, MotionEvent.ACTION_DOWN, 50f, 50f)
+        touch(shift, MotionEvent.ACTION_MOVE, 50f, 25f)
+        touch(shift, MotionEvent.ACTION_UP, 50f, 34f)
+        assertTrue(shift.isSelected)
+        touch(shift, MotionEvent.ACTION_DOWN)
+        touch(shift, MotionEvent.ACTION_MOVE, 80f, 30f)
+        touch(shift, MotionEvent.ACTION_UP)
+        assertTrue(shift.isSelected)
+        assertTrue(commands.isEmpty())
+    }
+
+    @Test fun `前の上フリックや取消から次の操作へ復帰側の閾値を引き継がない`() {
+        for (cancelFirst in listOf(false, true)) {
+            TenKeyReadingModeStore.save(RuntimeEnvironment.getApplication(), TenKeyReadingModes())
+            val commands = mutableListOf<TouchKeyboardCommand>()
+            val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
+            val shift = key(view, "⇧")
+            shift.layout(0, 0, 200, 200)
+            touch(shift, MotionEvent.ACTION_DOWN, 100f, 100f)
+            touch(shift, MotionEvent.ACTION_MOVE, 100f, 40f)
+            touch(shift, if (cancelFirst) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, 100f, 40f)
+            val selected = shift.isSelected
+            touch(shift, MotionEvent.ACTION_DOWN, 100f, 100f)
+            touch(shift, MotionEvent.ACTION_MOVE, 100f, 64f)
+            touch(shift, MotionEvent.ACTION_UP, 100f, 64f)
+            assertEquals(!cancelFirst, selected)
+            assertEquals(selected, shift.isSelected)
+            assertTrue(commands.isEmpty())
+        }
+    }
+
+    @Test fun `数字修飾も実際の文字種ではなく元の面の自動開始状態を使う`() {
+        TenKeyReadingModeStore.save(RuntimeEnvironment.getApplication(), TenKeyReadingModes(kana = true))
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings(operation = TenKeyOperation.HOLD_AND_RETURN)) { commands += it }
+        fun digit(label: String) {
+            val button = key(view, label)
+            button.layout(0, 0, 100, 80)
+            touch(button, MotionEvent.ACTION_DOWN, 50f, 40f)
+            touch(button, MotionEvent.ACTION_MOVE, 50f, -40f)
+            touch(button, MotionEvent.ACTION_MOVE, 50f, 40f)
+            touch(button, MotionEvent.ACTION_UP, 50f, 40f)
+        }
+        digit("か")
+        key(view, "ABC").performClick()
+        digit("abc")
+        val texts = commands.map { (it as TouchKeyboardCommand.Skk).action as BasicSkkAction.TouchText }
+        assertEquals(listOf("2", "2"), texts.map { it.text })
+        assertEquals(listOf(true, false), texts.map { it.autoStartReading })
+    }
+
+    @Test fun `保護欄は状態を保存したまま表示と読み操作を無効にする`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
+        upShift(view)
+        view.setSkkEnabled(false)
+        val shift = key(view, "⇧") as ReadingModeButton
+        assertFalse(shift.isEnabled)
+        assertFalse(shift.isSelected)
+        assertFalse(shift.showAuto)
+        upShift(view)
+        shift.performClick()
+        assertFalse(shift.performAccessibilityAction(R.id.toggle_ten_key_reading, null))
+        assertTrue(commands.isEmpty())
+        key(view, "か").performClick()
+        assertFalse(((commands.single() as TouchKeyboardCommand.Skk).action as BasicSkkAction.TouchText).autoStartReading)
+        assertTrue(TenKeyReadingModeStore.read(RuntimeEnvironment.getApplication()).kana)
+        view.setSkkEnabled(true)
+        assertTrue(shift.isSelected)
+        assertTrue(shift.showAuto)
+    }
+
+    @Test fun `アクセシビリティは現在面の状態と自動開始切替操作を提供する`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
+        val shift = key(view, "⇧")
+        val info = shift.createAccessibilityNodeInfo()
+        assertEquals("読み開始・送り境界", shift.contentDescription)
+        assertTrue(AccessibilityNodeInfoCompat.wrap(info).stateDescription.toString().contains("かな面、自動読み開始オフ"))
+        assertTrue(info.actionList.any { it.id == R.id.toggle_ten_key_reading })
+        assertTrue(shift.performAccessibilityAction(R.id.toggle_ten_key_reading, null))
+        assertTrue(shift.isSelected)
+        assertTrue(commands.isEmpty())
+        info.recycle()
+    }
+
     @Test fun `自動開始設定は全ての文字面にだけ付け保護欄では付けない`() {
         for (enabled in listOf(false, true)) {
             for (protected in listOf(false, true)) {
                 val commands = mutableListOf<TouchKeyboardCommand>()
-                val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(),
-                    TouchKeyboardSettings(tenKeyAutoStartReading = enabled)) { commands += it }
+                TenKeyReadingModeStore.save(RuntimeEnvironment.getApplication(), TenKeyReadingModes(enabled, enabled, enabled))
+                val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
                 view.setSkkEnabled(!protected)
                 key(view, "か").performClick()
                 key(view, "、").performClick()
@@ -50,31 +240,36 @@ class TenKeyKeyboardViewTest {
     }
 
     @Test fun `パレットの記号と絵文字も自動開始設定を引き継ぐ`() {
-        for (enabled in listOf(false, true)) {
-            for (protected in listOf(false, true)) {
-                val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-                val commands = mutableListOf<TouchKeyboardCommand>()
-                val view = TenKeyKeyboardView(activity, TouchKeyboardSettings(tenKeyAutoStartReading = enabled)) { commands += it }
-                activity.setContentView(view)
-                view.setSkkEnabled(!protected)
-                key(view, "記号").performClick()
-                val paletteField = TenKeyKeyboardView::class.java.getDeclaredField("palette").apply { isAccessible = true }
-                val palette = paletteField.get(view) as CharacterPalette
-                val root = palette.popup!!.contentView
-                fun findGrid(node: View): android.widget.GridView? = when (node) {
-                    is android.widget.GridView -> node
-                    is ViewGroup -> (0 until node.childCount).firstNotNullOfOrNull { findGrid(node.getChildAt(it)) }
-                    else -> null
+        for (face in TenKeyController.Face.entries) {
+            for (enabled in listOf(false, true)) {
+                for (protected in listOf(false, true)) {
+                    val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+                    val commands = mutableListOf<TouchKeyboardCommand>()
+                    TenKeyReadingModeStore.save(activity, TenKeyReadingModes(kana = enabled && face == TenKeyController.Face.KANA, alpha = enabled && face == TenKeyController.Face.ALPHA, number = enabled && face == TenKeyController.Face.NUMBER))
+                    val view = TenKeyKeyboardView(activity, TouchKeyboardSettings()) { commands += it }
+                    activity.setContentView(view)
+                    if (face != TenKeyController.Face.KANA) key(view, "ABC").performClick()
+                    if (face == TenKeyController.Face.NUMBER) key(view, "123").performClick()
+                    view.setSkkEnabled(!protected)
+                    key(view, "記号").performClick()
+                    val paletteField = TenKeyKeyboardView::class.java.getDeclaredField("palette").apply { isAccessible = true }
+                    val palette = paletteField.get(view) as CharacterPalette
+                    val root = palette.popup!!.contentView
+                    fun findGrid(node: View): android.widget.GridView? = when (node) {
+                        is android.widget.GridView -> node
+                        is ViewGroup -> (0 until node.childCount).firstNotNullOfOrNull { findGrid(node.getChildAt(it)) }
+                        else -> null
+                    }
+                    val grid = findGrid(root)!!
+                    for ((category, value) in listOf("記号" to "@", "顔・人" to "👩‍💻")) {
+                        key(root, category).performClick()
+                        val index = CharacterPalette.CATEGORIES.single { it.label == category }.entries.indexOfFirst { it.value == value }
+                        (grid.adapter.getView(index, null, grid) as Button).performClick()
+                        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText(value,
+                            autoStartReading = enabled && !protected)), commands.last())
+                    }
+                    palette.dismiss()
                 }
-                val grid = findGrid(root)!!
-                for ((category, value) in listOf("記号" to "@", "顔・人" to "👩‍💻")) {
-                    key(root, category).performClick()
-                    val index = CharacterPalette.CATEGORIES.single { it.label == category }.entries.indexOfFirst { it.value == value }
-                    (grid.adapter.getView(index, null, grid) as Button).performClick()
-                    assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText(value,
-                        autoStartReading = enabled && !protected)), commands.last())
-                }
-                palette.dismiss()
             }
         }
     }

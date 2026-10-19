@@ -87,7 +87,6 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         private const val OPERATION = "touch_operation"
         private const val HOLD = "touch_hold"
         private const val VIBRATE = "touch_vibrate"
-        private const val AUTO_START_READING = "touch_auto_start_reading"
         private const val HEIGHT = "touch_height"
         private const val WIDTH = "touch_width"
         private const val POSITION = "touch_position"
@@ -104,7 +103,6 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
             bundle.putInt(prefix + HEIGHT, tenKeyHeightDp); bundle.putInt(prefix + WIDTH, tenKeyWidthPercent)
             bundle.putInt(prefix + POSITION, tenKeyPositionPercent)
             bundle.putInt(prefix + BOTTOM, tenKeyBottomPaddingDp)
-            bundle.putBoolean(prefix + AUTO_START_READING, tenKeyAutoStartReading)
         }
         private fun fromBundle(bundle: Bundle, prefix: String) = TouchKeyboardSettings(
             layout = enumValueOf<ScreenKeyboardLayout>(bundle.getString(prefix + LAYOUT, ScreenKeyboardLayout.QWERTY.name)),
@@ -113,7 +111,6 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
             tenKeyHeightDp = bundle.getInt(prefix + HEIGHT, 256), tenKeyWidthPercent = bundle.getInt(prefix + WIDTH, 100),
             tenKeyPositionPercent = bundle.getInt(prefix + POSITION, 50),
             tenKeyBottomPaddingDp = bundle.getInt(prefix + BOTTOM, 0),
-            tenKeyAutoStartReading = bundle.getBoolean(prefix + AUTO_START_READING, false),
         )
     }
 }
@@ -126,7 +123,6 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
     private lateinit var operation: ListPreference
     private lateinit var hold: ListPreference
     private lateinit var vibrate: SwitchPreferenceCompat
-    private lateinit var autoStartReading: SwitchPreferenceCompat
     private lateinit var height: SeekBarPreference
     private lateinit var width: SeekBarPreference
     private lateinit var position: SeekBarPreference
@@ -164,12 +160,6 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
             isPersistent = false
             setOnPreferenceChangeListener { _, value -> update(draft.copy(vibrateOnBoundary = value as Boolean)); true }
         }
-        autoStartReading = SwitchPreferenceCompat(context).apply {
-            key = "auto_start_reading"; title = "ホールドなしで見出し語入力を開始"; isIconSpaceReserved = false
-            summary = "かな・英字・数字・記号・絵文字で見出し語入力を開始します。送りの指定には境界が必要です。"
-            isPersistent = false
-            setOnPreferenceChangeListener { _, value -> update(draft.copy(tenKeyAutoStartReading = value as Boolean)); true }
-        }
         height = seek(context, "height", "高さ", 160, 400, 256, "dp") { draft.copy(tenKeyHeightDp = it) }
         width = seek(context, "width", "幅（画面に対する割合）", 60, 100, 100, "%") {
             draft.copy(tenKeyWidthPercent = it)
@@ -180,7 +170,7 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
         bottom = seek(context, "bottom", "下の余白", 0, 160, 0, "dp") {
             draft.copy(tenKeyBottomPaddingDp = it)
         }
-        listOf(layout, operation, hold, vibrate, autoStartReading, height, width, position, bottom).forEach(category::addPreference)
+        listOf(layout, operation, hold, vibrate, height, width, position, bottom).forEach(category::addPreference)
         vibrate.summary = "振動子のない端末では利用できません。"
     }
 
@@ -193,7 +183,6 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
         height.value = value.tenKeyHeightDp; width.value = value.tenKeyWidthPercent
         position.value = value.tenKeyPositionPercent
         bottom.value = value.tenKeyBottomPaddingDp
-        autoStartReading.isChecked = value.tenKeyAutoStartReading
         bottom.summary = "${value.tenKeyBottomPaddingDp} dp（OSの操作領域に追加）"
         height.summary = "${value.tenKeyHeightDp} dp"
         width.summary = "${value.tenKeyWidthPercent} %"
@@ -210,7 +199,6 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
         val usesHold = value.operation != TenKeyOperation.FLICK
         layout.isVisible = true
         operation.isVisible = tenKey
-        autoStartReading.isVisible = tenKey
         hold.isVisible = tenKey
         hold.isEnabled = usesHold
         vibrate.isVisible = tenKey
