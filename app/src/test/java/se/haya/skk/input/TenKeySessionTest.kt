@@ -247,6 +247,30 @@ class TenKeySessionTest {
         }
     }
 
+    @Test fun `候補中のシフト指定は先頭確定後の文字で消費し新しい読みにする`() {
+        for (cancelShift in listOf(false, true)) {
+            val connection = Connection()
+            val current = session(connection)
+            current.handleTouch(BasicSkkAction.StartTouchReading())
+            current.handleTouch(BasicSkkAction.TouchText("にほん"))
+            current.handleTouchSpaceOrConvert()
+            assertEquals(InputPhase.SELECTING, current.engine.state.phase)
+            current.handleTouch(BasicSkkAction.StartTouchReading())
+            assertTrue(current.engine.state.touchShiftPending)
+            assertEquals("日本", current.view.candidate?.selected?.text)
+            if (cancelShift) current.handleTouch(BasicSkkAction.CancelTouchShift)
+            current.handleTouch(BasicSkkAction.TouchText("か"))
+            assertFalse(current.engine.state.touchShiftPending)
+            assertEquals("日本か", connection.editable.toString())
+            assertEquals(if (cancelShift) InputPhase.IDLE else InputPhase.READING, current.engine.state.phase)
+            if (!cancelShift) {
+                assertEquals("か", current.engine.state.reading)
+                assertEquals("", current.engine.state.okuri)
+            }
+            assertFalse(current.failed)
+        }
+    }
+
     @Test fun `保護入力では境界付き文字もそのまま確定し検索しない`() {
         val connection = Connection()
         val current = session(connection, protected = true)

@@ -1049,6 +1049,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             current != null && current.active && !current.failed && !current.protectedInput &&
                 current.view.registration?.saving != true && current.view.deletion == null)
         touchKeyboardView?.updateReadingConversion(touchReadingConversionAvailable(current))
+        touchKeyboardView?.updateShiftPending(current?.engine?.state?.touchShiftPending == true)
         touchKeyboardView?.updateSpaceAction(current != null && !current.protectedInput && (
             current.view.prediction != null || current.view.candidate != null ||
                 current.view.registration?.innerCandidate != null || current.view.registration?.innerComposing != null ||

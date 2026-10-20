@@ -449,9 +449,11 @@ class EditorSession(
     private fun handleTouchLiteralText(action: BasicSkkAction.TouchText): Boolean {
         if (deferTouchSemantic { handleTouchLiteralText(action) }) return true
         if (!active || failed) return false
+        // 候補確定で消えるシフト指定を、次に入力する文字へ引き継ぎます。
+        val next = action.copy(boundary = action.boundary || engine.state.touchShiftPending)
         if (!protectedInput && (view.candidate != null || view.registration?.innerCandidate != null) &&
             !handleTouch(touchPageHeadAction(), forwardConfirmedEnter = false)) return false
-        return handleTouch(action, forwardConfirmedEnter = false)
+        return handleTouch(next, forwardConfirmedEnter = false)
     }
 
     /** 通常入力の直前かなは、入力先の本文とカーソルを照合してから置き換えます。 */

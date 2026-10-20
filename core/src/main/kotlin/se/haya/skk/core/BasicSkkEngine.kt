@@ -109,6 +109,8 @@ sealed interface BasicSkkAction {
         val autoStartReading: Boolean = false,
     ) : BasicSkkAction
     data class StartTouchReading(val kanaMode: InputMode = InputMode.HIRAGANA) : BasicSkkAction
+    /** 読み本文を残したまま、次の文字への送り境界指定を解除します。 */
+    data object CancelTouchShift : BasicSkkAction
     /** 表示中の読みを、未消化ローマ字も含めて文字どおり確定します。 */
     data object CommitTouchReading : BasicSkkAction
     data class ConvertTouchReading(val halfwidth: Boolean = false) : BasicSkkAction
@@ -204,6 +206,7 @@ data class BasicSkkState(
     val registrationDepth: Int = 0,
     val registrationSaving: Boolean = false,
     val completionCycling: Boolean = false,
+    val touchShiftPending: Boolean = false,
 )
 
 data class BasicSkkResult(
@@ -288,6 +291,7 @@ class BasicSkkEngine(
                 registrationDepth = registrations.size,
                 registrationSaving = registrations.lastOrNull()?.savingToken != null,
                 completionCycling = completionCycle != null,
+                touchShiftPending = pendingTouchBoundary,
             )
         }
 
@@ -339,6 +343,7 @@ class BasicSkkEngine(
         val outcome = when (action) {
             is BasicSkkAction.TouchText -> onTouchText(action)
             is BasicSkkAction.StartTouchReading -> startTouchReading(action.kanaMode)
+            BasicSkkAction.CancelTouchShift -> cancelTouchShift()
             BasicSkkAction.CommitTouchReading -> commitTouchReading()
             is BasicSkkAction.ConvertTouchReading -> convertTouchReading(action.halfwidth)
             BasicSkkAction.CycleTouchKana -> cycleTouchKana()
@@ -837,6 +842,7 @@ class BasicSkkEngine(
                 BasicSkkAction.End -> return editRegistrationBody(frame) { it.moveEnd() }
                 is BasicSkkAction.TouchText -> Unit
                 is BasicSkkAction.StartTouchReading -> Unit
+                BasicSkkAction.CancelTouchShift -> Unit
                 BasicSkkAction.CommitTouchReading -> Unit
                 is BasicSkkAction.ConvertTouchReading -> Unit
                 BasicSkkAction.CycleTouchKana -> {
@@ -901,6 +907,7 @@ class BasicSkkEngine(
     private fun dispatchInner(action: BasicSkkAction): Outcome = when (action) {
         is BasicSkkAction.TouchText -> onTouchText(action)
         is BasicSkkAction.StartTouchReading -> startTouchReading(action.kanaMode)
+        BasicSkkAction.CancelTouchShift -> cancelTouchShift()
         BasicSkkAction.CommitTouchReading -> commitTouchReading()
         is BasicSkkAction.ConvertTouchReading -> convertTouchReading(action.halfwidth)
         BasicSkkAction.CycleTouchKana -> cycleTouchKana()
@@ -1097,6 +1104,7 @@ class BasicSkkEngine(
     private fun onText(text: String, interpretCommands: Boolean = true): Outcome {
         // 先に全体を検証し、不正な UTF-16 で状態を部分更新しません。
         EditableBuffer(text)
+        if (text.isNotEmpty()) pendingTouchBoundary = false
         var outcome = Outcome(true)
         var index = 0
         while (index < text.length) {
@@ -1477,27 +1485,37 @@ class BasicSkkEngine(
 
     private fun startTouchReading(kanaMode: InputMode): Outcome {
         if (phase == InputPhase.READING) {
-            if (buffer.cursor > 0 && okuriBoundary == null) pendingTouchBoundary = !pendingTouchBoundary
+            if (okuriBoundary == null) pendingTouchBoundary = !pendingTouchBoundary
             return Outcome(true)
         }
-        if (phase != InputPhase.IDLE) return Outcome(true)
+        if (phase == InputPhase.SELECTING || phase == InputPhase.ABBREV) {
+            pendingTouchBoundary = !pendingTouchBoundary
+            return Outcome(true)
+        }
         val pending = finishIdlePending()
         clearComposition()
         phase = InputPhase.READING
         readingStartMode = kanaMode.takeIf { it.isKana } ?: InputMode.HIRAGANA
         touchReading = true
+        pendingTouchBoundary = true
         return Outcome(true, pending)
+    }
+
+    private fun cancelTouchShift(): Outcome {
+        pendingTouchBoundary = false
+        return Outcome(true)
     }
 
     private fun onTouchText(action: BasicSkkAction.TouchText): Outcome {
         EditableBuffer(action.text)
         if (phase == InputPhase.SELECTING) {
-            return commitCandidate(touchPageStart()).then(onTouchText(action))
+            val next = action.copy(boundary = action.boundary || pendingTouchBoundary)
+            return commitCandidate(touchPageStart()).then(onTouchText(next))
         }
         var outcome = Outcome(true)
         val boundary = action.boundary || pendingTouchBoundary
-        pendingTouchBoundary = false
         if (phase == InputPhase.IDLE && (boundary || action.autoStartReading)) outcome = startTouchReading(action.kanaMode)
+        pendingTouchBoundary = false
         if (phase == InputPhase.IDLE) return outcome.then(Outcome(true, finishIdlePending() + action.text))
         finishPendingIntoBuffer()
         if (phase == InputPhase.READING) touchReading = true

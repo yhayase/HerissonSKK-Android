@@ -5,6 +5,130 @@ import org.junit.Test
 import se.haya.skk.core.dictionary.*
 
 class TouchReadingTest {
+    @Test fun `タッチShiftは空の読みでも次の文字まで有効で自動開始では残らない`() {
+        val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() })
+        engine.dispatch(BasicSkkAction.StartTouchReading())
+        assertEquals(InputPhase.READING, engine.state.phase)
+        assertTrue(engine.state.touchShiftPending)
+        engine.dispatch(BasicSkkAction.TouchText("か"))
+        assertFalse(engine.state.touchShiftPending)
+        assertNull(engine.state.okuriConsonant)
+        engine.dispatch(BasicSkkAction.Cancel)
+        engine.dispatch(BasicSkkAction.TouchText("か", autoStartReading = true))
+        assertFalse(engine.state.touchShiftPending)
+        engine.dispatch(BasicSkkAction.TouchText("く", autoStartReading = true))
+        assertEquals("かく", engine.state.reading)
+        assertNull(engine.state.okuriConsonant)
+    }
+
+    @Test fun `自動開始切替のShift解除は読みを保持し送り指定を残さない`() {
+        for (initial in listOf("", "か")) {
+            val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() })
+            if (initial.isNotEmpty()) engine.dispatch(BasicSkkAction.TouchText(initial, autoStartReading = true))
+            engine.dispatch(BasicSkkAction.StartTouchReading())
+            assertTrue(engine.state.touchShiftPending)
+            engine.dispatch(BasicSkkAction.CancelTouchShift)
+            assertFalse(engine.state.touchShiftPending)
+            assertEquals(InputPhase.READING, engine.state.phase)
+            assertEquals(initial, engine.state.reading)
+            engine.dispatch(BasicSkkAction.TouchText("く", autoStartReading = true))
+            assertEquals(initial + "く", engine.state.reading)
+            assertNull(engine.state.okuriConsonant)
+        }
+    }
+
+    @Test fun `自動開始中のShiftと長押し境界は送りを指定し状態を消費する`() {
+        for (hold in listOf(false, true)) {
+            val engine = BasicSkkEngine(BasicSkkDictionary { listOf(DictionaryCandidate("書")) })
+            engine.dispatch(BasicSkkAction.TouchText("か", autoStartReading = true))
+            if (!hold) engine.dispatch(BasicSkkAction.StartTouchReading())
+            engine.dispatch(BasicSkkAction.TouchText("く", boundary = hold, autoStartReading = true))
+            assertEquals("書く", engine.currentView.candidate!!.committedText)
+            assertFalse(engine.state.touchShiftPending)
+        }
+    }
+
+    @Test fun `候補中のShiftと解除は候補を保ち次の文字で新しい読みを始める`() {
+        for (cancelShift in listOf(false, true)) {
+            val engine = BasicSkkEngine(BasicSkkDictionary { listOf(DictionaryCandidate("日本")) })
+            engine.dispatch(BasicSkkAction.TouchText("にほん", autoStartReading = true))
+            engine.dispatch(BasicSkkAction.ConvertNext)
+            val candidate = engine.currentView.candidate
+            engine.dispatch(BasicSkkAction.StartTouchReading())
+            assertTrue(engine.state.touchShiftPending)
+            assertEquals(InputPhase.SELECTING, engine.state.phase)
+            assertEquals(candidate, engine.currentView.candidate)
+            if (cancelShift) {
+                engine.dispatch(BasicSkkAction.CancelTouchShift)
+                assertFalse(engine.state.touchShiftPending)
+                assertEquals(candidate, engine.currentView.candidate)
+            }
+            val result = engine.dispatch(BasicSkkAction.TouchText("か"))
+            assertEquals(if (cancelShift) "日本か" else "日本", result.commit)
+            assertEquals(if (cancelShift) InputPhase.IDLE else InputPhase.READING, engine.state.phase)
+            assertEquals(if (cancelShift) "" else "か", engine.state.reading)
+            assertNull(engine.state.okuriConsonant)
+            assertFalse(engine.state.touchShiftPending)
+        }
+    }
+
+    @Test fun `abbrev中のShiftと解除は読みを保ち次の文字を送りにしない`() {
+        for (cancelShift in listOf(false, true)) {
+            val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() })
+            engine.dispatch(BasicSkkAction.StartAbbrev)
+            engine.dispatch(BasicSkkAction.TouchText("API"))
+            engine.dispatch(BasicSkkAction.StartTouchReading())
+            assertTrue(engine.state.touchShiftPending)
+            assertEquals(InputPhase.ABBREV, engine.state.phase)
+            assertEquals("API", engine.state.reading)
+            if (cancelShift) {
+                engine.dispatch(BasicSkkAction.CancelTouchShift)
+                assertFalse(engine.state.touchShiftPending)
+                assertEquals(InputPhase.ABBREV, engine.state.phase)
+                assertEquals("API", engine.state.reading)
+            }
+            val result = engine.dispatch(BasicSkkAction.TouchText("か"))
+            assertNull(result.commit)
+            assertEquals(InputPhase.ABBREV, engine.state.phase)
+            assertEquals("APIか", engine.state.reading)
+            assertNull(engine.state.okuriConsonant)
+            assertFalse(engine.state.touchShiftPending)
+        }
+    }
+
+    @Test fun `登録中のタッチShiftは内側の読みを反映し取消で外側へ戻る`() {
+        val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() }, RegistrationPolicy(enabled = true))
+        engine.dispatch(BasicSkkAction.TouchText("かな", autoStartReading = true))
+        engine.dispatch(BasicSkkAction.ConvertNext)
+        assertEquals(1, engine.state.registrationDepth)
+        assertFalse(engine.state.touchShiftPending)
+        engine.dispatch(BasicSkkAction.StartTouchReading())
+        assertTrue(engine.state.touchShiftPending)
+        engine.dispatch(BasicSkkAction.CancelTouchShift)
+        assertFalse(engine.state.touchShiftPending)
+        engine.dispatch(BasicSkkAction.TouchText("か", autoStartReading = true))
+        engine.dispatch(BasicSkkAction.StartTouchReading())
+        assertTrue(engine.state.touchShiftPending)
+        engine.dispatch(BasicSkkAction.CancelRegistrationFrame)
+        assertEquals(0, engine.state.registrationDepth)
+        assertFalse(engine.state.touchShiftPending)
+        assertEquals("かな", engine.state.reading)
+    }
+
+    @Test fun `タッチShiftは物理入力と入力終了で解除される`() {
+        for (finish in listOf(BasicSkkAction.Cancel, BasicSkkAction.CommitTouchReading,
+            BasicSkkAction.Backspace, BasicSkkAction.Text("ka"))) {
+            val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() })
+            engine.dispatch(BasicSkkAction.StartTouchReading())
+            engine.dispatch(finish)
+            assertFalse(engine.state.touchShiftPending)
+        }
+        val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() })
+        engine.dispatch(BasicSkkAction.StartTouchReading())
+        engine.resetComposition()
+        assertFalse(engine.state.touchShiftPending)
+    }
+
     @Test fun `自動開始は通常入力の未消化ローマ字を確定してから読みを始める`() {
         val engine = BasicSkkEngine(BasicSkkDictionary { emptyList() })
         engine.dispatch(BasicSkkAction.Text("n"))

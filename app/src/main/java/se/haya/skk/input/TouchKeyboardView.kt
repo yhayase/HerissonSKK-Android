@@ -162,6 +162,7 @@ internal class TouchKeyboardView(
     private var primaryLabel = "⏎"
     private var spaceConverts = false
     private var readingConversionEnabled = false
+    private var touchShiftPending = false
     private var primaryEnabled = true
     private var bottomInset = 0
     private var charactersVisible = true
@@ -242,6 +243,11 @@ internal class TouchKeyboardView(
         if (!enabled) { modeMenu?.dismiss(); modeMenu = null }
     }
 
+    fun updateShiftPending(pending: Boolean) {
+        touchShiftPending = pending
+        tenKeyView?.updateShiftPending(pending)
+    }
+
     fun updateReadingConversion(enabled: Boolean) {
         readingConversionEnabled = enabled
         tenKeyView?.updateReadingConversion(enabled)
@@ -295,6 +301,7 @@ internal class TouchKeyboardView(
                 it.updateSpaceAction(spaceConverts)
                 it.setSkkEnabled(modeEnabled)
                 it.updateReadingConversion(readingConversionEnabled)
+                it.updateShiftPending(touchShiftPending)
             }
             return
         }

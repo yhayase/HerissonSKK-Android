@@ -181,7 +181,7 @@ class TenKeyInputTest {
         composition(editor, false)
     }
 
-    @Test fun upwardShiftFlickRemembersEachFaceWithoutChangingTheCurrentReading() = withEditor { editor, _ ->
+    @Test fun secondShiftPressRemembersEachFaceWithoutChangingTheCurrentReading() = withEditor { editor, _ ->
         fun face(next: String) {
             repeat(3) {
                 val current = automation.windows.asSequence().mapNotNull { it.root }
@@ -197,13 +197,18 @@ class TenKeyInputTest {
             error("目的の文字面へ切り替えられません")
         }
         fun automatic(enabled: Boolean) {
-            if (key("⇧").isSelected != enabled) gesture("⇧", listOf(0 to -1))
+            if (key("⇧").isSelected != enabled) {
+                tap("⇧")
+                tap("⇧")
+            }
             assertEquals(enabled, key("⇧").isSelected)
         }
         try {
             face("ABC"); automatic(false)
             face("123"); automatic(false)
             face("かな"); automatic(false)
+            // 初期化時のシフト操作で開始した空の読みを閉じます。
+            tap("⌫")
             face("ABC"); automatic(true)
             tap("か")
             awaitText(editor, "か")
@@ -237,12 +242,19 @@ class TenKeyInputTest {
             tap("かな")
             assertTrue(key("⇧").isSelected)
             tap("⇧")
+            assertTrue(key("⇧").stateDescription.toString().contains("シフトオン"))
+            capture("shift-pending-and-automatic-reading")
             tap("か")
+            assertTrue(key("⇧").stateDescription.toString().contains("シフトオフ"))
             awaitText(editor, "かaad111か")
             composition(editor, true)
             tap("⇧")
             gesture("か", listOf(0 to -1))
             awaitText(editor, "かaad111かく")
+            key("書く")
+            automatic(false)
+            key("書く")
+            automatic(true)
             key("書く")
             tap("確定")
             awaitText(editor, "かaad111書く")

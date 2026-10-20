@@ -21,6 +21,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.TimeUnit
 import se.haya.skk.core.BasicSkkAction
+import se.haya.skk.core.BasicSkkEngine
 import se.haya.skk.core.InputMode
 import se.haya.skk.settings.*
 
@@ -30,50 +31,90 @@ class TenKeyKeyboardViewTest {
     @Before fun resetReadingModes() {
         assertTrue(TenKeyReadingModeStore.save(RuntimeEnvironment.getApplication(), TenKeyReadingModes()))
     }
-    private fun upShift(view: TenKeyKeyboardView) {
-        val shift = key(view, "⇧")
-        touch(shift, MotionEvent.ACTION_DOWN, 30f, 30f)
-        touch(shift, MotionEvent.ACTION_MOVE, 30f, -40f)
-        touch(shift, MotionEvent.ACTION_UP, 30f, -40f)
+    private fun toggleAuto(view: TenKeyKeyboardView) {
+        assertTrue(key(view, "⇧").performAccessibilityAction(R.id.toggle_ten_key_reading, null))
+    }
+    private fun connectedView(settings: TouchKeyboardSettings = TouchKeyboardSettings(),
+        controller: TenKeyController = TenKeyController(),
+        commands: MutableList<TouchKeyboardCommand> = mutableListOf()): Pair<TenKeyKeyboardView, BasicSkkEngine> {
+        val engine = BasicSkkEngine { emptyList() }
+        lateinit var view: TenKeyKeyboardView
+        view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), settings, controller) { command ->
+            commands += command
+            if (command is TouchKeyboardCommand.Skk) {
+                engine.dispatch(command.action)
+                view.updateShiftPending(engine.state.touchShiftPending)
+            }
+        }
+        return view to engine
     }
     private fun buttons(view: View): List<Button> = when(view) { is Button -> listOf(view); is ViewGroup -> (0 until view.childCount).flatMap { buttons(view.getChildAt(it)) }; else -> emptyList() }
     private fun key(view: View, label: String) = buttons(view).first { it.text.toString() == label }
     private fun touch(button: Button, action: Int, x: Float = 30f, y: Float = 30f) {
         MotionEvent.obtain(SystemClock.uptimeMillis(),SystemClock.uptimeMillis(),action,x,y,0).also { button.dispatchTouchEvent(it); it.recycle() }
     }
-    @Test fun `上フリックは全操作方式で離す時だけ現在面の自動開始を切り替える`() {
+    @Test @Config(sdk = [26, 35]) fun `全操作方式と面で時間制限のない再タップが自動開始を切り替える`() {
         for (operation in TenKeyOperation.entries) {
             for (face in TenKeyController.Face.entries) {
                 TenKeyReadingModeStore.save(RuntimeEnvironment.getApplication(), TenKeyReadingModes())
                 val commands = mutableListOf<TouchKeyboardCommand>()
                 val controller = TenKeyController().apply { repeat(face.ordinal) { cycleFace() } }
-                val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings(operation = operation), controller) { commands += it }
+                val (view, engine) = connectedView(TouchKeyboardSettings(operation = operation), controller, commands)
                 val shift = key(view, "⇧") as ReadingModeButton
                 touch(shift, MotionEvent.ACTION_DOWN)
-                touch(shift, MotionEvent.ACTION_MOVE, 30f, -40f)
-                assertFalse(shift.isSelected)
-                assertTrue(view.pendingGuide!!.contains("自動✓"))
-                assertTrue(commands.isEmpty())
-                touch(shift, MotionEvent.ACTION_UP, 30f, -40f)
+                assertFalse(shift.showShift)
+                touch(shift, MotionEvent.ACTION_UP)
+                assertTrue(shift.showShift)
+                assertFalse(shift.showAuto)
+                assertEquals(BasicSkkAction.StartTouchReading(InputMode.HIRAGANA), (commands.single() as TouchKeyboardCommand.Skk).action)
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(10, TimeUnit.SECONDS)
+                touch(shift, MotionEvent.ACTION_DOWN)
+                assertFalse(shift.showAuto)
+                touch(shift, MotionEvent.ACTION_UP)
                 assertTrue(shift.isSelected)
                 assertTrue(shift.showAuto)
-                assertTrue(commands.isEmpty())
-                touch(shift, MotionEvent.ACTION_DOWN)
-                touch(shift, MotionEvent.ACTION_UP)
-                assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.StartTouchReading(InputMode.HIRAGANA))), commands)
-                upShift(view)
-                assertFalse(shift.isSelected)
+                assertFalse(shift.showShift)
+                assertFalse(engine.state.touchShiftPending)
+                shift.performClick()
+                assertTrue(shift.showShift)
+                assertTrue(shift.showAuto)
+                shift.performClick()
                 assertFalse(shift.showAuto)
-                assertEquals(1, commands.size)
+                assertFalse(shift.showShift)
+                assertEquals(listOf(BasicSkkAction.StartTouchReading(InputMode.HIRAGANA), BasicSkkAction.CancelTouchShift,
+                    BasicSkkAction.StartTouchReading(InputMode.HIRAGANA), BasicSkkAction.CancelTouchShift),
+                    commands.map { (it as TouchKeyboardCommand.Skk).action })
             }
         }
+    }
+
+    @Test fun `文字入力後のシフトは再タップ扱いにならず自動開始中も送りを付ける`() {
+        val (view, engine) = connectedView()
+        val shift = key(view, "⇧") as ReadingModeButton
+        shift.performClick()
+        key(view, "か").performClick()
+        assertFalse(shift.showShift)
+        assertEquals("か", engine.state.reading)
+        shift.performClick()
+        assertTrue(shift.showShift)
+        assertFalse(shift.showAuto)
+        shift.performClick()
+        assertTrue(shift.showAuto)
+        assertFalse(shift.showShift)
+        key(view, "か").performClick()
+        assertEquals("かか", engine.state.reading)
+        shift.performClick()
+        key(view, "か").performClick()
+        assertFalse(shift.showShift)
+        assertTrue(shift.showAuto)
+        assertEquals("か", engine.state.okuri)
     }
 
     @Test fun `面ごとの状態は文字種変更とビュー再生成でも共有され独立する`() {
         val context = RuntimeEnvironment.getApplication() as android.content.Context
         val commands = mutableListOf<TouchKeyboardCommand>()
         val view = TenKeyKeyboardView(context, TouchKeyboardSettings()) { commands += it }
-        upShift(view)
+        toggleAuto(view)
         key(view, "ア").performClick()
         assertTrue(key(view, "⇧").isSelected)
         key(view, "カ").performClick()
@@ -81,7 +122,7 @@ class TenKeyKeyboardViewTest {
         assertFalse(key(view, "⇧").isSelected)
         key(view, "abc").performClick()
         key(view, "123").performClick()
-        upShift(view)
+        toggleAuto(view)
         key(view, "全１").performClick()
         assertTrue(key(view, "⇧").isSelected)
         key(view, "1").performClick()
@@ -95,7 +136,7 @@ class TenKeyKeyboardViewTest {
         assertFalse(key(recreated, "⇧").isSelected)
         key(recreated, "123").performClick()
         assertTrue(key(recreated, "⇧").isSelected)
-        val texts = commands.map { (it as TouchKeyboardCommand.Skk).action as BasicSkkAction.TouchText }
+        val texts = commands.mapNotNull { (it as TouchKeyboardCommand.Skk).action as? BasicSkkAction.TouchText }
         assertEquals(listOf(true, false, true), texts.map { it.autoStartReading })
     }
 
@@ -128,39 +169,30 @@ class TenKeyKeyboardViewTest {
         assertTrue(commands.isEmpty())
     }
 
-    @Test fun `上フリックの戻りには余裕を持たせ横移動をタップに戻さない`() {
+    @Test fun `シフトのドラッグは全方向で復帰や履歴も含めタップを取り消す`() {
         val commands = mutableListOf<TouchKeyboardCommand>()
-        val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
-        val shift = key(view, "⇧")
+        val (view, _) = connectedView(commands = commands)
+        val shift = key(view, "⇧") as ReadingModeButton
         shift.layout(0, 0, 100, 100)
-        touch(shift, MotionEvent.ACTION_DOWN, 50f, 50f)
-        touch(shift, MotionEvent.ACTION_MOVE, 50f, 25f)
-        touch(shift, MotionEvent.ACTION_UP, 50f, 34f)
-        assertTrue(shift.isSelected)
-        touch(shift, MotionEvent.ACTION_DOWN)
-        touch(shift, MotionEvent.ACTION_MOVE, 80f, 30f)
-        touch(shift, MotionEvent.ACTION_UP)
-        assertTrue(shift.isSelected)
-        assertTrue(commands.isEmpty())
-    }
-
-    @Test fun `前の上フリックや取消から次の操作へ復帰側の閾値を引き継がない`() {
-        for (cancelFirst in listOf(false, true)) {
-            TenKeyReadingModeStore.save(RuntimeEnvironment.getApplication(), TenKeyReadingModes())
-            val commands = mutableListOf<TouchKeyboardCommand>()
-            val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
-            val shift = key(view, "⇧")
-            shift.layout(0, 0, 200, 200)
-            touch(shift, MotionEvent.ACTION_DOWN, 100f, 100f)
-            touch(shift, MotionEvent.ACTION_MOVE, 100f, 40f)
-            touch(shift, if (cancelFirst) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, 100f, 40f)
-            val selected = shift.isSelected
-            touch(shift, MotionEvent.ACTION_DOWN, 100f, 100f)
-            touch(shift, MotionEvent.ACTION_MOVE, 100f, 64f)
-            touch(shift, MotionEvent.ACTION_UP, 100f, 64f)
-            assertEquals(!cancelFirst, selected)
-            assertEquals(selected, shift.isSelected)
-            assertTrue(commands.isEmpty())
+        for (pending in listOf(false, true)) {
+            view.updateShiftPending(pending)
+            for ((x, y) in listOf(50f to 0f, 0f to 50f, 100f to 50f, 50f to 100f)) {
+                touch(shift, MotionEvent.ACTION_DOWN, 50f, 50f)
+                touch(shift, MotionEvent.ACTION_MOVE, x, y)
+                touch(shift, MotionEvent.ACTION_UP, 50f, 50f)
+                assertTrue(commands.isEmpty())
+                assertNull(view.pendingGuide)
+                assertFalse(shift.showAuto)
+                assertEquals(pending, shift.showShift)
+                touch(shift, MotionEvent.ACTION_DOWN, 50f, 50f)
+                val time = SystemClock.uptimeMillis()
+                MotionEvent.obtain(time, time, MotionEvent.ACTION_MOVE, x, y, 0).also {
+                    it.addBatch(time + 1, 50f, 50f, 1f, 1f, 0)
+                    shift.dispatchTouchEvent(it); it.recycle()
+                }
+                touch(shift, MotionEvent.ACTION_UP, 50f, 50f)
+                assertTrue(commands.isEmpty())
+            }
         }
     }
 
@@ -179,7 +211,7 @@ class TenKeyKeyboardViewTest {
         digit("か")
         key(view, "ABC").performClick()
         digit("abc")
-        val texts = commands.map { (it as TouchKeyboardCommand.Skk).action as BasicSkkAction.TouchText }
+        val texts = commands.mapNotNull { (it as TouchKeyboardCommand.Skk).action as? BasicSkkAction.TouchText }
         assertEquals(listOf("2", "2"), texts.map { it.text })
         assertEquals(listOf(true, false), texts.map { it.autoStartReading })
     }
@@ -187,13 +219,14 @@ class TenKeyKeyboardViewTest {
     @Test fun `保護欄は状態を保存したまま表示と読み操作を無効にする`() {
         val commands = mutableListOf<TouchKeyboardCommand>()
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
-        upShift(view)
+        toggleAuto(view)
         view.setSkkEnabled(false)
         val shift = key(view, "⇧") as ReadingModeButton
         assertFalse(shift.isEnabled)
         assertFalse(shift.isSelected)
         assertFalse(shift.showAuto)
-        upShift(view)
+        touch(shift, MotionEvent.ACTION_DOWN)
+        touch(shift, MotionEvent.ACTION_UP)
         shift.performClick()
         assertFalse(shift.performAccessibilityAction(R.id.toggle_ten_key_reading, null))
         assertTrue(commands.isEmpty())
@@ -216,6 +249,10 @@ class TenKeyKeyboardViewTest {
         assertTrue(shift.performAccessibilityAction(R.id.toggle_ten_key_reading, null))
         assertTrue(shift.isSelected)
         assertTrue(commands.isEmpty())
+        view.updateShiftPending(true)
+        assertTrue(androidx.core.view.ViewCompat.getStateDescription(shift).toString().contains("シフトオン"))
+        assertTrue(shift.performAccessibilityAction(R.id.toggle_ten_key_reading, null))
+        assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.CancelTouchShift)), commands)
         info.recycle()
     }
 
@@ -232,7 +269,7 @@ class TenKeyKeyboardViewTest {
                 key(view, "abc").performClick()
                 key(view, "123").performClick()
                 key(view, "1").performClick()
-                val texts = commands.map { (it as TouchKeyboardCommand.Skk).action as BasicSkkAction.TouchText }
+                val texts = commands.mapNotNull { (it as TouchKeyboardCommand.Skk).action as? BasicSkkAction.TouchText }
                 assertEquals(listOf("か", "、", "a", "1"), texts.map { it.text })
                 assertTrue(texts.all { it.autoStartReading == (enabled && !protected) && !it.boundary })
             }
@@ -858,6 +895,44 @@ class TenKeyKeyboardViewTest {
         touch(key(view, "ア"), MotionEvent.ACTION_UP, 30f, 0f)
         assertTrue(commands.isEmpty())
     }
+    private fun assertShiftDrawing() {
+        val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) {}
+        val shift = key(view, "⇧") as ReadingModeButton
+        shift.layout(0, 0, 100, 100)
+        assertEquals(key(view, "ア").currentTextColor, shift.currentTextColor)
+        fun symbolBitmap(): android.graphics.Bitmap = android.graphics.Bitmap.createBitmap(100, 100,
+            android.graphics.Bitmap.Config.ARGB_8888).also { shift.draw(android.graphics.Canvas(it)) }
+        val center = shift.arrowBounds()
+        assertEquals(50f, center.centerX(), .01f)
+        assertEquals(50f, center.centerY(), .01f)
+        val outlined = symbolBitmap()
+        view.updateShiftPending(true)
+        val filled = symbolBitmap()
+        val insideX = center.centerX().toInt()
+        val insideY = (center.bottom - center.height() * .2f).toInt()
+        assertNotEquals(outlined.getPixel(insideX, insideY), filled.getPixel(insideX, insideY))
+        assertEquals(shift.currentTextColor, filled.getPixel(insideX, insideY))
+        val lamp = shift.lampBounds()
+        assertTrue(lamp.top > center.bottom)
+        assertTrue(lamp.bottom < shift.height)
+        val inactive = filled.getPixel(lamp.centerX().toInt(), lamp.centerY().toInt())
+        toggleAuto(view)
+        val active = symbolBitmap()
+        assertNotEquals(inactive, active.getPixel(lamp.centerX().toInt(), lamp.centerY().toInt()))
+        assertEquals(shift.currentTextColor, active.getPixel(lamp.centerX().toInt(), lamp.centerY().toInt()))
+        assertEquals(center, shift.arrowBounds())
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) @Config(sdk = [26, 35])
+    fun `シフトは中央の輪郭と塗りつぶしと下側ランプを同じ文字色で描く`() {
+        assertShiftDrawing()
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) @Config(sdk = [26, 35], qualifiers = "night")
+    fun `夜間のシフトも中央とランプを他のキーと同じ文字色で描く`() {
+        assertShiftDrawing()
+    }
+
     @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) fun `地球キーだけに長押し別機能の補助記号を付ける`() {
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) {}
         val globe = buttons(view).first { it.contentDescription == "IME切替" } as AlternativeFunctionButton
