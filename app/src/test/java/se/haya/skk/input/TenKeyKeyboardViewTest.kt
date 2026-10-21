@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit
 import se.haya.skk.core.BasicSkkAction
 import se.haya.skk.core.BasicSkkEngine
 import se.haya.skk.core.InputMode
+import se.haya.skk.core.InputPhase
 import se.haya.skk.settings.*
 
 @RunWith(RobolectricTestRunner::class)
@@ -34,26 +35,41 @@ class TenKeyKeyboardViewTest {
     private fun toggleAuto(view: TenKeyKeyboardView) {
         assertTrue(key(view, "⇧").performAccessibilityAction(R.id.toggle_ten_key_reading, null))
     }
+    private fun longPress(button: Button) {
+        assertTrue(button.isAttachedToWindow)
+        touch(button, MotionEvent.ACTION_DOWN)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(android.view.ViewConfiguration.getLongPressTimeout().toLong(), TimeUnit.MILLISECONDS)
+        touch(button, MotionEvent.ACTION_UP)
+    }
     private fun connectedView(settings: TouchKeyboardSettings = TouchKeyboardSettings(),
         controller: TenKeyController = TenKeyController(),
         commands: MutableList<TouchKeyboardCommand> = mutableListOf()): Pair<TenKeyKeyboardView, BasicSkkEngine> {
         val engine = BasicSkkEngine { emptyList() }
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         lateinit var view: TenKeyKeyboardView
-        view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), settings, controller) { command ->
+        view = TenKeyKeyboardView(activity, settings, controller) { command ->
             commands += command
             if (command is TouchKeyboardCommand.Skk) {
                 engine.dispatch(command.action)
                 view.updateShiftPending(engine.state.touchShiftPending)
             }
         }
+        attachView(activity, view)
         return view to engine
+    }
+    private fun attachView(activity: Activity, view: TenKeyKeyboardView) {
+        activity.setContentView(view)
+        view.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY))
+        view.layout(0, 0, 600, 320)
+        assertTrue(view.isAttachedToWindow)
     }
     private fun buttons(view: View): List<Button> = when(view) { is Button -> listOf(view); is ViewGroup -> (0 until view.childCount).flatMap { buttons(view.getChildAt(it)) }; else -> emptyList() }
     private fun key(view: View, label: String) = buttons(view).first { it.text.toString() == label }
     private fun touch(button: Button, action: Int, x: Float = 30f, y: Float = 30f) {
         MotionEvent.obtain(SystemClock.uptimeMillis(),SystemClock.uptimeMillis(),action,x,y,0).also { button.dispatchTouchEvent(it); it.recycle() }
     }
-    @Test @Config(sdk = [26, 35]) fun `全操作方式と面で時間制限のない再タップが自動開始を切り替える`() {
+    @Test @Config(sdk = [26, 35]) fun `全操作方式と面で長押しだけが自動開始を切り替える`() {
         for (operation in TenKeyOperation.entries) {
             for (face in TenKeyController.Face.entries) {
                 TenKeyReadingModeStore.save(RuntimeEnvironment.getApplication(), TenKeyReadingModes())
@@ -62,34 +78,56 @@ class TenKeyKeyboardViewTest {
                 val (view, engine) = connectedView(TouchKeyboardSettings(operation = operation), controller, commands)
                 val shift = key(view, "⇧") as ReadingModeButton
                 touch(shift, MotionEvent.ACTION_DOWN)
-                assertFalse(shift.showShift)
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor((android.view.ViewConfiguration.getLongPressTimeout() - 1).toLong(), TimeUnit.MILLISECONDS)
                 touch(shift, MotionEvent.ACTION_UP)
                 assertTrue(shift.showShift)
                 assertFalse(shift.showAuto)
                 assertEquals(BasicSkkAction.StartTouchReading(InputMode.HIRAGANA), (commands.single() as TouchKeyboardCommand.Skk).action)
-                Shadows.shadowOf(Looper.getMainLooper()).idleFor(10, TimeUnit.SECONDS)
                 touch(shift, MotionEvent.ACTION_DOWN)
-                assertFalse(shift.showAuto)
                 touch(shift, MotionEvent.ACTION_UP)
+                assertFalse(shift.showAuto)
+                assertEquals(2, commands.size)
+                assertEquals(InputPhase.READING, engine.state.phase)
+                assertEquals("", engine.state.reading)
+                longPress(shift)
                 assertTrue(shift.isSelected)
                 assertTrue(shift.showAuto)
                 assertFalse(shift.showShift)
                 assertFalse(engine.state.touchShiftPending)
-                shift.performClick()
-                assertTrue(shift.showShift)
-                assertTrue(shift.showAuto)
-                shift.performClick()
+                assertEquals(InputPhase.READING, engine.state.phase)
+                assertEquals("", engine.state.reading)
+                assertEquals(2, commands.size)
+                longPress(shift)
                 assertFalse(shift.showAuto)
-                assertFalse(shift.showShift)
-                assertEquals(listOf(BasicSkkAction.StartTouchReading(InputMode.HIRAGANA), BasicSkkAction.CancelTouchShift,
-                    BasicSkkAction.StartTouchReading(InputMode.HIRAGANA), BasicSkkAction.CancelTouchShift),
+                assertEquals(listOf(BasicSkkAction.StartTouchReading(InputMode.HIRAGANA), BasicSkkAction.StartTouchReading(InputMode.HIRAGANA)),
                     commands.map { (it as TouchKeyboardCommand.Skk).action })
             }
         }
     }
 
-    @Test fun `文字入力後のシフトは再タップ扱いにならず自動開始中も送りを付ける`() {
-        val (view, engine) = connectedView()
+    @Test fun `通常状態からの長押しは空の読みを開始せず離しても入力しない`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val (view, engine) = connectedView(commands = commands)
+        val shift = key(view, "⇧") as ReadingModeButton
+        touch(shift, MotionEvent.ACTION_DOWN)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(
+            android.view.ViewConfiguration.getLongPressTimeout().toLong(), TimeUnit.MILLISECONDS)
+        assertTrue(shift.showAuto)
+        assertFalse(shift.showShift)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(
+            3L * android.view.ViewConfiguration.getLongPressTimeout(), TimeUnit.MILLISECONDS)
+        assertTrue(shift.showAuto)
+        assertEquals(InputPhase.IDLE, engine.state.phase)
+        assertTrue(commands.isEmpty())
+        touch(shift, MotionEvent.ACTION_UP)
+        assertEquals(InputPhase.IDLE, engine.state.phase)
+        assertEquals("", engine.state.reading)
+        assertTrue(commands.isEmpty())
+    }
+
+    @Test fun `文字入力後のタップで送りを付け自動開始中も送りを維持する`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val (view, engine) = connectedView(commands = commands)
         val shift = key(view, "⇧") as ReadingModeButton
         shift.performClick()
         key(view, "か").performClick()
@@ -98,9 +136,11 @@ class TenKeyKeyboardViewTest {
         shift.performClick()
         assertTrue(shift.showShift)
         assertFalse(shift.showAuto)
-        shift.performClick()
+        longPress(shift)
         assertTrue(shift.showAuto)
         assertFalse(shift.showShift)
+        assertFalse(engine.state.touchShiftPending)
+        assertEquals(BasicSkkAction.CancelTouchShift, (commands.last() as TouchKeyboardCommand.Skk).action)
         key(view, "か").performClick()
         assertEquals("かか", engine.state.reading)
         shift.performClick()
@@ -167,6 +207,52 @@ class TenKeyKeyboardViewTest {
         view.dispose()
         touch(currentShift, MotionEvent.ACTION_UP, 30f, -40f)
         assertTrue(commands.isEmpty())
+    }
+
+    @Test fun `移動キャンセル複数指面変更破棄保護欄では長押しタイマーを破棄する`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val view = TenKeyKeyboardView(activity, TouchKeyboardSettings()) { commands += it }
+        attachView(activity, view)
+        val shift = key(view, "⇧")
+        longPress(shift)
+        assertTrue(shift.isSelected)
+        longPress(shift)
+        assertFalse(shift.isSelected)
+        assertTrue(commands.isEmpty())
+        shift.layout(0, 0, 100, 100)
+        touch(shift, MotionEvent.ACTION_DOWN, 50f, 50f)
+        touch(shift, MotionEvent.ACTION_MOVE, 80f, 50f)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(android.view.ViewConfiguration.getLongPressTimeout().toLong(), TimeUnit.MILLISECONDS)
+        touch(shift, MotionEvent.ACTION_UP, 80f, 50f)
+        assertFalse(shift.isSelected)
+        touch(shift, MotionEvent.ACTION_DOWN)
+        touch(shift, MotionEvent.ACTION_CANCEL)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(android.view.ViewConfiguration.getLongPressTimeout().toLong(), TimeUnit.MILLISECONDS)
+        assertFalse(shift.isSelected)
+        touch(shift, MotionEvent.ACTION_DOWN)
+        touch(shift, MotionEvent.ACTION_POINTER_DOWN)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(android.view.ViewConfiguration.getLongPressTimeout().toLong(), TimeUnit.MILLISECONDS)
+        assertFalse(shift.isSelected)
+        touch(shift, MotionEvent.ACTION_DOWN)
+        view.setSkkEnabled(false)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(android.view.ViewConfiguration.getLongPressTimeout().toLong(), TimeUnit.MILLISECONDS)
+        assertFalse(shift.isSelected)
+        view.setSkkEnabled(true)
+        touch(shift, MotionEvent.ACTION_DOWN)
+        view.cancelTouches()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(android.view.ViewConfiguration.getLongPressTimeout().toLong(), TimeUnit.MILLISECONDS)
+        assertFalse(shift.isSelected)
+        touch(shift, MotionEvent.ACTION_DOWN)
+        key(view, "ABC").performClick()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(android.view.ViewConfiguration.getLongPressTimeout().toLong(), TimeUnit.MILLISECONDS)
+        assertTrue(TenKeyReadingModeStore.read(RuntimeEnvironment.getApplication()) == TenKeyReadingModes())
+        val current = key(view, "⇧")
+        touch(current, MotionEvent.ACTION_DOWN)
+        view.dispose()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(android.view.ViewConfiguration.getLongPressTimeout().toLong(), TimeUnit.MILLISECONDS)
+        assertTrue(commands.isEmpty())
+        assertTrue(TenKeyReadingModeStore.read(RuntimeEnvironment.getApplication()) == TenKeyReadingModes())
     }
 
     @Test fun `シフトのドラッグは全方向で復帰や履歴も含めタップを取り消す`() {
@@ -243,7 +329,8 @@ class TenKeyKeyboardViewTest {
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
         val shift = key(view, "⇧")
         val info = shift.createAccessibilityNodeInfo()
-        assertEquals("読み開始・送り境界", shift.contentDescription)
+        assertTrue(shift.contentDescription.contains("長押し"))
+        assertTrue(AccessibilityNodeInfoCompat.wrap(info).stateDescription.toString().contains("長押しで自動読み開始切替"))
         assertTrue(AccessibilityNodeInfoCompat.wrap(info).stateDescription.toString().contains("かな面、自動読み開始オフ"))
         assertTrue(info.actionList.any { it.id == R.id.toggle_ten_key_reading })
         assertTrue(shift.performAccessibilityAction(R.id.toggle_ten_key_reading, null))
@@ -703,7 +790,7 @@ class TenKeyKeyboardViewTest {
     @Test fun `切替先だけを示し全角出力でも英数字キーはASCIIを保つ`() {
         val commands = mutableListOf<TouchKeyboardCommand>()
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
-        assertEquals("読み開始・送り境界", key(view, "⇧").contentDescription)
+        assertEquals("読み開始・送り境界、長押しで自動読み開始切替", key(view, "⇧").contentDescription)
         assertNotNull(key(view, "⏎"))
         view.updateSpaceAction(true)
         key(view, "ABC").performClick()
@@ -918,8 +1005,8 @@ class TenKeyKeyboardViewTest {
         val inactive = filled.getPixel(lamp.centerX().toInt(), lamp.centerY().toInt())
         toggleAuto(view)
         val active = symbolBitmap()
+        assertEquals(android.graphics.Color.rgb(74, 210, 126), active.getPixel(lamp.centerX().toInt(), lamp.centerY().toInt()))
         assertNotEquals(inactive, active.getPixel(lamp.centerX().toInt(), lamp.centerY().toInt()))
-        assertEquals(shift.currentTextColor, active.getPixel(lamp.centerX().toInt(), lamp.centerY().toInt()))
         assertEquals(center, shift.arrowBounds())
     }
 

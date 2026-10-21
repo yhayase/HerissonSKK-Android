@@ -158,20 +158,16 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             TenKeyController.Face.ALPHA -> "英字面"
             TenKeyController.Face.NUMBER -> "数字面"
         }
-        ViewCompat.setStateDescription(button, if (skkEnabled) "$face、自動読み開始${if (enabled) "オン" else "オフ"}、シフト${if (shiftPending) "オン" else "オフ"}、タップで読み開始・送り境界、シフト中の再タップで自動読み開始切替" else "$face、読み操作無効")
+        ViewCompat.setStateDescription(button, if (skkEnabled) "$face、自動読み開始${if (enabled) "オン" else "オフ"}、シフト${if (shiftPending) "オン" else "オフ"}、タップで読み開始・送り境界、長押しで自動読み開始切替" else "$face、読み操作無効")
     }
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     private fun readingKey(): Button {
         val capturedGeneration = generation
         val button = key("⇧") {
-            if (skkEnabled) {
-                if (shiftPending) {
-                    if (toggleReadingMode()) action(BasicSkkAction.CancelTouchShift)
-                } else action(BasicSkkAction.StartTouchReading(controller.kanaMode))
-            }
+            if (skkEnabled) action(BasicSkkAction.StartTouchReading(controller.kanaMode))
         }
         readingButton = button
-        button.contentDescription = "読み開始・送り境界"
+        button.contentDescription = "読み開始・送り境界、長押しで自動読み開始切替"
         button.isEnabled = skkEnabled
         updateReadingIndicator()
         button.accessibilityDelegate = object : View.AccessibilityDelegate() {
@@ -183,7 +179,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean =
                 if (action == R.id.toggle_ten_key_reading) {
                     if (capturedGeneration != generation || !toggleReadingMode()) false
-                    else { if (shiftPending) action(BasicSkkAction.CancelTouchShift); true }
+                    else { cancelPendingShiftAfterAutoToggle(); true }
                 }
                 else super.performAccessibilityAction(host, action, args)
         }
@@ -191,18 +187,29 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
         var startX = 0f
         var startY = 0f
         var moved = false
-        fun clear() { active = false; moved = false; button.isPressed = false }
+        var longPressed = false
+        val longPress = Runnable {
+            if (active && !moved && capturedGeneration == generation && skkEnabled) {
+                longPressed = true
+                button.performLongClick()
+            }
+        }
+        fun clear() { button.removeCallbacks(longPress); active = false; moved = false; button.isPressed = false }
         cancellations += { clear() }
         fun sample(x: Float, y: Float) {
             val dx = x - startX
             val dy = y - startY
             val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
-            if (kotlin.math.hypot(dx, dy) > slop) moved = true
+            if (kotlin.math.hypot(dx, dy) > slop) { moved = true; button.removeCallbacks(longPress) }
+        }
+        button.setOnLongClickListener {
+            if (capturedGeneration != generation || !skkEnabled || !toggleReadingMode()) false
+            else { cancelPendingShiftAfterAutoToggle(); true }
         }
         button.setOnTouchListener { _, event ->
             if (capturedGeneration != generation || !skkEnabled || event.pointerCount > 1) { clear(); return@setOnTouchListener true }
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { clear(); active = true; startX = event.x; startY = event.y; button.isPressed = true }
+                MotionEvent.ACTION_DOWN -> { clear(); active = true; longPressed = false; startX = event.x; startY = event.y; button.isPressed = true; button.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong()) }
                 MotionEvent.ACTION_MOVE -> if (active) {
                     for (index in 0 until event.historySize) sample(event.getHistoricalX(index), event.getHistoricalY(index))
                     sample(event.x, event.y)
@@ -212,13 +219,16 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                     sample(event.x, event.y)
                     val tap = !moved
                     clear()
-                    if (tap) button.performClick()
+                    if (tap && !longPressed) button.performClick()
                 }
                 MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> clear()
             }
             true
         }
         return button
+    }
+    private fun cancelPendingShiftAfterAutoToggle() {
+        if (shiftPending) action(BasicSkkAction.CancelTouchShift)
     }
     private fun kindKey(): Button {
         val label = when(controller.face) { TenKeyController.Face.KANA -> if (controller.katakana) "あ" else "ア"; TenKeyController.Face.ALPHA -> if (controller.wideAlpha) "A" else "全Ａ"; else -> if (controller.wideNumber) "1" else "全１" }
@@ -594,9 +604,10 @@ internal class ReadingModeButton(context: Context) : Button(context) {
     }
     internal fun lampBounds(): android.graphics.RectF {
         val density = resources.displayMetrics.density
-        val radius = minOf(2.5f * density, height * .05f)
-        val cy = height - 7f * density
-        return android.graphics.RectF(width / 2f - radius, cy - radius, width / 2f + radius, cy + radius)
+        val radius = minOf(3.5f * density, height * .07f)
+        val cx = width - 9f * density
+        val cy = height - 9f * density
+        return android.graphics.RectF(cx - radius, cy - radius, cx + radius, cy + radius)
     }
     override fun onDraw(canvas: Canvas) {
         // フォントごとの矢印形状の差を避け、輪郭と塗りつぶしに同じパスを使います。
@@ -616,10 +627,31 @@ internal class ReadingModeButton(context: Context) : Button(context) {
         symbolPaint.strokeWidth = 1.5f * resources.displayMetrics.density
         symbolPaint.style = if (showShift) Paint.Style.FILL_AND_STROKE else Paint.Style.STROKE
         canvas.drawPath(arrowPath, symbolPaint)
-        symbolPaint.style = if (showAuto) Paint.Style.FILL else Paint.Style.STROKE
-        symbolPaint.alpha = if (showAuto) 255 else 110
-        symbolPaint.strokeWidth = resources.displayMetrics.density
+        val hintPaint = symbolPaint
+        hintPaint.color = currentTextColor
+        hintPaint.alpha = 130
+        hintPaint.style = Paint.Style.FILL
+        hintPaint.textAlign = Paint.Align.CENTER
+        hintPaint.textSize = minOf(10f * resources.displayMetrics.scaledDensity, height * .2f)
+        val hintMetrics = hintPaint.fontMetrics
+        val hintBaseline = height - 2f * resources.displayMetrics.density - hintMetrics.descent
+        canvas.drawText("…", width / 2f, hintBaseline, hintPaint)
         val lamp = lampBounds()
+        val density = resources.displayMetrics.density
+        symbolPaint.style = Paint.Style.FILL
+        symbolPaint.alpha = if (isEnabled) 255 else 100
+        symbolPaint.color = Color.rgb(24, 34, 28)
+        canvas.drawOval(android.graphics.RectF(lamp.left - density, lamp.top - density,
+            lamp.right + density, lamp.bottom + density), symbolPaint)
+        symbolPaint.color = if (showAuto && isEnabled) Color.rgb(74, 210, 126) else Color.rgb(105, 119, 110)
+        symbolPaint.alpha = if (isEnabled && showAuto) 255 else 145
         canvas.drawOval(lamp, symbolPaint)
+        if (isEnabled && showAuto) {
+            symbolPaint.color = Color.WHITE
+            symbolPaint.alpha = 105
+            val highlight = density * .65f
+            canvas.drawOval(android.graphics.RectF(lamp.left + density, lamp.top + density,
+                lamp.left + density + highlight, lamp.top + density + highlight), symbolPaint)
+        }
     }
 }

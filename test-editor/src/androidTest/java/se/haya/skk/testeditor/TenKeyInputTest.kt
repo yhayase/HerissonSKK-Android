@@ -8,6 +8,7 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.InputMethodManager
@@ -181,7 +182,7 @@ class TenKeyInputTest {
         composition(editor, false)
     }
 
-    @Test fun secondShiftPressRemembersEachFaceWithoutChangingTheCurrentReading() = withEditor { editor, _ ->
+    @Test fun longShiftPressRemembersEachFaceWithoutStartingAnEmptyReading() = withEditor { editor, _ ->
         fun face(next: String) {
             repeat(3) {
                 val current = automation.windows.asSequence().mapNotNull { it.root }
@@ -198,8 +199,8 @@ class TenKeyInputTest {
         }
         fun automatic(enabled: Boolean) {
             if (key("⇧").isSelected != enabled) {
-                tap("⇧")
-                tap("⇧")
+                gesture("⇧", emptyList(), hold = true,
+                    holdMillis = ViewConfiguration.getLongPressTimeout().toLong() + 100)
             }
             assertEquals(enabled, key("⇧").isSelected)
         }
@@ -207,9 +208,10 @@ class TenKeyInputTest {
             face("ABC"); automatic(false)
             face("123"); automatic(false)
             face("かな"); automatic(false)
-            // 初期化時のシフト操作で開始した空の読みを閉じます。
-            tap("⌫")
             face("ABC"); automatic(true)
+            awaitText(editor, "")
+            composition(editor, false)
+            capture("shift-led-without-empty-reading")
             tap("か")
             awaitText(editor, "か")
             composition(editor, true)
@@ -755,7 +757,7 @@ class TenKeyInputTest {
     }
 
     private fun gesture(label: String, path: List<Pair<Int, Int>>, hold: Boolean = false, cancel: Boolean = false,
-        holdBeforePath: Boolean = false, stepMillis: Long = 0) {
+        holdBeforePath: Boolean = false, stepMillis: Long = 0, holdMillis: Long = 450) {
         device.waitForIdle()
         val box = Rect().also(key(label)::getBoundsInScreen)
         val distance = box.height() * .7f
@@ -782,7 +784,7 @@ class TenKeyInputTest {
                     SystemClock.sleep(32)
                     inject(MotionEvent.ACTION_MOVE)
                 }
-                SystemClock.sleep(450)
+                SystemClock.sleep(holdMillis)
             }
             inject(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP)
         } catch (error: Throwable) {
