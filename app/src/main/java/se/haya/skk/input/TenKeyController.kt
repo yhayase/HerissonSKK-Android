@@ -1,5 +1,6 @@
 package se.haya.skk.input
 
+import android.text.InputType
 import kotlin.math.abs
 import se.haya.skk.core.InputMode
 import se.haya.skk.settings.TenKeyOperation
@@ -15,6 +16,44 @@ internal class TenKeyController {
     var wideNumber = false
     var uppercase = false
     var nextBoundary = false
+    private data class OrdinaryState(val face: Face, val katakana: Boolean, val wideAlpha: Boolean,
+        val wideNumber: Boolean, val uppercase: Boolean)
+    private var ordinaryState: OrdinaryState? = null
+    private var lastInputType: Int? = null
+
+    /** 入力欄の初期面だけを切り替え、通常欄で選んだ文字種は保護します。 */
+    fun startEditorSession(inputType: Int, restarting: Boolean = false) {
+        nextBoundary = false
+        // 構成変更で編集セッションを作り直す場合も、この欄で選んだ面は維持します。
+        if (restarting && lastInputType == inputType) return
+        lastInputType = inputType
+        val initialFace = when (inputType and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_NUMBER -> Face.NUMBER
+            InputType.TYPE_CLASS_TEXT -> when (inputType and InputType.TYPE_MASK_VARIATION) {
+                InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD -> Face.ALPHA
+                else -> null
+            }
+            else -> null
+        }
+        if (initialFace != null) {
+            if (ordinaryState == null) ordinaryState = OrdinaryState(face, katakana, wideAlpha, wideNumber, uppercase)
+            face = initialFace
+            wideAlpha = false
+            wideNumber = false
+            uppercase = false
+        } else {
+            ordinaryState?.let {
+                face = it.face
+                katakana = it.katakana
+                wideAlpha = it.wideAlpha
+                wideNumber = it.wideNumber
+                uppercase = it.uppercase
+            }
+            ordinaryState = null
+        }
+    }
     val kanaMode get() = if (katakana) InputMode.KATAKANA else InputMode.HIRAGANA
     fun cycleFace() { face = Face.entries[(face.ordinal + 1) % 3] }
     fun toggleKind() { when (face) {

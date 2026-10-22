@@ -92,6 +92,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private var statusView: TextView? = null
     private var candidateStatusView: CandidateStatusView? = null
     private var touchKeyboardView: TouchKeyboardView? = null
+    private val tenKeyController = se.haya.skk.input.TenKeyController()
     private var sessionTouchSettings = se.haya.skk.settings.TouchKeyboardSettings()
     private var lastDevice: Int? = null
     private var physicalHostAllowed = false
@@ -203,16 +204,17 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             // 設定の準備前には標準規則で処理せず、元のキーを入力先へ渡します。
             customization.loadAsync {
                 if (generation == requestedGeneration) {
-                    startEditorSession(connection, info, allowPhysicalHostForSession)
+                    startEditorSession(connection, info, allowPhysicalHostForSession, restarting)
                 }
             }
-        } else startEditorSession(connection, info, allowPhysicalHostForSession)
+        } else startEditorSession(connection, info, allowPhysicalHostForSession, restarting)
     }
 
     private fun startEditorSession(
         connection: InputConnection,
         info: EditorInfo,
         allowPhysicalHost: Boolean,
+        restarting: Boolean,
     ) {
         sessionTouchSettings = se.haya.skk.settings.TouchKeyboardSettingsStore.read(this)
         val writeContext = SessionWriteContext(dictionaries.captureInputWriteContext())
@@ -328,6 +330,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 ).coerceAtMost(candidateStatusView?.visibleMenuCapacity(physical = true) ?: 1)
             })
         physicalHostAllowed = allowPhysicalHost && info.inputType != InputType.TYPE_NULL
+        tenKeyController.startEditorSession(info.inputType, restarting)
         touchKeyboardView?.resetForEditorSession()
         touchKeyboardView?.configure(sessionTouchSettings)
         updateTouchKeyboardVisibility()
@@ -423,7 +426,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onCreateInputView(): View {
-        val keys = TouchKeyboardView(this, ::onTouchCommand).also {
+        val keys = TouchKeyboardView(this, tenKeyController, ::onTouchCommand).also {
             it.onGeometryChanged = { updated ->
                 sessionTouchSettings = sessionTouchSettings.copy(
                     tenKeyHeightDp = updated.tenKeyHeightDp,

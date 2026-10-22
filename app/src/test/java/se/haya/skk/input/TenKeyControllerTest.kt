@@ -1,10 +1,61 @@
 package se.haya.skk.input
 
+import android.text.InputType
+
 import org.junit.Assert.*
 import org.junit.Test
 import se.haya.skk.settings.TenKeyOperation
 
 class TenKeyControllerTest {
+    @Test fun `同じ入力種別の再開は手動選択を維持し種別変更と新規開始では初期面を選ぶ`() {
+        val controller = TenKeyController()
+        val password = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        controller.startEditorSession(password)
+        controller.cycleFace()
+        controller.wideNumber = true
+        controller.startEditorSession(password, restarting = true)
+        assertEquals(TenKeyController.Face.NUMBER, controller.face)
+        assertTrue(controller.wideNumber)
+        controller.startEditorSession(InputType.TYPE_CLASS_NUMBER, restarting = true)
+        assertEquals(TenKeyController.Face.NUMBER, controller.face)
+        assertFalse(controller.wideNumber)
+        controller.cycleFace()
+        controller.startEditorSession(InputType.TYPE_CLASS_NUMBER, restarting = true)
+        assertEquals(TenKeyController.Face.KANA, controller.face)
+        controller.startEditorSession(InputType.TYPE_CLASS_NUMBER)
+        assertEquals(TenKeyController.Face.NUMBER, controller.face)
+        controller.startEditorSession(InputType.TYPE_CLASS_TEXT, restarting = true)
+        assertEquals(TenKeyController.Face.KANA, controller.face)
+    }
+
+    @Test fun `特殊欄の初期面は通常欄の文字種を上書きしない`() {
+        val controller = TenKeyController().apply {
+            katakana = true
+            cycleFace()
+            wideAlpha = true
+            wideNumber = true
+            uppercase = true
+        }
+        controller.startEditorSession(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        assertEquals(TenKeyController.Face.ALPHA, controller.face)
+        assertEquals("a", controller.output(TenKeyController.ALPHA[1], TenKeyController.Direction.CENTER, null))
+        controller.cycleFace()
+        controller.toggleKind()
+        controller.startEditorSession(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD)
+        assertEquals("1", controller.output(TenKeyController.NUMBER[0], TenKeyController.Direction.CENTER, null))
+        controller.cycleFace()
+        controller.toggleKind()
+        controller.startEditorSession(InputType.TYPE_CLASS_TEXT)
+        assertEquals(TenKeyController.Face.ALPHA, controller.face)
+        assertTrue(controller.katakana)
+        assertTrue(controller.wideAlpha)
+        assertTrue(controller.wideNumber)
+        assertTrue(controller.uppercase)
+        controller.cycleFace()
+        controller.startEditorSession(InputType.TYPE_CLASS_TEXT)
+        assertEquals(TenKeyController.Face.NUMBER, controller.face)
+    }
+
     private val center = TenKeyController.Direction.CENTER
     private val left = TenKeyController.Direction.LEFT
     private val up = TenKeyController.Direction.UP

@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.graphics.Rect
 import android.os.SystemClock
 import android.os.Bundle
+import android.text.InputType
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
@@ -180,6 +181,53 @@ class TenKeyInputTest {
         heldStroke(.7f, 0f, 1.8f)
         awaitText(editor, "こけこ")
         composition(editor, false)
+    }
+
+    @Test fun fieldTypesChooseHalfWidthFacesAndRestoreTheOrdinaryFace() = withEditor { editor, scenario ->
+        fun inputType(type: Int) {
+            scenario.onActivity { activity ->
+                editor.setText("")
+                editor.inputType = type
+                val manager = activity.getSystemService(InputMethodManager::class.java)
+                manager.restartInput(editor)
+                manager.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
+            }
+            instrumentation.waitForIdleSync()
+        }
+        // 通常欄の全角英字面を、特殊な欄の初期面で上書きしないことを調べます。
+        tap("ABC")
+        tap("全Ａ")
+        try {
+            inputType(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED)
+            key("かな")
+            key("全１")
+            tap("1")
+            awaitText(editor, "1")
+            composition(editor, false)
+            for (variation in listOf(InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) {
+                inputType(InputType.TYPE_CLASS_TEXT or variation)
+                key("123")
+                key("abc")
+                key("全Ａ")
+                assertTrue(!key("⇧").isEnabled)
+            }
+            inputType(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD)
+            key("かな")
+            key("全１")
+            assertTrue(!key("⇧").isEnabled)
+            capture("numeric-password-initial-face")
+            inputType(InputType.TYPE_CLASS_TEXT)
+            key("123")
+            key("A")
+            capture("restored-ordinary-face")
+        } finally {
+            inputType(InputType.TYPE_CLASS_TEXT)
+            key("A")
+            tap("A")
+            tap("123")
+            tap("かな")
+        }
     }
 
     @Test fun longShiftPressRemembersEachFaceWithoutStartingAnEmptyReading() = withEditor { editor, _ ->

@@ -34,13 +34,13 @@ import se.haya.skk.settings.TouchKeyboardSettingsStore
 /** 下部の候補領域と4段の文字面を持ち、物理側の補助行は作りません。 */
 internal class TouchKeyboardView(
     context: Context,
+    private val tenKeyController: TenKeyController = TenKeyController(),
     private val onCommand: (TouchKeyboardCommand) -> Unit,
 ) : LinearLayout(context) {
     val candidateStatusView = CandidateStatusView(context)
     private val controller = TouchKeyboardController()
     private var keyboardSettings = TouchKeyboardSettings()
     private var tenKeyView: TenKeyKeyboardView? = null
-    private val tenKeyController = TenKeyController()
     internal var onGeometryChanged: ((TouchKeyboardSettings) -> Unit)? = null
     private var adjustmentPanel: ScrollView? = null
     internal val adjustingGeometry get() = adjustmentPanel != null
