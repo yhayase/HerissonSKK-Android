@@ -26,8 +26,9 @@ internal class LayoutSwitchKey(
     private val onSwitchIme: () -> Unit,
     private val onAdjustGeometry: (() -> Unit)? = null,
     private val isCurrent: () -> Boolean = { true },
+    private val onOpenSettings: () -> Unit = {},
 ) : AlternativeFunctionButton(context) {
-    private enum class Selection { CENTER, RIGHT, UP, NONE }
+    private enum class Selection { CENTER, RIGHT, SETTINGS, UP, NONE }
     internal val targetIconResource = if (target == ScreenKeyboardLayout.QWERTY)
         R.drawable.ic_keyboard_qwerty else R.drawable.ic_keyboard_ten_key
     private var tracking = false
@@ -38,6 +39,9 @@ internal class LayoutSwitchKey(
     private var moved = false
     private var selection = Selection.CENTER
     private var guide: PopupWindow? = null
+    private var shownGuideCell: Int? = null
+    internal val guideCellSize: Int
+        get() = shownGuideCell ?: minOf(width, height, (64 * resources.displayMetrics.density).toInt()).coerceAtLeast(1)
     internal val isGuideShowing get() = guide?.isShowing == true
     internal var guideBounds: Rect? = null
         private set
@@ -92,6 +96,7 @@ internal class LayoutSwitchKey(
                     if (available()) when (chosen) {
                         Selection.CENTER -> if (tap) performClick()
                         Selection.RIGHT -> onSwitchIme()
+                        Selection.SETTINGS -> onOpenSettings()
                         Selection.UP -> onAdjustGeometry?.invoke()
                         Selection.NONE -> Unit
                     }
@@ -107,7 +112,13 @@ internal class LayoutSwitchKey(
         selection = if (max(abs(dx), abs(dy)) < threshold) Selection.CENTER else {
             moved = true
             if (abs(dx) >= abs(dy)) {
-                if (dx > 0) Selection.RIGHT else Selection.NONE
+                if (dx > 0) {
+                    val boundary = guideCellSize * 1.5f
+                    val hysteresis = 2 * resources.displayMetrics.density
+                    val settings = if (selection == Selection.SETTINGS) dx >= boundary - hysteresis
+                        else dx >= boundary + hysteresis
+                    if (settings) Selection.SETTINGS else Selection.RIGHT
+                } else Selection.NONE
             } else if (dy < 0 && onAdjustGeometry != null) Selection.UP else Selection.NONE
         }
         guide?.contentView?.invalidate()
@@ -120,6 +131,7 @@ internal class LayoutSwitchKey(
         isPressed = false
         guide?.dismiss(); guide = null
         guideBounds = null
+        shownGuideCell = null
         parent?.requestDisallowInterceptTouchEvent(false)
     }
 
@@ -137,6 +149,7 @@ internal class LayoutSwitchKey(
         info.isLongClickable = false
         info.removeAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_LONG_CLICK)
         info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.layout_switch_ime, "入力方法を切り替え"))
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.layout_switch_settings, "HerissonSKKの設定を開く"))
         if (onAdjustGeometry != null)
             info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.layout_switch_geometry, "キーボードの位置とサイズを調整"))
     }
@@ -145,6 +158,7 @@ internal class LayoutSwitchKey(
         if (!available()) return false
         when (action) {
             R.id.layout_switch_ime -> { cancelInteraction(); onSwitchIme(); return true }
+            R.id.layout_switch_settings -> { cancelInteraction(); onOpenSettings(); return true }
             R.id.layout_switch_geometry -> if (onAdjustGeometry != null) {
                 cancelInteraction(); onAdjustGeometry.invoke(); return true
             }
@@ -157,9 +171,10 @@ internal class LayoutSwitchKey(
         val frame = Rect().also { getWindowVisibleDisplayFrame(it) }
         val rows = if (onAdjustGeometry != null) 2 else 1
         val cell = minOf(width, height, (64 * resources.displayMetrics.density).toInt(),
-            (frame.width() / 2).coerceAtLeast(1), (frame.height() / rows).coerceAtLeast(1)).coerceAtLeast(1)
+            (frame.width() / 3).coerceAtLeast(1), (frame.height() / rows).coerceAtLeast(1)).coerceAtLeast(1)
         val location = IntArray(2).also { getLocationOnScreen(it) }
-        val popupWidth = cell * 2
+        shownGuideCell = cell
+        val popupWidth = cell * 3
         val popupHeight = cell * rows
         val x = (location[0] + width / 2 - cell / 2).coerceIn(frame.left, max(frame.left, frame.right - popupWidth))
         val y = (location[1] + height / 2 - popupHeight + cell / 2).coerceIn(frame.top, max(frame.top, frame.bottom - popupHeight))
@@ -186,6 +201,7 @@ internal class LayoutSwitchKey(
             val row = if (onAdjustGeometry != null) 1 else 0
             drawCell(canvas, 0, row, targetIconResource, Selection.CENTER)
             drawCell(canvas, 1, row, R.drawable.ic_globe_white, Selection.RIGHT)
+            drawCell(canvas, 2, row, R.drawable.ic_keyboard_settings, Selection.SETTINGS)
             if (onAdjustGeometry != null) drawCell(canvas, 0, 0, R.drawable.ic_keyboard_resize, Selection.UP)
         }
         private fun drawCell(canvas: Canvas, column: Int, row: Int, iconResource: Int, value: Selection) {

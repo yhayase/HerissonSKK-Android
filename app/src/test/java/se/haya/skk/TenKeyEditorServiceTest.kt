@@ -1,5 +1,6 @@
 package se.haya.skk
 
+import android.content.Intent
 import android.content.res.Configuration
 import android.os.Binder
 import android.text.InputType
@@ -20,8 +21,10 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
+import se.haya.skk.input.TouchKeyboardCommand
 import se.haya.skk.input.EditorSession
 import se.haya.skk.core.BasicSkkAction
 import se.haya.skk.input.TouchKeyboardView
@@ -189,6 +192,44 @@ class TenKeyEditorServiceTest {
         assertTrue(view.adjustingGeometry)
         assertSame(session, ReflectionHelpers.getField<EditorSession>(service, "session"))
         assertTrue(switch.performAccessibilityAction(R.id.layout_switch_ime, null))
+    }
+
+    @Test fun `設定操作は両配列で未確定読みを保持してアプリの設定を開く`() = withService { service ->
+        val connection = Connection()
+        val info = editorInfo(InputType.TYPE_CLASS_TEXT)
+        attach(service, connection, info)
+        service.onStartInput(info, false)
+        val host = service.onCreateInputView()
+        val session = ReflectionHelpers.getField<EditorSession>(service, "session")
+        session.handle(BasicSkkAction.Text("Ka"))
+        val checkpoint = session.configurationCheckpoint()
+        val composing = connection.editable.toString()
+        repeat(2) {
+            val switch = descendants(host).filterIsInstance<LayoutSwitchKey>().single()
+            assertTrue(switch.performAccessibilityAction(R.id.layout_switch_settings, null))
+            val intent = Shadows.shadowOf(service).nextStartedActivity
+            assertEquals(SettingsActivity::class.java.name, intent.component?.className)
+            assertTrue(intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+            assertNull(intent.action)
+            assertNull(Shadows.shadowOf(service).nextStartedActivity)
+            assertSame(session, ReflectionHelpers.getField<EditorSession>(service, "session"))
+            assertSame(checkpoint, session.configurationCheckpoint())
+            assertEquals(composing, connection.editable.toString())
+            switch.performClick()
+        }
+    }
+
+    @Test fun `設定コマンドはセッション開始前と保護欄と終了後にも設定画面を開く`() = withService { service ->
+        fun open() {
+            ReflectionHelpers.callInstanceMethod<Unit>(service, "onTouchCommand",
+                ReflectionHelpers.ClassParameter.from(TouchKeyboardCommand::class.java, TouchKeyboardCommand.OpenSettings))
+            assertEquals(SettingsActivity::class.java.name, Shadows.shadowOf(service).nextStartedActivity.component?.className)
+        }
+        open()
+        start(service, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        open()
+        service.onFinishInput()
+        open()
     }
 
     private fun withService(block: (SkkInputMethodService) -> Unit) {

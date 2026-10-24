@@ -183,6 +183,22 @@ class TenKeyInputTest {
         composition(editor, false)
     }
 
+    @Test fun extendedRightFlickOpensSettingsFromBothLayouts() {
+        for (qwerty in listOf(false, true)) {
+            withEditor { editor, _ ->
+                if (qwerty) tap("QWERTYへ切替")
+                val label = if (qwerty) "10キーへ切替" else "QWERTYへ切替"
+                gesture(label, listOf(3 to 0), hold = true,
+                    captureHeld = if (qwerty) "settings-flick-qwerty" else "settings-flick-ten-key")
+                await("HerissonSKKの設定画面が開きません") {
+                    device.currentPackageName == "se.haya.skk" &&
+                        device.findObject(UiSelector().text("ローマ字の打ち方")).exists()
+                }
+                awaitText(editor, "")
+            }
+        }
+    }
+
     @Test fun layoutKeysPreserveReadingOkuriCandidatesAndRegistration() = withEditor { editor, _ ->
         tap("⇧")
         tap("か")

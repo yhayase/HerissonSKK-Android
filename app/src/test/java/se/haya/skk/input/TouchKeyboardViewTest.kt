@@ -43,6 +43,17 @@ class TouchKeyboardViewTest {
         return view
     }
 
+    @Test fun `両配列の設定操作は設定コマンドを一度送り入力文字を送らない`() {
+        for (layout in ScreenKeyboardLayout.entries) {
+            val commands = mutableListOf<TouchKeyboardCommand>()
+            val view = view(commands)
+            view.configure(TouchKeyboardSettings(layout = layout))
+            val switch = buttons(view).filterIsInstance<LayoutSwitchKey>().single()
+            assertTrue(switch.performAccessibilityAction(se.haya.skk.R.id.layout_switch_settings, null))
+            assertEquals(listOf(TouchKeyboardCommand.OpenSettings), commands)
+        }
+    }
+
     @Test fun `英字面は四段で最下段は空白記号と読点句点の順になる`() {
         val view = view()
         val area = view.getChildAt(1) as ViewGroup

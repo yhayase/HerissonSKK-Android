@@ -115,6 +115,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                     val button = LayoutSwitchKey(context, ScreenKeyboardLayout.QWERTY,
                         onSwitchLayout = { onSwitchLayout?.invoke() },
                         onSwitchIme = { send(TouchKeyboardCommand.SwitchIme) },
+                        onOpenSettings = { send(TouchKeyboardCommand.OpenSettings) },
                         onAdjustGeometry = { cancelTouches(); onAdjustGeometry?.invoke() },
                         isCurrent = { currentGeneration == generation },
                     )

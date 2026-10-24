@@ -28,7 +28,7 @@ class LayoutSwitchKeyTest {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val key = LayoutSwitchKey(activity, ScreenKeyboardLayout.QWERTY,
             { calls += "layout" }, { calls += "ime" },
-            if (adjust) ({ calls += "adjust" }) else null, { current })
+            if (adjust) ({ calls += "adjust" }) else null, { current }, { calls += "settings" })
         val root = FrameLayout(activity)
         init {
             root.addView(key, FrameLayout.LayoutParams(100, 100))
@@ -48,6 +48,7 @@ class LayoutSwitchKeyTest {
         for ((point, expected) in listOf(
             (50f to 50f) to listOf("layout"),
             (130f to 50f) to listOf("ime"),
+            (220f to 50f) to listOf("settings"),
             (50f to -30f) to listOf("adjust"),
             (-30f to 50f) to emptyList(),
             (50f to 130f) to emptyList(),
@@ -64,6 +65,68 @@ class LayoutSwitchKeyTest {
         }
     }
 
+    @Test fun `設定から地球へ戻せて境界の小さな揺れでは選択が変わらない`() {
+        for (adjust in listOf(true, false)) {
+            val f = Fixture(adjust)
+            val hysteresis = 2 * f.key.resources.displayMetrics.density
+            f.touch(MotionEvent.ACTION_DOWN)
+            val boundary = 50f + f.key.guideCellSize * 1.5f
+            f.touch(MotionEvent.ACTION_MOVE, boundary + hysteresis, 50f)
+            assertTrue(f.calls.isEmpty())
+            f.touch(MotionEvent.ACTION_UP, boundary - hysteresis, 50f)
+            assertEquals(listOf("settings"), f.calls)
+            f.calls.clear()
+            f.touch(MotionEvent.ACTION_DOWN)
+            f.touch(MotionEvent.ACTION_MOVE, boundary + hysteresis, 50f)
+            f.touch(MotionEvent.ACTION_UP, boundary - hysteresis - 1f, 50f)
+            assertEquals(listOf("ime"), f.calls)
+            f.calls.clear()
+            f.touch(MotionEvent.ACTION_DOWN)
+            f.touch(MotionEvent.ACTION_UP, boundary + hysteresis - 1f, 50f)
+            assertEquals(listOf("ime"), f.calls)
+        }
+    }
+
+    @Test fun `設定への履歴移動もキャンセルと無効化で実行せずアクセシビリティも無効にする`() {
+        for (cancel in listOf<(Fixture) -> Unit>(
+            { it.touch(MotionEvent.ACTION_CANCEL) }, { it.touch(MotionEvent.ACTION_POINTER_DOWN) },
+            { it.key.isEnabled = false }, { it.current = false }, { it.key.dispose() },
+        )) {
+            val f = Fixture()
+            f.touch(MotionEvent.ACTION_DOWN)
+            f.touch(MotionEvent.ACTION_MOVE, 220f, 50f)
+            cancel(f)
+            f.touch(MotionEvent.ACTION_UP, 220f, 50f)
+            assertTrue(f.calls.isEmpty())
+            assertFalse(f.key.isGuideShowing)
+        }
+        val f = Fixture()
+        f.key.isEnabled = false
+        assertFalse(f.key.performAccessibilityAction(R.id.layout_switch_settings, null))
+        assertTrue(f.calls.isEmpty())
+        f.key.isEnabled = true
+        f.touch(MotionEvent.ACTION_DOWN)
+        val now = SystemClock.uptimeMillis()
+        val withinHysteresis = 50f + f.key.guideCellSize * 1.5f - f.key.resources.displayMetrics.density
+        MotionEvent.obtain(now, now, MotionEvent.ACTION_MOVE, 220f, 50f, 0).also {
+            it.addBatch(now + 1, withinHysteresis, 50f, 1f, 1f, 0)
+            f.key.dispatchTouchEvent(it)
+            it.recycle()
+        }
+        f.touch(MotionEvent.ACTION_UP, withinHysteresis, 50f)
+        assertEquals(listOf("settings"), f.calls)
+    }
+
+    @Test fun `未接続ではキー寸法と上限から設定の距離を決める`() {
+        val f = Fixture()
+        f.root.removeView(f.key)
+        f.key.layout(0, 0, 40, 100)
+        assertEquals(40, f.key.guideCellSize)
+        f.touch(MotionEvent.ACTION_DOWN, 20f, 50f)
+        f.touch(MotionEvent.ACTION_UP, 120f, 50f)
+        assertEquals(listOf("settings"), f.calls)
+    }
+
     @Test fun `調整なしのキーでは上フリックが何も実行しない`() {
         val f = Fixture(adjust = false)
         f.touch(MotionEvent.ACTION_DOWN)
@@ -78,7 +141,7 @@ class LayoutSwitchKeyTest {
             val location = IntArray(2).also { f.key.getLocationOnScreen(it) }
             f.touch(MotionEvent.ACTION_DOWN)
             val bounds = f.key.guideBounds!!
-            val cell = bounds.width() / 2
+            val cell = bounds.width() / 3
             assertEquals(cell * if (adjust) 2 else 1, bounds.height())
             assertEquals(location[0] + f.key.width / 2, bounds.left + cell / 2)
             assertEquals(location[1] + f.key.height / 2, bounds.bottom - cell / 2)
@@ -87,6 +150,20 @@ class LayoutSwitchKeyTest {
             f.touch(MotionEvent.ACTION_CANCEL)
             assertNull(f.key.guideBounds)
         }
+    }
+
+    @Test @Config(qualifiers = "w120dp-h400dp")
+    fun `狭い画面では三列に収まるセルの実寸で設定を選ぶ`() {
+        val f = Fixture()
+        f.touch(MotionEvent.ACTION_DOWN)
+        val bounds = f.key.guideBounds!!
+        val frame = android.graphics.Rect().also { f.key.getWindowVisibleDisplayFrame(it) }
+        assertEquals(bounds.width() / 3, f.key.guideCellSize)
+        assertTrue(bounds.width() <= frame.width())
+        assertTrue(f.key.guideCellSize < minOf(f.key.width, f.key.height))
+        val distance = f.key.guideCellSize * 1.5f + 2 * f.key.resources.displayMetrics.density
+        f.touch(MotionEvent.ACTION_UP, 50f + distance, 50f)
+        assertEquals(listOf("settings"), f.calls)
     }
 
     @Test fun `外へ動いて戻った操作と履歴だけの移動はタップにならない`() {
@@ -160,11 +237,13 @@ class LayoutSwitchKeyTest {
             assertEquals("QWERTYへ切替", info.contentDescription)
             assertFalse(info.isLongClickable)
             assertTrue(info.actionList.any { it.id == R.id.layout_switch_ime })
+            assertEquals("HerissonSKKの設定を開く", info.actionList.single { it.id == R.id.layout_switch_settings }.label)
             assertEquals(adjust, info.actionList.any { it.id == R.id.layout_switch_geometry })
             assertTrue(f.key.performClick())
             assertTrue(f.key.performAccessibilityAction(R.id.layout_switch_ime, null))
             assertEquals(adjust, f.key.performAccessibilityAction(R.id.layout_switch_geometry, null))
-            assertEquals(if (adjust) listOf("layout", "ime", "adjust") else listOf("layout", "ime"), f.calls)
+            assertTrue(f.key.performAccessibilityAction(R.id.layout_switch_settings, null))
+            assertEquals(if (adjust) listOf("layout", "ime", "adjust", "settings") else listOf("layout", "ime", "settings"), f.calls)
             info.recycle()
         }
     }

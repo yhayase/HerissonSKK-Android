@@ -373,6 +373,7 @@ internal class TouchKeyboardView(
         val switchKey = LayoutSwitchKey(context, ScreenKeyboardLayout.TEN_KEY,
             onSwitchLayout = { switchLayout(ScreenKeyboardLayout.TEN_KEY) },
             onSwitchIme = { onCommand(TouchKeyboardCommand.SwitchIme) },
+            onOpenSettings = { onCommand(TouchKeyboardCommand.OpenSettings) },
             isCurrent = { currentGeneration == generation },
         ).also { button ->
             val description = button.contentDescription

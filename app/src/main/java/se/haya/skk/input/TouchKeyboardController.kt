@@ -6,6 +6,7 @@ internal sealed interface TouchKeyboardCommand {
     data class Skk(val action: BasicSkkAction) : TouchKeyboardCommand
     data class SpaceOrConvert(val fullWidthSpace: Boolean = false) : TouchKeyboardCommand
     data object SwitchIme : TouchKeyboardCommand
+    data object OpenSettings : TouchKeyboardCommand
 }
 
 /** 文字面・一回Shift・押しているShiftを、入力先の状態とは別に管理します。 */

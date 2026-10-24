@@ -1,5 +1,6 @@
 package se.haya.skk
 
+import android.content.Intent
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -1142,6 +1143,10 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             showImePicker()
             return
         }
+        if (command == TouchKeyboardCommand.OpenSettings) {
+            startActivity(Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        }
         val current = session ?: return
         if (!current.active || current.failed) return
         when (command) {
@@ -1153,7 +1158,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 else -> current.handleTouch(action)
             }
             is TouchKeyboardCommand.SpaceOrConvert -> current.handleTouchSpaceOrConvert(command.fullWidthSpace)
-            TouchKeyboardCommand.SwitchIme -> return
+            TouchKeyboardCommand.SwitchIme, TouchKeyboardCommand.OpenSettings -> return
         }
         render()
     }
