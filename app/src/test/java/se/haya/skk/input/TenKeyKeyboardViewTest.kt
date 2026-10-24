@@ -500,7 +500,7 @@ class TenKeyKeyboardViewTest {
         key(view, "ア").performClick()
         val old = key(view, "カ")
         touch(old, MotionEvent.ACTION_DOWN)
-        buttons(view).first { it.contentDescription == "IME切替" }.performLongClick()
+        buttons(view).filterIsInstance<LayoutSwitchKey>().single().performAccessibilityAction(se.haya.skk.R.id.layout_switch_geometry, null)
         assertTrue(view.adjustingGeometry)
         view.setTenKeyGeometry(300, 70, 100)
         touch(old, MotionEvent.ACTION_UP)
@@ -1020,10 +1020,10 @@ class TenKeyKeyboardViewTest {
         assertShiftDrawing()
     }
 
-    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) fun `地球キーだけに長押し別機能の補助記号を付ける`() {
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) fun `配列切替キーは切替先アイコンを描き長押し補助記号を付けない`() {
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) {}
-        val globe = buttons(view).first { it.contentDescription == "IME切替" } as AlternativeFunctionButton
-        assertEquals("IME切替", globe.contentDescription)
+        val globe = buttons(view).filterIsInstance<LayoutSwitchKey>().single()
+        assertTrue(globe.contentDescription.toString().contains("QWERTY"))
         assertEquals("", globe.text.toString())
         val globeDrawable = globe.centeredIcon!!
         assertNotNull(globeDrawable)
@@ -1036,10 +1036,8 @@ class TenKeyKeyboardViewTest {
         }
         assertTrue(visiblePixels.isNotEmpty())
         assertTrue(visiblePixels.all { (it and 0x00ffffff) == (globe.currentTextColor and 0x00ffffff) })
-        assertEquals("…", globe.alternativeHint)
+        assertFalse(globe.showAlternativeHint)
         globe.layout(0, 0, 80, 64)
-        assertTrue(globe.alternativeHintBounds().top > globe.height / 2f)
-        assertTrue(globe.alternativeHintBounds().bottom < globe.height)
         assertEquals(globe.width / 2f, globe.centeredIconBounds().centerX(), .01f)
         assertEquals(globe.height / 2f, globe.centeredIconBounds().centerY(), .01f)
         val iconBounds = globe.centeredIconBounds()
@@ -1051,20 +1049,25 @@ class TenKeyKeyboardViewTest {
     }
 
     @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) @Config(qualifiers = "night")
-    fun `夜間の地球儀も他のキーと同じ文字色で描画する`() {
+    fun `夜間の配列切替アイコンも他のキーと同じ文字色で描画する`() {
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) {}
-        val globe = buttons(view).first { it.contentDescription == "IME切替" } as AlternativeFunctionButton
+        val globe = buttons(view).filterIsInstance<LayoutSwitchKey>().single()
         assertEquals(key(view, "ア").currentTextColor, globe.currentTextColor)
         val icon = requireNotNull(globe.centeredIcon)
         val bitmap = android.graphics.Bitmap.createBitmap(icon.intrinsicWidth, icon.intrinsicHeight,
             android.graphics.Bitmap.Config.ARGB_8888)
         icon.setBounds(0, 0, bitmap.width, bitmap.height)
         icon.draw(android.graphics.Canvas(bitmap))
-        val opaquePixels = (0 until bitmap.width).flatMap { x ->
+        val visiblePixels = (0 until bitmap.width).flatMap { x ->
             (0 until bitmap.height).map { y -> bitmap.getPixel(x, y) }
-        }.filter { it ushr 24 == 255 }
-        assertTrue(opaquePixels.isNotEmpty())
-        assertTrue(opaquePixels.all { it == globe.currentTextColor })
+        }.filter { it ushr 24 >= 128 }
+        assertTrue(visiblePixels.isNotEmpty())
+        val expected = globe.currentTextColor
+        assertTrue(visiblePixels.all { pixel ->
+            listOf(0, 8, 16).all { shift ->
+                kotlin.math.abs(((pixel ushr shift) and 255) - ((expected ushr shift) and 255)) <= 2
+            }
+        })
     }
 
 }

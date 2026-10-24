@@ -25,6 +25,10 @@ import org.robolectric.util.ReflectionHelpers
 import se.haya.skk.input.EditorSession
 import se.haya.skk.core.BasicSkkAction
 import se.haya.skk.input.TouchKeyboardView
+import se.haya.skk.input.LayoutSwitchKey
+import se.haya.skk.settings.ScreenKeyboardLayout
+import se.haya.skk.settings.TouchKeyboardSettings
+import se.haya.skk.settings.TouchKeyboardSettingsStore
 import se.haya.skk.settings.CustomizationStore
 
 @RunWith(RobolectricTestRunner::class)
@@ -143,6 +147,48 @@ class TenKeyEditorServiceTest {
         attach(service, Connection(), ordinary)
         service.onStartInput(ordinary, true)
         assertNotNull(key(service.onCreateInputView(), "あ"))
+    }
+
+    @Test fun `入力中の配列切替はセッションと未確定読みを保ち再生成と次の入力欄へ保存する`() = withService { service ->
+        val connection = Connection()
+        val info = editorInfo(InputType.TYPE_CLASS_TEXT)
+        attach(service, connection, info)
+        service.onStartInput(info, false)
+        var host = service.onCreateInputView()
+        val session = ReflectionHelpers.getField<EditorSession>(service, "session")
+        session.handle(BasicSkkAction.Text("Ka"))
+        val checkpoint = session.configurationCheckpoint()
+        assertNotNull(checkpoint)
+        val composing = connection.editable.toString()
+        val oldSwitch = descendants(host).filterIsInstance<LayoutSwitchKey>().single()
+        oldSwitch.performClick()
+        assertSame(session, ReflectionHelpers.getField<EditorSession>(service, "session"))
+        assertSame(checkpoint, session.configurationCheckpoint())
+        assertEquals(composing, connection.editable.toString())
+        assertNotNull(key(host, "q"))
+        assertEquals(ScreenKeyboardLayout.QWERTY, TouchKeyboardSettingsStore.read(service).layout)
+        host = service.onCreateInputView()
+        assertNotNull(key(host, "q"))
+        service.onConfigurationChanged(Configuration(service.resources.configuration))
+        assertNotNull(key(service.onCreateInputView(), "q"))
+        start(service, InputType.TYPE_CLASS_TEXT)
+        assertNotNull(key(service.onCreateInputView(), "q"))
+    }
+
+    @Test fun `保護欄でも配列切替と十キーの形状調整を利用できる`() = withService { service ->
+        start(service, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        val host = service.onCreateInputView()
+        val view = descendants(host).filterIsInstance<TouchKeyboardView>().single()
+        val session = ReflectionHelpers.getField<EditorSession>(service, "session")
+        descendants(host).filterIsInstance<LayoutSwitchKey>().single().performClick()
+        assertNotNull(key(host, "q"))
+        descendants(host).filterIsInstance<LayoutSwitchKey>().single().performClick()
+        assertNotNull(key(host, "abc"))
+        val switch = descendants(host).filterIsInstance<LayoutSwitchKey>().single()
+        assertTrue(switch.performAccessibilityAction(R.id.layout_switch_geometry, null))
+        assertTrue(view.adjustingGeometry)
+        assertSame(session, ReflectionHelpers.getField<EditorSession>(service, "session"))
+        assertTrue(switch.performAccessibilityAction(R.id.layout_switch_ime, null))
     }
 
     private fun withService(block: (SkkInputMethodService) -> Unit) {

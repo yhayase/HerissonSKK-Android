@@ -53,6 +53,35 @@ object TouchKeyboardSettingsStore {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE), settings,
     )
 
+    /** 入力中の配列切替は、操作方法や形状などの設定を上書きしません。 */
+    fun saveLayout(context: Context, layout: ScreenKeyboardLayout): Boolean = saveLayoutTo(
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE), layout,
+    )
+
+    internal fun saveLayoutTo(preferences: SharedPreferences, layout: ScreenKeyboardLayout,
+        commit: (SharedPreferences.Editor) -> Boolean = { it.commit() }): Boolean {
+        val previous = preferences.all[LAYOUT]
+        if (runCatching { commit(preferences.edit().putString(LAYOUT, layout.name)) }.getOrDefault(false)) return true
+        // commit失敗後に残るメモリー上の変更も、元の値と型へ戻します。
+        runCatching {
+            val undo = preferences.edit()
+            when (previous) {
+                null -> undo.remove(LAYOUT)
+                is String -> undo.putString(LAYOUT, previous)
+                is Int -> undo.putInt(LAYOUT, previous)
+                is Boolean -> undo.putBoolean(LAYOUT, previous)
+                is Long -> undo.putLong(LAYOUT, previous)
+                is Float -> undo.putFloat(LAYOUT, previous)
+                is Set<*> -> {
+                    @Suppress("UNCHECKED_CAST")
+                    undo.putStringSet(LAYOUT, previous as Set<String>)
+                }
+            }
+            commit(undo)
+        }
+        return false
+    }
+
     /** IMEからの調整を含め、形状設定だけを現在値に保存します。 */
     fun saveGeometry(context: Context, heightDp: Int, widthPercent: Int, positionPercent: Int, bottomPaddingDp: Int? = null): Boolean {
         if (heightDp !in TouchKeyboardSettings.TEN_KEY_HEIGHT_DP ||

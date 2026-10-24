@@ -19,6 +19,7 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
     private var saved = TouchKeyboardSettings()
     private var draft = TouchKeyboardSettings()
     private var geometryEdited = false
+    private var layoutEdited = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,9 +27,11 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         saved = savedInstanceState?.let { fromBundle(it, "saved_") } ?: saved
         draft = savedInstanceState?.let { fromBundle(it, "draft_") } ?: saved
         geometryEdited = savedInstanceState?.getBoolean(GEOMETRY_EDITED) ?: false
+        layoutEdited = savedInstanceState?.getBoolean(LAYOUT_EDITED) ?: false
         installSettingsPage("画面キーボード", TouchKeyboardSettingsFragment())
         page = supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
         page.onDraftChanged = {
+            if (it.layout != draft.layout) layoutEdited = true
             if (it.hasDifferentGeometry(draft)) geometryEdited = true
             draft = it
             render()
@@ -42,6 +45,7 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         saved.toBundle(outState, "saved_")
         draft.toBundle(outState, "draft_")
         outState.putBoolean(GEOMETRY_EDITED, geometryEdited)
+        outState.putBoolean(LAYOUT_EDITED, layoutEdited)
         super.onSaveInstanceState(outState)
     }
 
@@ -54,7 +58,8 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
 
     private fun saveDraft() {
         val current = TouchKeyboardSettingsStore.read(this)
-        val valueToSave = if (geometryEdited) draft else draft.copy(
+        val mergedDraft = if (layoutEdited) draft else draft.copy(layout = current.layout)
+        val valueToSave = if (geometryEdited) mergedDraft else mergedDraft.copy(
             tenKeyHeightDp = current.tenKeyHeightDp,
             tenKeyWidthPercent = current.tenKeyWidthPercent,
             tenKeyPositionPercent = current.tenKeyPositionPercent,
@@ -74,6 +79,7 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
     override fun resetDraftToDefaults() {
         draft = TouchKeyboardSettings()
         geometryEdited = true
+        layoutEdited = true
         render()
     }
 
@@ -91,6 +97,7 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         private const val WIDTH = "touch_width"
         private const val POSITION = "touch_position"
         private const val BOTTOM = "touch_bottom"
+        private const val LAYOUT_EDITED = "touch_layout_edited"
         private const val GEOMETRY_EDITED = "touch_geometry_edited"
 
         private fun TouchKeyboardSettings.hasDifferentGeometry(other: TouchKeyboardSettings) =
@@ -141,7 +148,7 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
         })
         category.addPreference(Preference(context).apply {
             title = "10キーの形状"
-            summary = "入力中に「IME」を長押しし、「サイズ・位置を調整」からも変更できます。"
+            summary = "入力中に配列切替キーを上へフリックしても変更できます。"
             isIconSpaceReserved = false; isSelectable = false
         })
         layout = list(context, "layout", "配列", arrayOf("QWERTY", "TEN_KEY"), arrayOf("QWERTY", "10キー")) { value ->

@@ -1,0 +1,4 @@
+<resources>
+    <item name="layout_switch_ime" type="id" />
+    <item name="layout_switch_geometry" type="id" />
+</resources>

@@ -150,6 +150,16 @@ class TouchKeyboardSettingsActivityTest {
         assertEquals(80, actual.tenKeyBottomPaddingDp)
     }
 
+    @Test fun `配列を編集していない下書き保存は入力中の配列切替を保持する`() {
+        val activity = start()
+        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
+        page.findPreference<ListPreference>("hold")!!.callChangeListener("500")
+        assertTrue(TouchKeyboardSettingsStore.saveLayout(activity, ScreenKeyboardLayout.TEN_KEY))
+        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertEquals(ScreenKeyboardLayout.TEN_KEY, TouchKeyboardSettingsStore.read(activity).layout)
+        assertEquals(500, TouchKeyboardSettingsStore.read(activity).holdMillis)
+    }
+
     @Test fun `標準に戻す操作は画面を開いた後のIME形状調整も既定値へ戻す`() {
         val activity = start()
         assertTrue(TouchKeyboardSettingsStore.saveGeometry(activity, 300, 75, 80, 80))

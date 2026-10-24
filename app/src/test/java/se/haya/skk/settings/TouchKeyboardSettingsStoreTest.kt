@@ -60,6 +60,34 @@ class TouchKeyboardSettingsStoreTest {
         assertEquals(modes, TenKeyReadingModeStore.readFrom(settingsPreferences))
     }
 
+    @Test fun `配列だけの保存は操作形状と面別読み設定を保持する`() {
+        val before = TouchKeyboardSettings(operation = TenKeyOperation.FLICK, holdMillis = 500,
+            vibrateOnBoundary = false, tenKeyHeightDp = 320, tenKeyWidthPercent = 70,
+            tenKeyPositionPercent = 80, tenKeyBottomPaddingDp = 72)
+        assertTrue(TouchKeyboardSettingsStore.saveTo(preferences, before))
+        val modes = TenKeyReadingModes(kana = true, alpha = true)
+        assertTrue(TenKeyReadingModeStore.saveTo(preferences, modes))
+        val previous = preferences.all.toMap()
+        assertTrue(TouchKeyboardSettingsStore.saveLayoutTo(preferences, ScreenKeyboardLayout.TEN_KEY))
+        assertEquals(before.copy(layout = ScreenKeyboardLayout.TEN_KEY), TouchKeyboardSettingsStore.readFrom(preferences))
+        assertEquals(previous + ("touch_keyboard_layout" to "TEN_KEY"), preferences.all)
+        assertEquals(modes, TenKeyReadingModeStore.readFrom(preferences))
+    }
+
+    @Test fun `配列保存の失敗時は元の値と型を復元する`() {
+        for (previous in listOf<Any?>(null, "QWERTY", 9)) {
+            preferences.edit().clear().commit()
+            when (previous) {
+                is String -> preferences.edit().putString("touch_keyboard_layout", previous).commit()
+                is Int -> preferences.edit().putInt("touch_keyboard_layout", previous).commit()
+            }
+            assertFalse(TouchKeyboardSettingsStore.saveLayoutTo(preferences, ScreenKeyboardLayout.TEN_KEY) {
+                it.commit(); false
+            })
+            assertEquals(previous, preferences.all["touch_keyboard_layout"])
+        }
+    }
+
     @Test fun `不正な保存値は保存せず不正な保存済み値は既定値へ戻す`() {
         preferences.edit().putString("touch_keyboard_layout", "UNKNOWN")
             .putString("ten_key_operation", "UNKNOWN").putInt("ten_key_hold_millis", 999).apply()

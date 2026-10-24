@@ -427,6 +427,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     override fun onCreateInputView(): View {
         val keys = TouchKeyboardView(this, tenKeyController, ::onTouchCommand).also {
+            it.onLayoutChanged = { layout -> sessionTouchSettings = sessionTouchSettings.copy(layout = layout) }
             it.onGeometryChanged = { updated ->
                 sessionTouchSettings = sessionTouchSettings.copy(
                     tenKeyHeightDp = updated.tenKeyHeightDp,

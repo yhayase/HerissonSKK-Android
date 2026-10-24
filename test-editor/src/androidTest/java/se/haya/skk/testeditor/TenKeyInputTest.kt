@@ -183,6 +183,59 @@ class TenKeyInputTest {
         composition(editor, false)
     }
 
+    @Test fun layoutKeysPreserveReadingOkuriCandidatesAndRegistration() = withEditor { editor, _ ->
+        tap("⇧")
+        tap("か")
+        tap("ABC")
+        tap("全Ａ")
+        tap("QWERTYへ切替")
+        key("10キーへ切替")
+        awaitText(editor, "か")
+        composition(editor, true)
+        tap("k")
+        tap("i")
+        awaitText(editor, "かき")
+        tap("10キーへ切替")
+        key("A")
+        key("abc")
+        tap("A")
+        tap("123")
+        tap("かな")
+        tap("確定")
+        awaitText(editor, "かき")
+        composition(editor, false)
+        tap("⇧")
+        tap("か")
+        tap("⇧")
+        gesture("か", listOf(0 to -1))
+        key("書く")
+        tap("QWERTYへ切替")
+        key("書く")
+        tap("10キーへ切替")
+        key("書く")
+        tap("確定")
+        awaitText(editor, "かき書く")
+        gesture("ら", listOf(-1 to 0), hold = true)
+        gesture("や", listOf(0 to 1), hold = true)
+        key("単語登録：りy", exact = false)
+        tap("QWERTYへ切替")
+        key("単語登録：りy", exact = false)
+        tap("10キーへ切替")
+        key("単語登録：りy", exact = false)
+        tap("取消")
+        awaitText(editor, "かき書くりよ")
+        tap("確定")
+        capture("layout-switch-roundtrip")
+        gesture("QWERTYへ切替", listOf(1 to 0))
+        await("IME切替ダイアログが開きません") {
+            device.findObject(UiSelector().resourceId("android:id/alertTitle")).exists() &&
+                device.findObject(UiSelector().textContains("HerissonSKK")).exists()
+        }
+        device.pressBack()
+        key("QWERTYへ切替")
+        awaitText(editor, "かき書くりよ")
+    }
+
     @Test fun fieldTypesChooseHalfWidthFacesAndRestoreTheOrdinaryFace() = withEditor { editor, scenario ->
         fun inputType(type: Int) {
             scenario.onActivity { activity ->
@@ -490,9 +543,7 @@ class TenKeyInputTest {
 
     @Test fun geometrySlidersCanBeHiddenWithoutCommittingReading() = withEditor { editor, scenario ->
         fun openAdjustment() {
-            device.waitForIdle()
-            val box = Rect().also(key("IME切替")::getBoundsInScreen)
-            assertTrue(device.swipe(box.centerX(), box.centerY(), box.centerX(), box.centerY(), 140))
+            gesture("QWERTYへ切替", listOf(0 to -1), hold = true, captureHeld = "layout-switch-guide")
             key("サイズ・位置を調整")
         }
         // 前回の試験が途中終了しても、公開操作で標準形状から始めます。
@@ -805,7 +856,7 @@ class TenKeyInputTest {
     }
 
     private fun gesture(label: String, path: List<Pair<Int, Int>>, hold: Boolean = false, cancel: Boolean = false,
-        holdBeforePath: Boolean = false, stepMillis: Long = 0, holdMillis: Long = 450) {
+        holdBeforePath: Boolean = false, stepMillis: Long = 0, holdMillis: Long = 450, captureHeld: String? = null) {
         device.waitForIdle()
         val box = Rect().also(key(label)::getBoundsInScreen)
         val distance = box.height() * .7f
@@ -834,6 +885,7 @@ class TenKeyInputTest {
                 }
                 SystemClock.sleep(holdMillis)
             }
+            captureHeld?.let(::capture)
             inject(if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP)
         } catch (error: Throwable) {
             inject(MotionEvent.ACTION_CANCEL)

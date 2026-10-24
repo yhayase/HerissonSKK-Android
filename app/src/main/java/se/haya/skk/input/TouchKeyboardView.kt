@@ -41,6 +41,9 @@ internal class TouchKeyboardView(
     private val controller = TouchKeyboardController()
     private var keyboardSettings = TouchKeyboardSettings()
     private var tenKeyView: TenKeyKeyboardView? = null
+    internal var onLayoutChanged: ((ScreenKeyboardLayout) -> Unit)? = null
+    private var generation = 0
+    private var layoutSwitchKey: LayoutSwitchKey? = null
     internal var onGeometryChanged: ((TouchKeyboardSettings) -> Unit)? = null
     private var adjustmentPanel: ScrollView? = null
     internal val adjustingGeometry get() = adjustmentPanel != null
@@ -100,6 +103,20 @@ internal class TouchKeyboardView(
             addView(commandKey("調整を閉じる") { hideGeometryAdjustment() }, LayoutParams(0, dp(40), 1f))
         })
         addView(scroll, 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+    }
+
+    /** 配列だけを保存し、SKKのセッションや各文字面の選択状態を保持します。 */
+    internal fun switchLayout(target: ScreenKeyboardLayout): Boolean {
+        if (target == keyboardSettings.layout) return true
+        cancelTouches()
+        if (!TouchKeyboardSettingsStore.saveLayout(context, target)) return false
+        keyboardSettings = keyboardSettings.copy(layout = target)
+        onLayoutChanged?.invoke(target)
+        hideGeometryAdjustment()
+        rebuildKeys()
+        applyBottomInset()
+        requestLayout()
+        return true
     }
 
     private fun hideGeometryAdjustment() {
@@ -265,6 +282,14 @@ internal class TouchKeyboardView(
         primaryButton?.apply { text = label; contentDescription = label; isEnabled = enabled }
     }
 
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // 分割配送の前に二本目を検知し、配列切替だけを取り消します。
+        if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN || event.pointerCount > 1) {
+            layoutSwitchKey?.cancelInteraction()
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun onDetachedFromWindow() {
         cancelTouches()
         super.onDetachedFromWindow()
@@ -273,6 +298,7 @@ internal class TouchKeyboardView(
     internal fun cancelInteractions() = cancelTouches()
 
     private fun cancelTouches() {
+        layoutSwitchKey?.cancelInteraction()
         tenKeyView?.cancelTouches()
         cancelGestures.forEach { it() }
         controller.cancelPointers()
@@ -284,6 +310,8 @@ internal class TouchKeyboardView(
 
     private fun rebuildKeys() {
         cancelTouches()
+        generation++
+        layoutSwitchKey?.dispose(); layoutSwitchKey = null
         tenKeyView?.dispose()
         characterArea.removeAllViews()
         characterButtons.clear()
@@ -297,6 +325,7 @@ internal class TouchKeyboardView(
             tenKeyView = TenKeyKeyboardView(context, keyboardSettings, tenKeyController, onCommand).also {
                 characterArea.addView(it, LayoutParams(LayoutParams.MATCH_PARENT, dp(keyboardSettings.tenKeyHeightDp)))
                 it.onAdjustGeometry = { showGeometryAdjustment() }
+                it.onSwitchLayout = { switchLayout(ScreenKeyboardLayout.QWERTY) }
                 it.updatePrimaryAction(primaryLabel, primaryEnabled)
                 it.updateSpaceAction(spaceConverts)
                 it.setSkkEnabled(modeEnabled)
@@ -340,11 +369,18 @@ internal class TouchKeyboardView(
             send(BasicSkkAction.SetInputMode(target))
         }.apply { setOnLongClickListener { showModeMenu(this); true } }
         bottom.addView(modeButton, keyParams(1.1f))
-        bottom.addView(commandKey("", alternative = true) { onCommand(TouchKeyboardCommand.SwitchIme) }.apply {
-            (this as AlternativeFunctionButton).centeredIcon = context.getDrawable(R.drawable.ic_globe_white)
-            showAlternativeHint = false
-            contentDescription = "IME切替"
-        }, keyParams())
+        val currentGeneration = generation
+        val switchKey = LayoutSwitchKey(context, ScreenKeyboardLayout.TEN_KEY,
+            onSwitchLayout = { switchLayout(ScreenKeyboardLayout.TEN_KEY) },
+            onSwitchIme = { onCommand(TouchKeyboardCommand.SwitchIme) },
+            isCurrent = { currentGeneration == generation },
+        ).also { button ->
+            val description = button.contentDescription
+            button.configureKey("")
+            button.contentDescription = description
+            layoutSwitchKey = button
+        }
+        bottom.addView(switchKey, keyParams())
         bottom.addView(commandKey("␣") { onCommand(TouchKeyboardCommand.SpaceOrConvert()) }.apply { contentDescription = "空白" }, keyParams(3f))
         bottom.addView(textKey(","), keyParams())
         bottom.addView(textKey("."), keyParams())
@@ -370,9 +406,11 @@ internal class TouchKeyboardView(
 
     @SuppressLint("ClickableViewAccessibility")
     private fun makeShiftKey(): Button = commandKey("⇧") { controller.toggleShift(); refreshShift() }.apply {
+        val currentGeneration = generation
         var pointer = -1
         cancelGestures += { pointer = -1; isPressed = false }
         setOnTouchListener { _, event ->
+            if (currentGeneration != generation) return@setOnTouchListener true
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     pointer = event.getPointerId(0)
@@ -393,6 +431,7 @@ internal class TouchKeyboardView(
 
     @SuppressLint("ClickableViewAccessibility")
     private fun textKey(value: String): Button {
+        val currentGeneration = generation
         var capturedShift: Boolean? = null
         val button = FlickHintButton(context).apply {
             configureFlickHints(value, controller.up(value), controller.down(value))
@@ -400,6 +439,7 @@ internal class TouchKeyboardView(
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
                 minOf(24f * resources.displayMetrics.scaledDensity, dp(28).toFloat()))
             setOnClickListener {
+            if (currentGeneration != generation) return@setOnClickListener
             onCommand(controller.text(value, shiftAtPress = capturedShift ?: controller.captureShift()))
             capturedShift = null
             refreshShift()
@@ -434,6 +474,7 @@ internal class TouchKeyboardView(
             }
         }
         button.setOnTouchListener { _, event ->
+            if (currentGeneration != generation) return@setOnTouchListener true
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     pointer = event.getPointerId(0)
@@ -550,10 +591,12 @@ internal class TouchKeyboardView(
         }
     }
 
-    private fun commandKey(label: String, alternative: Boolean = false, action: () -> Unit) =
-        (if (alternative) AlternativeFunctionButton(context) else Button(context)).apply {
-        configureKey(label)
-        setOnClickListener { action() }
+    private fun commandKey(label: String, alternative: Boolean = false, action: () -> Unit): Button {
+        val currentGeneration = generation
+        return (if (alternative) AlternativeFunctionButton(context) else Button(context)).apply {
+            configureKey(label)
+            setOnClickListener { if (currentGeneration == generation) action() }
+        }
     }
     private fun Button.configureKey(label: String, character: Boolean = false) {
         val colors = KeyboardColors.resolve(context)

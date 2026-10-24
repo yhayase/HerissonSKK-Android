@@ -10,7 +10,7 @@ import android.view.Gravity
 
 /** 主ラベルを保ち、長押しで別機能を選べるキーの下側に補助記号を描きます。 */
 @android.annotation.SuppressLint("AppCompatCustomView")
-internal class AlternativeFunctionButton(context: Context) : Button(context) {
+internal open class AlternativeFunctionButton(context: Context) : Button(context) {
     init { gravity = Gravity.CENTER; includeFontPadding = false }
     private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     internal val alternativeHint = "…"

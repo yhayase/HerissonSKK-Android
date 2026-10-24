@@ -61,6 +61,54 @@ class TouchKeyboardViewTest {
         assertEquals(2, view.childCount)
     }
 
+    @Test fun `配列を往復してもモード文字面一回Shiftと形状を保持し古いキーは無効になる`() {
+        val context = RuntimeEnvironment.getApplication()
+        val settings = TouchKeyboardSettings(tenKeyHeightDp = 300, tenKeyWidthPercent = 70,
+            tenKeyPositionPercent = 80, tenKeyBottomPaddingDp = 32)
+        se.haya.skk.settings.TouchKeyboardSettingsStore.save(context, settings)
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = view(commands)
+        view.configure(settings)
+        view.updateMode(InputMode.KATAKANA)
+        key(view, "⇧").performClick()
+        val oldCharacter = key(view, "Q")
+        val oldSwitch = buttons(view).filterIsInstance<LayoutSwitchKey>().single()
+        oldSwitch.performClick()
+        assertTrue(commands.isEmpty())
+        key(view, "ABC").performClick()
+        key(view, "a/A").performClick()
+        key(view, "全Ａ").performClick()
+        val oldTenKeyCharacter = key(view, "ABC")
+        buttons(view).filterIsInstance<LayoutSwitchKey>().single().performClick()
+        assertNotNull(key(view, "Q"))
+        assertNotNull(key(view, "ア"))
+        oldSwitch.performClick()
+        oldCharacter.performClick()
+        oldTenKeyCharacter.performClick()
+        assertTrue(commands.isEmpty())
+        key(view, "123").performClick()
+        key(view, "記号2").performClick()
+        buttons(view).filterIsInstance<LayoutSwitchKey>().single().performClick()
+        assertNotNull(key(view, "ABC"))
+        assertNotNull(key(view, "A"))
+        assertEquals(settings.copy(layout = ScreenKeyboardLayout.TEN_KEY),
+            se.haya.skk.settings.TouchKeyboardSettingsStore.read(context))
+        buttons(view).filterIsInstance<LayoutSwitchKey>().single().performClick()
+        assertNotNull(key(view, "記号1"))
+        assertTrue(commands.isEmpty())
+    }
+
+    @Test fun `配列切替は押しているShiftを持ち越さず一回Shiftを新しく作らない`() {
+        val view = view()
+        val oldShift = key(view, "⇧")
+        event(oldShift, MotionEvent.ACTION_DOWN)
+        assertNotNull(key(view, "Q"))
+        buttons(view).filterIsInstance<LayoutSwitchKey>().single().performClick()
+        buttons(view).filterIsInstance<LayoutSwitchKey>().single().performClick()
+        event(oldShift, MotionEvent.ACTION_UP)
+        assertNotNull(key(view, "q"))
+    }
+
     @Test fun `入力欄の切替はShiftと記号面を初期化する`() {
         val view = view()
         key(view, "⇧").performClick()
@@ -629,7 +677,7 @@ class TouchKeyboardViewTest {
         assertTrue(mode.alternativeHintBounds().top > mode.height / 2f)
         view.updateMode(InputMode.DIRECT)
         assertEquals("A", mode.text.toString())
-        val globe = buttons(view).single { it.contentDescription == "IME切替" } as AlternativeFunctionButton
+        val globe = buttons(view).filterIsInstance<LayoutSwitchKey>().single()
         assertNotNull(globe.centeredIcon)
         assertEquals(mode.currentTextColor, globe.currentTextColor)
         assertFalse(globe.showAlternativeHint)

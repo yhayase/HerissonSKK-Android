@@ -29,6 +29,7 @@ import android.graphics.Rect
 import android.widget.PopupWindow
 import android.widget.TextView
 import se.haya.skk.core.BasicSkkAction
+import se.haya.skk.settings.ScreenKeyboardLayout
 import se.haya.skk.settings.TouchKeyboardSettings
 import se.haya.skk.settings.TenKeyOperation
 
@@ -36,6 +37,8 @@ import se.haya.skk.settings.TenKeyOperation
 internal class TenKeyKeyboardView(context: Context, private val settings: TouchKeyboardSettings,
     internal val controller: TenKeyController = TenKeyController(),
     private val send: (TouchKeyboardCommand) -> Unit) : LinearLayout(context) {
+    internal var onSwitchLayout: (() -> Unit)? = null
+    private var layoutSwitchKey: LayoutSwitchKey? = null
     internal var onAdjustGeometry: (() -> Unit)? = null
     private val cancellations = mutableListOf<() -> Unit>()
     private var generation = 0
@@ -75,8 +78,8 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
     private var primaryLabel = "⏎"
     private var primaryEnabled = true
     init { orientation = VERTICAL; isMotionEventSplittingEnabled = false; rebuild() }
-    fun cancelTouches() { paletteRevision++; cancellations.toList().forEach { it() }; dismissGuide(); palette?.dismiss(); palette = null }
-    fun dispose() { cancelTouches(); generation++ }
+    fun cancelTouches() { layoutSwitchKey?.cancelInteraction(); paletteRevision++; cancellations.toList().forEach { it() }; dismissGuide(); palette?.dismiss(); palette = null }
+    fun dispose() { cancelTouches(); layoutSwitchKey?.dispose(); generation++ }
     fun updatePrimaryAction(label: String, enabled: Boolean) {
         primaryLabel = label; primaryEnabled = enabled
         primary?.apply { text = label; updateSymbolWeight(); contentDescription = label; setTextColor(keyboardColors.text); isEnabled = enabled }
@@ -99,7 +102,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
     }
     private fun action(action: BasicSkkAction) = send(TouchKeyboardCommand.Skk(action))
     private fun rebuild() {
-        cancelTouches(); generation++; removeAllViews(); cancellations.clear()
+        cancelTouches(); layoutSwitchKey?.dispose(); generation++; removeAllViews(); cancellations.clear()
         val groups = controller.rows()
         for (rowIndex in 0..3) {
             val row = LinearLayout(context).apply { orientation = HORIZONTAL; isMotionEventSplittingEnabled = false }
@@ -107,10 +110,17 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                 0 -> key(when(controller.face) { TenKeyController.Face.KANA -> "ABC"; TenKeyController.Face.ALPHA -> "123"; else -> "かな" }) { controller.cycleFace(); rebuild() }
                 1 -> kindKey()
                 2 -> key("記号") { showSymbols(it) }
-                else -> key("", alternative = true) { send(TouchKeyboardCommand.SwitchIme) }.apply {
-                    (this as AlternativeFunctionButton).centeredIcon = context.getDrawable(R.drawable.ic_globe_white)
-                    contentDescription = "IME切替"
-                    setOnLongClickListener { cancelTouches(); onAdjustGeometry?.invoke(); true }
+                else -> {
+                    val currentGeneration = generation
+                    val button = LayoutSwitchKey(context, ScreenKeyboardLayout.QWERTY,
+                        onSwitchLayout = { onSwitchLayout?.invoke() },
+                        onSwitchIme = { send(TouchKeyboardCommand.SwitchIme) },
+                        onAdjustGeometry = { cancelTouches(); onAdjustGeometry?.invoke() },
+                        isCurrent = { currentGeneration == generation },
+                    )
+                    layoutSwitchKey = button
+                    val description = button.contentDescription
+                    key("", supplied = button) {}.apply { contentDescription = description }
                 }
             }, params())
             for (column in 0..2) {
@@ -448,9 +458,9 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             cancellations += attachBackspaceRepeat(button, { capturedGeneration == generation }) { action(BasicSkkAction.Backspace) }
         }
     }
-    private fun key(label: String, function: Boolean = true, alternative: Boolean = false, click: (Button) -> Unit): Button {
+    private fun key(label: String, function: Boolean = true, alternative: Boolean = false, supplied: Button? = null, click: (Button) -> Unit): Button {
         val currentGeneration = generation
-        return (if (label == "⇧") ReadingModeButton(context) else if (alternative) AlternativeFunctionButton(context) else Button(context)).apply {
+        return (supplied ?: if (label == "⇧") ReadingModeButton(context) else if (alternative) AlternativeFunctionButton(context) else Button(context)).apply {
             text = label; contentDescription = label; setTextColor(keyboardColors.text); textSize = if (label.length > 3) 12f else 16f
             updateSymbolWeight()
             gravity = Gravity.CENTER; includeFontPadding = false
@@ -462,7 +472,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                 addState(intArrayOf(), face(if (function) keyboardColors.functionBackground else keyboardColors.characterBackground))
             }
             stateListAnimator = null
-            setOnClickListener { if (currentGeneration == generation) click(this) }
+            if (supplied == null) setOnClickListener { if (currentGeneration == generation) click(this) }
         }
     }
     private fun Button.updateSymbolWeight() {
