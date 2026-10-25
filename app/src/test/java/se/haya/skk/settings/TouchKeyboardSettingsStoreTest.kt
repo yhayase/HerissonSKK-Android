@@ -97,6 +97,19 @@ class TouchKeyboardSettingsStoreTest {
         assertEquals(valid, TouchKeyboardSettingsStore.readFrom(preferences))
     }
 
+    @Test fun `ホールド時間は100から1000msの10ms刻みを受け付け不正値を既定値へ戻す`() {
+        for (value in listOf(100, 350, 1000)) {
+            preferences.edit().putInt("ten_key_hold_millis", value).commit()
+            assertEquals(value, TouchKeyboardSettingsStore.readFrom(preferences).holdMillis)
+            assertTrue(TouchKeyboardSettingsStore.saveTo(preferences, TouchKeyboardSettings(holdMillis = value)))
+        }
+        for (value in listOf(99, 1001, 101, 349)) {
+            preferences.edit().putInt("ten_key_hold_millis", value).commit()
+            assertEquals(350, TouchKeyboardSettingsStore.readFrom(preferences).holdMillis)
+            assertTrue(runCatching { TouchKeyboardSettings(holdMillis = value) }.exceptionOrNull() is IllegalArgumentException)
+        }
+    }
+
     @Test fun `設定の保存と標準値への保存は現在の面別状態と旧設定を変更しない`() {
         preferences.edit().putBoolean("ten_key_auto_start_reading", true).commit()
         val modes = TenKeyReadingModes(kana = true, number = true)

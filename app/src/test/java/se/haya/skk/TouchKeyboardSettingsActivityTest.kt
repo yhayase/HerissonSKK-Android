@@ -153,11 +153,42 @@ class TouchKeyboardSettingsActivityTest {
     @Test fun `配列を編集していない下書き保存は入力中の配列切替を保持する`() {
         val activity = start()
         val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
-        page.findPreference<ListPreference>("hold")!!.callChangeListener("500")
+        page.findPreference<SeekBarPreference>("hold")!!.callChangeListener(500)
         assertTrue(TouchKeyboardSettingsStore.saveLayout(activity, ScreenKeyboardLayout.TEN_KEY))
         activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
         assertEquals(ScreenKeyboardLayout.TEN_KEY, TouchKeyboardSettingsStore.read(activity).layout)
         assertEquals(500, TouchKeyboardSettingsStore.read(activity).holdMillis)
+    }
+
+    @Test fun `ホールド時間スライダーは範囲と刻みと現在値を表示し下書きを保存する`() {
+        val activity = start()
+        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
+        assertTrue(page.findPreference<ListPreference>("layout")!!.callChangeListener("TEN_KEY"))
+        val hold = page.findPreference<SeekBarPreference>("hold")!!
+        assertEquals(100, hold.min)
+        assertEquals(1000, hold.max)
+        assertEquals(10, hold.seekBarIncrement)
+        assertEquals(350, hold.value)
+        assertEquals("350 ms", hold.summary.toString())
+        assertTrue(hold.callChangeListener(1000))
+        assertEquals(1000, hold.value)
+        assertEquals("1000 ms", hold.summary.toString())
+        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertEquals(1000, TouchKeyboardSettingsStore.read(activity).holdMillis)
+    }
+
+    @Test fun `ホールドのタッチ値を10msへ丸め保存までは既存値を変えない`() {
+        val activity = start()
+        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
+        val hold = page.findPreference<SeekBarPreference>("hold")!!
+        assertFalse(hold.callChangeListener(354))
+        assertEquals(350, hold.value)
+        assertFalse(hold.callChangeListener(355))
+        assertEquals(360, hold.value)
+        assertEquals("360 ms", hold.summary.toString())
+        assertEquals(350, TouchKeyboardSettingsStore.read(activity).holdMillis)
+        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertEquals(360, TouchKeyboardSettingsStore.read(activity).holdMillis)
     }
 
     @Test fun `標準に戻す操作は画面を開いた後のIME形状調整も既定値へ戻す`() {

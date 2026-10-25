@@ -17,7 +17,7 @@ data class TouchKeyboardSettings(
     val tenKeyBottomPaddingDp: Int = 0,
 ) {
     init {
-        require(holdMillis in HOLD_MILLIS)
+        require(holdMillis in HOLD_MILLIS && (holdMillis - HOLD_STEP_BASE) % HOLD_STEP == 0)
         require(tenKeyHeightDp in TEN_KEY_HEIGHT_DP)
         require(tenKeyWidthPercent in TEN_KEY_WIDTH_PERCENT)
         require(tenKeyPositionPercent in TEN_KEY_POSITION_PERCENT)
@@ -25,7 +25,9 @@ data class TouchKeyboardSettings(
     }
 
     companion object {
-        val HOLD_MILLIS = setOf(250, 350, 500)
+        val HOLD_MILLIS = 100..1000
+        const val HOLD_STEP_BASE = 100
+        const val HOLD_STEP = 10
         val TEN_KEY_HEIGHT_DP = 160..400
         val TEN_KEY_WIDTH_PERCENT = 60..100
         val TEN_KEY_POSITION_PERCENT = 0..100
@@ -98,7 +100,8 @@ object TouchKeyboardSettingsStore {
         layout = enumOrDefault(runCatching { preferences.getString(LAYOUT, null) }.getOrNull(), ScreenKeyboardLayout.QWERTY),
         operation = enumOrDefault(runCatching { preferences.getString(OPERATION, null) }.getOrNull(), TenKeyOperation.HOLD_AND_RETURN),
         holdMillis = runCatching { preferences.getInt(HOLD_MILLIS, 350) }.getOrDefault(350)
-            .takeIf { it in TouchKeyboardSettings.HOLD_MILLIS } ?: 350,
+            .takeIf { it in TouchKeyboardSettings.HOLD_MILLIS &&
+                (it - TouchKeyboardSettings.HOLD_STEP_BASE) % TouchKeyboardSettings.HOLD_STEP == 0 } ?: 350,
         vibrateOnBoundary = runCatching { preferences.getBoolean(VIBRATE, true) }.getOrDefault(true),
         tenKeyHeightDp = runCatching { preferences.getInt(HEIGHT, 256) }.getOrDefault(256)
             .takeIf { it in TouchKeyboardSettings.TEN_KEY_HEIGHT_DP } ?: 256,
@@ -176,6 +179,7 @@ object TouchKeyboardSettingsStore {
     }
 
     private fun TouchKeyboardSettings.isValid() = holdMillis in TouchKeyboardSettings.HOLD_MILLIS &&
+        (holdMillis - TouchKeyboardSettings.HOLD_STEP_BASE) % TouchKeyboardSettings.HOLD_STEP == 0 &&
         tenKeyHeightDp in TouchKeyboardSettings.TEN_KEY_HEIGHT_DP &&
         tenKeyWidthPercent in TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT &&
         tenKeyPositionPercent in TouchKeyboardSettings.TEN_KEY_POSITION_PERCENT &&

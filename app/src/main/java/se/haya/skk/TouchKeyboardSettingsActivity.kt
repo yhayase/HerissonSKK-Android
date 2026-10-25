@@ -128,7 +128,7 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
     private var refreshing = false
     private lateinit var layout: ListPreference
     private lateinit var operation: ListPreference
-    private lateinit var hold: ListPreference
+    private lateinit var hold: SeekBarPreference
     private lateinit var vibrate: SwitchPreferenceCompat
     private lateinit var height: SeekBarPreference
     private lateinit var width: SeekBarPreference
@@ -158,9 +158,25 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
             arrayOf("通常タップ・フリック", "ホールドで境界", "ホールド＋往復")) { value ->
             draft.copy(operation = TenKeyOperation.valueOf(value))
         }
-        hold = list(context, "hold", "ホールド判定", arrayOf("250", "350", "500"),
-            arrayOf("短め（250 ms）", "標準（350 ms）", "長め（500 ms）")) { value ->
-            draft.copy(holdMillis = value.toInt())
+        hold = SeekBarPreference(context).apply {
+            key = "hold"; title = "ホールド判定"; min = 100; max = 1000; value = 350
+            seekBarIncrement = 10
+            showSeekBarValue = true; isIconSpaceReserved = false; isPersistent = false
+            summary = "350 ms"
+            setOnPreferenceChangeListener { preference, raw ->
+                if (refreshing) return@setOnPreferenceChangeListener true
+                val value = raw as Int
+                val snapped = 100 + ((value - 100 + 5) / 10) * 10
+                if (snapped != value) {
+                    // タッチ操作でも10ms刻みに揃えます。
+                    update(draft.copy(holdMillis = snapped))
+                    (preference as SeekBarPreference).value = snapped
+                    false
+                } else {
+                    update(draft.copy(holdMillis = value))
+                    true
+                }
+            }
         }
         vibrate = SwitchPreferenceCompat(context).apply {
             key = "vibrate"; title = "ホールド境界の指定・取消時に振動"; isIconSpaceReserved = false
@@ -186,7 +202,8 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
         draft = value
         refreshing = true
         layout.value = value.layout.name; operation.value = value.operation.name
-        hold.value = value.holdMillis.toString(); vibrate.isChecked = value.vibrateOnBoundary
+        hold.value = value.holdMillis; hold.summary = "${value.holdMillis} ms"
+        vibrate.isChecked = value.vibrateOnBoundary
         height.value = value.tenKeyHeightDp; width.value = value.tenKeyWidthPercent
         position.value = value.tenKeyPositionPercent
         bottom.value = value.tenKeyBottomPaddingDp
