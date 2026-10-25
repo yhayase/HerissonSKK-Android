@@ -4,7 +4,7 @@
 
 ## 配布方針と署名
 
-アプリ ID は `se.haya.skk` です。Google Play では Play App Signing に Google 生成のアプリ署名鍵を使用し、別のアップロード鍵で AAB を署名して提出します。外部配布する場合は Play Console から取得した Google 署名済み APK を使用し、Play 配布版と同じ署名にそろえる方針です。アップロード鍵をアプリ署名鍵として提出しません。[鍵の保管・復元と AAB 署名](upload-signing.md)に具体的な手順があります。
+アプリ ID は `se.haya.skk` です。Google Play では Play App Signing に Google 生成のアプリ署名鍵を使用し、別のアップロード鍵で AAB を署名して提出します。外部配布する場合は Play Console から取得した Google 署名済み APK を使用し、Play 配布版と同じ署名にそろえる方針です。GitHub のソースリリースに明示して添付する検証用 DEBUG APK は例外として開発署名を許容します。この APK はデバッグ可能な検証ビルドであり、Play 版の代替や更新版ではありません。署名が異なるため、Play 版に上書きインストールできません。Play の提出・配信には影響しません。アップロード鍵をアプリ署名鍵として提出しません。[鍵の保管・復元と AAB 署名](upload-signing.md)に具体的な手順があります。
 
 開発署名 APK と Google 署名済み APK は署名が異なります。同じアプリ ID でも上書き更新はできないため、[辞書の退避・復元](signing-switch.md)を行います。署名が一致する版間の更新確認では `adb install -r` を使用し、アンインストールや `pm clear` によってデータ保持の確認を回避しません。パッケージ名、versionCode、署名証明書の一致を確認します。[更新検証](upgrade-validation.md)を参照してください。
 
