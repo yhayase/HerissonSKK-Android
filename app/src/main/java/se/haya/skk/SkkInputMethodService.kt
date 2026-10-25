@@ -93,6 +93,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private var statusView: TextView? = null
     private var candidateStatusView: CandidateStatusView? = null
     private var touchKeyboardView: TouchKeyboardView? = null
+    private var keyboardTouchWindowCallback: se.haya.skk.input.KeyboardTouchWindowCallback? = null
     private val tenKeyController = se.haya.skk.input.TenKeyController()
     private var sessionTouchSettings = se.haya.skk.settings.TouchKeyboardSettings()
     private var lastDevice: Int? = null
@@ -166,6 +167,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
+        keyboardTouchWindowCallback?.reset()
         val pending = configurationRestart
         if (restarting && pending != null && pending.session === session &&
             pending.session.active && pending.identity.matches(attribute, currentInputBinding,
@@ -339,6 +341,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onFinishInput() {
+        keyboardTouchWindowCallback?.reset()
+        touchKeyboardView?.cancelInteractions()
         configurationRestart = null
         session?.close()
         session = null
@@ -350,6 +354,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onUnbindInput() {
+        keyboardTouchWindowCallback?.reset()
+        touchKeyboardView?.cancelInteractions()
         configurationRestart = null
         session?.close()
         session = null
@@ -372,6 +378,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             shouldShowTouchCharacters())
 
     override fun onWindowHidden() {
+        keyboardTouchWindowCallback?.reset()
         touchKeyboardView?.cancelInteractions()
         candidateStatusView?.closeDetail()
         if (!changingConfiguration) configurationRestart = null
@@ -388,6 +395,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     override fun onWindowShown() {
         super.onWindowShown()
+        installKeyboardTouchWindowCallback()
         // 構成変更中に IME のトークンがまだなければ、ホストの追加は失敗します。
         // 窓が表示された時点で再試行し、登録表示だけが失われる状態を避けます。
         if (Build.VERSION.SDK_INT >= 33 && physicalHostAllowed && !physicalHostRequested) {
@@ -398,6 +406,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        keyboardTouchWindowCallback?.reset()
         touchKeyboardView?.cancelInteractions()
         candidateStatusView?.closeDetail()
         clearInlineAnnotation()
@@ -427,6 +436,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onCreateInputView(): View {
+        keyboardTouchWindowCallback?.reset()
+        touchKeyboardView?.cancelInteractions()
+        installKeyboardTouchWindowCallback()
         val keys = TouchKeyboardView(this, tenKeyController, ::onTouchCommand).also {
             it.onLayoutChanged = { layout -> sessionTouchSettings = sessionTouchSettings.copy(layout = layout) }
             it.onGeometryChanged = { updated ->
@@ -455,6 +467,15 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> renderPhysicalPopup() }
             updateTouchKeyboardVisibility()
             updateStatus()
+        }
+    }
+
+    private fun installKeyboardTouchWindowCallback() {
+        val target = window?.window ?: return
+        if (keyboardTouchWindowCallback?.isInstalledOn(target) == true) return
+        keyboardTouchWindowCallback?.dispose()
+        keyboardTouchWindowCallback = se.haya.skk.input.KeyboardTouchWindowCallback.install(target) { x, y ->
+            touchKeyboardView?.isCharacterAreaHit(x, y) == true
         }
     }
 
@@ -743,6 +764,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onDestroy() {
+        keyboardTouchWindowCallback?.dispose()
+        keyboardTouchWindowCallback = null
         candidatePresentationBoundary = null
         physicalHostAllowed = false
         physicalHostRequested = false

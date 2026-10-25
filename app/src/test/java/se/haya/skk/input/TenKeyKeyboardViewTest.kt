@@ -431,7 +431,7 @@ class TenKeyKeyboardViewTest {
         val commands = mutableListOf<TouchKeyboardCommand>()
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(),TouchKeyboardSettings()) { commands += it }
         val key = key(view,"か")
-        touch(key,MotionEvent.ACTION_DOWN); touch(key,MotionEvent.ACTION_MOVE,0f,30f); touch(key,MotionEvent.ACTION_MOVE); touch(key,MotionEvent.ACTION_UP,30f,0f)
+        touch(key,MotionEvent.ACTION_DOWN); touch(key,MotionEvent.ACTION_MOVE,0f,30f); touch(key,MotionEvent.ACTION_MOVE); touch(key,MotionEvent.ACTION_MOVE,30f,0f); touch(key,MotionEvent.ACTION_UP,30f,0f)
         assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("ぐ"))),commands)
         assertNull(view.pendingGuide)
     }
@@ -442,7 +442,7 @@ class TenKeyKeyboardViewTest {
         val key = key(view,"は"); touch(key,MotionEvent.ACTION_DOWN)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(350,TimeUnit.MILLISECONDS)
         assertTrue(view.pendingGuide!!.contains("境界"))
-        touch(key,MotionEvent.ACTION_MOVE,60f,30f); touch(key,MotionEvent.ACTION_MOVE); touch(key,MotionEvent.ACTION_UP,30f,0f)
+        touch(key,MotionEvent.ACTION_MOVE,60f,30f); touch(key,MotionEvent.ACTION_MOVE); touch(key,MotionEvent.ACTION_MOVE,30f,0f); touch(key,MotionEvent.ACTION_UP,30f,0f)
         assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("ぷ"))),commands)
     }
     @Test fun `静止した通常文字と最終母音だけで境界を指定する`() {
@@ -473,15 +473,15 @@ class TenKeyKeyboardViewTest {
         touch(key, MotionEvent.ACTION_UP, 30f, -90f)
         assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("く")), commands.single())
     }
-    @Test fun `離した座標と履歴の移動もホールドを取り消す`() {
+    @Test fun `小さな離し際の揺れはホールドを保ち接触履歴の文字変更は取り消す`() {
         val commands = mutableListOf<TouchKeyboardCommand>()
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
-        Robolectric.buildActivity(Activity::class.java).setup().get().setContentView(view)
+        attachView(Robolectric.buildActivity(Activity::class.java).setup().get(), view)
         val key = key(view, "か")
         touch(key, MotionEvent.ACTION_DOWN)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(350, TimeUnit.MILLISECONDS)
-        touch(key, MotionEvent.ACTION_UP, 30f, 0f)
-        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("く")), commands.last())
+        touch(key, MotionEvent.ACTION_UP, 30f, 20f)
+        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("か", true)), commands.last())
         touch(key, MotionEvent.ACTION_DOWN)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(350, TimeUnit.MILLISECONDS)
         val time = SystemClock.uptimeMillis()
@@ -714,9 +714,10 @@ class TenKeyKeyboardViewTest {
         val view = TenKeyKeyboardView(context, TouchKeyboardSettings()) {}
         Robolectric.buildActivity(Activity::class.java).setup().get().setContentView(view)
         val source = key(view, "か")
+        source.layout(0, 0, 20, 20)
         touch(source, MotionEvent.ACTION_DOWN)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(350, TimeUnit.MILLISECONDS)
-        touch(source, MotionEvent.ACTION_UP, 30f, 0f)
+        touch(source, MotionEvent.ACTION_UP, 50f, 30f)
         source.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(60, TimeUnit.MILLISECONDS)
         assertEquals(android.view.HapticFeedbackConstants.KEYBOARD_TAP, Shadows.shadowOf(source).lastHapticFeedbackPerformed())
@@ -853,14 +854,14 @@ class TenKeyKeyboardViewTest {
         assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.Backspace)), commands)
     }
 
-    @Test fun `中央を飛び越す離し位置と履歴から往復修飾を認識する`() {
+    @Test fun `離す座標は方向を変えず接触履歴だけが往復修飾を変える`() {
         val commands = mutableListOf<TouchKeyboardCommand>()
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
         val source = key(view, "か")
         touch(source, MotionEvent.ACTION_DOWN)
         touch(source, MotionEvent.ACTION_MOVE, 0f, 30f)
         touch(source, MotionEvent.ACTION_UP, 60f, 30f)
-        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("げ")), commands.last())
+        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("き")), commands.last())
         touch(source, MotionEvent.ACTION_DOWN)
         val time = SystemClock.uptimeMillis()
         MotionEvent.obtain(time, time, MotionEvent.ACTION_MOVE, 0f, 30f, 0).also {
@@ -870,7 +871,7 @@ class TenKeyKeyboardViewTest {
         touch(source, MotionEvent.ACTION_UP, 60f, 30f)
         assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("げ")), commands.last())
     }
-    @Test fun `上で離す最後の線分だけでも左からの修飾を認識する`() {
+    @Test fun `離す最後の座標では新規方向も往復修飾も認識しない`() {
         val commands = mutableListOf<TouchKeyboardCommand>()
         val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
         val source = key(view, "か")
@@ -881,11 +882,11 @@ class TenKeyKeyboardViewTest {
         event(MotionEvent.ACTION_DOWN, 30f, 30f)
         event(MotionEvent.ACTION_MOVE, 0f, 30f)
         event(MotionEvent.ACTION_UP, 30f, 0f)
-        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("ぐ")), commands.single())
+        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("き")), commands.single())
         commands.clear()
         event(MotionEvent.ACTION_DOWN, 30f, 30f)
         event(MotionEvent.ACTION_UP, 30f, 0f)
-        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.TouchText("く")), commands.single())
+        assertTrue(commands.isEmpty())
     }
     @Test fun `離すイベントの履歴から方向の退出を順に認識する`() {
         val commands = mutableListOf<TouchKeyboardCommand>()
@@ -895,6 +896,7 @@ class TenKeyKeyboardViewTest {
         val time = SystemClock.uptimeMillis()
         MotionEvent.obtain(time, time, MotionEvent.ACTION_MOVE, 0f, 30f, 0).also {
             it.addBatch(time + 1, 30f, 0f, 1f, 1f, 0)
+            it.addBatch(time + 2, 30f, -2f, 1f, 1f, 0)
             it.action = MotionEvent.ACTION_UP
             source.dispatchTouchEvent(it); it.recycle()
         }
@@ -1068,6 +1070,38 @@ class TenKeyKeyboardViewTest {
                 kotlin.math.abs(((pixel ushr shift) and 255) - ((expected ushr shift) and 255)) <= 2
             }
         })
+    }
+
+    @Test fun `取消表示は上限から戻っても離すまで残り文字を送らない`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) { commands += it }
+        val source = key(view, "か")
+        touch(source, MotionEvent.ACTION_DOWN)
+        touch(source, MotionEvent.ACTION_MOVE, 30f + FlickMetrics.fromContext(source.context).cancelPx, 30f)
+        assertTrue(view.pendingGuide!!.contains("×"))
+        touch(source, MotionEvent.ACTION_MOVE)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(700, TimeUnit.MILLISECONDS)
+        assertTrue(view.pendingGuide!!.contains("×"))
+        assertFalse(view.pendingGuide!!.contains("境界"))
+        touch(source, MotionEvent.ACTION_UP)
+        assertNull(view.pendingGuide)
+        assertTrue(commands.isEmpty())
+    }
+    @Test fun `静止で境界を解除した後は設定時間を待って再有効化する`() {
+        val view = TenKeyKeyboardView(RuntimeEnvironment.getApplication(), TouchKeyboardSettings()) {}
+        attachView(Robolectric.buildActivity(Activity::class.java).setup().get(), view)
+        val source = key(view, "か")
+        touch(source, MotionEvent.ACTION_DOWN)
+        val clock = Shadows.shadowOf(Looper.getMainLooper())
+        clock.idleFor(350, TimeUnit.MILLISECONDS)
+        assertTrue(view.pendingGuide!!.contains("境界"))
+        touch(source, MotionEvent.ACTION_MOVE, 30f, 0f)
+        assertFalse(view.pendingGuide!!.contains("境界"))
+        clock.idleFor(300, TimeUnit.MILLISECONDS)
+        assertFalse(view.pendingGuide!!.contains("境界"))
+        clock.idleFor(50, TimeUnit.MILLISECONDS)
+        assertTrue(view.pendingGuide!!.contains("境界"))
+        touch(source, MotionEvent.ACTION_CANCEL)
     }
 
 }

@@ -65,7 +65,7 @@ class TouchKeyboardControllerTest {
         c.pressShift()
         c.releaseShift(cancelled = true)
         assertFalse(c.shifted)
-        val gesture = KeyFlickGesture(10f)
+        val gesture = KeyFlickGesture(FlickMetrics(24f, 16f, 250f, 8f))
         gesture.start(0f, 0f)
         assertEquals(null, gesture.finish(40f, 5f))
         gesture.start(0f, 0f)

@@ -1,30 +1,21 @@
 package se.haya.skk.input
 
-import kotlin.math.abs
-
-/** ガイド待ち時間とは独立して、離した位置からタップ・上下フリックを決めます。 */
-internal class KeyFlickGesture(private val threshold: Float) {
-    private var originX = 0f
-    private var originY = 0f
-    private var active = false
-
-    fun start(x: Float, y: Float) {
-        originX = x
-        originY = y
-        active = true
+/** 接触中の共通認識をQWERTYのタップ・上下出力へ対応させます。 */
+internal class KeyFlickGesture(metrics: FlickMetrics) {
+    private val recognition = FlickGesture(metrics)
+    fun start(x: Float, y: Float) = recognition.start(x, y)
+    val isActive: Boolean get() = recognition.active
+    val isCancelled: Boolean get() = recognition.cancelled
+    private fun mapped(region: FlickGesture.Region?) = when (region) {
+        FlickGesture.Region.CENTER -> TouchKeyboardController.Flick.TAP
+        FlickGesture.Region.UP -> TouchKeyboardController.Flick.UP
+        FlickGesture.Region.DOWN -> TouchKeyboardController.Flick.DOWN
+        else -> null
     }
-
-    val isActive: Boolean get() = active
-
     fun direction(x: Float, y: Float): TouchKeyboardController.Flick? {
-        if (!active) return null
-        val dx = x - originX
-        val dy = y - originY
-        if (abs(dx) < threshold && abs(dy) < threshold) return TouchKeyboardController.Flick.TAP
-        if (abs(dy) < threshold || abs(dx) > abs(dy)) return null
-        return if (dy < 0) TouchKeyboardController.Flick.UP else TouchKeyboardController.Flick.DOWN
+        recognition.move(x, y)
+        return mapped(recognition.region)
     }
-
-    fun finish(x: Float, y: Float): TouchKeyboardController.Flick? = direction(x, y).also { active = false }
-    fun cancel() { active = false }
+    fun finish(x: Float, y: Float): TouchKeyboardController.Flick? = mapped(recognition.finish(x, y))
+    fun cancel() = recognition.cancel()
 }

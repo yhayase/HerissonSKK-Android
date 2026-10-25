@@ -1,12 +1,22 @@
 package se.haya.skk.input
 
 import android.text.InputType
-
 import org.junit.Assert.*
 import org.junit.Test
 import se.haya.skk.settings.TenKeyOperation
 
 class TenKeyControllerTest {
+    private val center = TenKeyController.Direction.CENTER
+    private val left = TenKeyController.Direction.LEFT
+    private val up = TenKeyController.Direction.UP
+    private val right = TenKeyController.Direction.RIGHT
+    private val metrics = FlickMetrics(24f, 16f, 250f, 8f)
+    private fun gesture(output: (TenKeyController.Direction, TenKeyController.Direction?) -> String? = { direction, modifier -> "$direction/$modifier" }) =
+        TenKeyGesture(metrics, TenKeyOperation.HOLD_AND_RETURN, 100f, 50f, output)
+    private fun path(vararg points: Pair<Float, Float>) = gesture().apply {
+        start(0f, 0f)
+        points.forEach { (x, y) -> move(x, y) }
+    }
     @Test fun `同じ入力種別の再開は手動選択を維持し種別変更と新規開始では初期面を選ぶ`() {
         val controller = TenKeyController()
         val password = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -56,78 +66,6 @@ class TenKeyControllerTest {
         assertEquals(TenKeyController.Face.NUMBER, controller.face)
     }
 
-    private val center = TenKeyController.Direction.CENTER
-    private val left = TenKeyController.Direction.LEFT
-    private val up = TenKeyController.Direction.UP
-    private val right = TenKeyController.Direction.RIGHT
-    @Test fun `往復で修飾を切り替え同じ往復で解除し移動で境界を取り消す`() {
-        val gesture = TenKeyGesture(10f, TenKeyOperation.HOLD_AND_RETURN)
-        gesture.start(0f,0f)
-        assertTrue(gesture.hold()); assertFalse(gesture.hold())
-        gesture.move(-20f,0f); gesture.move(0f,0f)
-        assertEquals(left,gesture.modifier)
-        gesture.move(20f,0f); gesture.move(0f,0f)
-        assertEquals(right,gesture.modifier)
-        gesture.move(20f,0f); gesture.move(0f,0f)
-        assertNull(gesture.modifier); assertFalse(gesture.boundary)
-        gesture.cancel(); assertFalse(gesture.hold())
-    }
-    private fun heldGesture(width: Float = 100f, height: Float = 50f,
-        output: (TenKeyController.Direction, TenKeyController.Direction?) -> String? = { _, _ -> "同じ文字" },
-    ) = TenKeyGesture(20f, TenKeyOperation.HOLD_AND_RETURN, 8f, 2f, width, height, output)
-
-    @Test fun `同じ文字ならスロップを超えてもホールドを保ち認識位置から一キーで取り消す`() {
-        val gesture = heldGesture()
-        gesture.start(0f, 0f)
-        gesture.move(7f, 0f)
-        assertTrue(gesture.hold())
-        gesture.move(100f, 0f)
-        assertTrue(gesture.boundary)
-        assertEquals(0, gesture.motionRevision)
-        gesture.move(107f, 0f)
-        assertFalse(gesture.boundary)
-        assertEquals(1, gesture.motionRevision)
-        assertTrue(gesture.hold())
-        gesture.move(110f, 0f)
-        assertTrue(gesture.boundary)
-    }
-    @Test fun `縦横と斜めの移動をキーの縦横寸法で正規化する`() {
-        listOf(100f to 0f, 0f to 50f, 80f to 30f).forEach { (x, y) ->
-            val gesture = heldGesture()
-            gesture.start(0f, 0f); gesture.hold()
-            gesture.move(x * .99f, y * .99f)
-            assertTrue(gesture.boundary)
-            gesture.move(x, y)
-            assertFalse(gesture.boundary)
-        }
-    }
-    @Test fun `出力文字の濁音小書き数字と英字大小の変更は一キー未満でも取り消す`() {
-        val controller = TenKeyController()
-        val rows = listOf(TenKeyController.KANA[1], TenKeyController.KANA[0], TenKeyController.KANA[1])
-        val modifiers = listOf(left, right, up)
-        (rows.zip(modifiers) + listOf(TenKeyController.ALPHA[1] to right)).forEachIndexed { index, (row, selected) ->
-            if (index == 3) controller.cycleFace()
-            val gesture = heldGesture { direction, modifier -> controller.output(row, direction, modifier) }
-            gesture.start(0f, 0f)
-            val (x, y) = when (selected) { left -> -30f to 0f; right -> 30f to 0f; else -> 0f to -30f }
-            gesture.move(x, y); gesture.hold()
-            gesture.move(0f, 0f)
-            assertFalse(gesture.boundary)
-        }
-    }
-    @Test fun `効果のない修飾への変更では出力文字が同じなら境界を保つ`() {
-        val controller = TenKeyController()
-        val gesture = heldGesture { _, modifier -> controller.output(TenKeyController.KANA[4], center, modifier) }
-        gesture.start(0f, 0f); gesture.move(-30f, 0f); gesture.hold(); gesture.move(0f, 0f)
-        assertEquals(left, gesture.modifier)
-        assertTrue(gesture.boundary)
-    }
-    @Test fun `フリック方式ではホールドも往復も修飾しない`() {
-        val gesture = TenKeyGesture(10f, TenKeyOperation.FLICK)
-        gesture.start(0f,0f); assertFalse(gesture.hold())
-        gesture.move(-20f,0f); gesture.move(0f,0f)
-        assertNull(gesture.modifier)
-    }
     @Test fun `濁音半濁音小書きと数字を最後の方向から選ぶ`() {
         val controller = TenKeyController()
         assertEquals("ぐ", controller.output(TenKeyController.KANA[1],up,left))
@@ -137,6 +75,7 @@ class TenKeyControllerTest {
         assertEquals("2", controller.output(TenKeyController.KANA[1],right,up))
         assertEquals("0", controller.output(TenKeyController.KANA[10],center,up))
     }
+
     @Test fun `各面の文字種を独立して保持し英字を直接選ぶ`() {
         val controller = TenKeyController(); controller.toggleKind()
         controller.cycleFace(); controller.toggleKind()
@@ -149,107 +88,14 @@ class TenKeyControllerTest {
         assertEquals("ア",controller.output(TenKeyController.KANA[0],center,null))
         assertEquals("１",controller.output(TenKeyController.KANA[0],center,up))
     }
+
     @Test fun `英字二十六文字は下方向なしですべて選べる`() {
         val controller = TenKeyController(); controller.cycleFace()
         val outputs = TenKeyController.ALPHA.subList(1,9).flatMap { row -> listOf(center,left,up,right).mapNotNull { controller.output(row,it,null) } }.joinToString("")
         assertEquals(('a'..'z').toSet(),outputs.toSet())
         assertNull(controller.output(TenKeyController.ALPHA[6],TenKeyController.Direction.DOWN,null))
     }
-    @Test fun `中央のサンプルを省いた左右通過と密な軌跡は同じ修飾になる`() {
-        fun path(vararg points: Pair<Float, Float>): TenKeyGesture = TenKeyGesture(10f, TenKeyOperation.HOLD_AND_RETURN).apply {
-            start(0f, 0f)
-            points.forEach { (x, y) -> move(x, y) }
-        }
-        val sparse = path(-20f to 0f, 20f to 0f)
-        val dense = path(-20f to 0f, -10f to 0f, 0f to 0f, 10f to 0f, 20f to 0f)
-        assertEquals(left, sparse.modifier)
-        assertEquals(dense.modifier, sparse.modifier)
-        sparse.move(0f, 0f); dense.move(0f, 0f)
-        assertEquals(right, sparse.modifier)
-        assertEquals(dense.modifier, sparse.modifier)
-        assertEquals(right, path(20f to 0f, -20f to 0f).modifier)
-        assertEquals(up, path(0f to -20f, 0f to 20f).modifier)
-        // 元の中央領域の端寄りでも、十分に戻れば指の開始点との一致を要求しません。
-        assertEquals(left, path(-25f to 8f, 8f to 8f).modifier)
-    }
-    private fun path(vararg points: Pair<Float, Float>) = TenKeyGesture(10f, TenKeyOperation.HOLD_AND_RETURN, 8f, 2f).apply {
-        start(0f, 0f)
-        points.forEach { (x, y) -> move(x, y) }
-    }
-    @Test fun `方向から別の領域へ出ると修飾を切り替え中央は修飾しない`() {
-        val gesture = path(-30f to 0f, 0f to -30f)
-        assertEquals(left, gesture.modifier)
-        assertEquals("ぐ", TenKeyController().output(TenKeyController.KANA[1], up, gesture.modifier))
-        gesture.move(0f, 0f)
-        assertEquals(up, gesture.modifier)
-        assertEquals("2", TenKeyController().output(TenKeyController.KANA[1], center, gesture.modifier))
-        assertNull(path(-30f to 0f, 0f to 0f, -30f to 0f, 0f to 0f).modifier)
-        assertEquals(right, path(-30f to 0f, 30f to 0f, 0f to 0f).modifier)
-        assertNull(path(-30f to 0f, 0f to 0f, 0f to 30f, 0f to 0f).modifier)
-    }
-    @Test fun `境界の四ピクセル帯では確定領域を保持する`() {
-        val gesture = path(-30f to 0f)
-        repeat(5) { gesture.move(-11.9f, 0f); gesture.move(-8.1f, 0f) }
-        assertNull(gesture.modifier)
-        gesture.move(-7f, 0f)
-        assertEquals(left, gesture.modifier)
-        repeat(5) { gesture.move(-11.9f, 0f); gesture.move(-8.1f, 0f) }
-        assertEquals(left, gesture.modifier)
-        gesture.move(-13f, 0f); gesture.move(-7f, 0f)
-        assertNull(gesture.modifier)
-    }
-    @Test fun `境界からちょうど二ピクセル内側で領域を確定する`() {
-        val gesture = path(-30f to 0f)
-        gesture.move(-8f, 0f)
-        assertEquals(left, gesture.modifier)
-        gesture.move(-12f, 0f)
-        gesture.move(-8f, 0f)
-        assertNull(gesture.modifier)
-        val tangent = path(-20f to 4f, 4f to -20f)
-        val subdivided = path(-20f to 4f, -8f to -8f, 4f to -20f)
-        assertEquals(tangent.modifier, subdivided.modifier)
-    }
-    @Test fun `斜め境界からの垂直距離が二ピクセルを超えるまで保持する`() {
-        val gesture = path(-30f to -20f)
-        assertEquals(up, gesture.move(-20f, -22f)) // 出力方向は確定領域と独立です。
-        assertNull(gesture.modifier)
-        gesture.move(-20f, -23f)
-        assertEquals(left, gesture.modifier)
-        gesture.move(-22f, -20f)
-        assertEquals(left, gesture.modifier)
-        gesture.move(-23f, -20f)
-        assertEquals(up, gesture.modifier)
-    }
-    @Test fun `斜め境界の二ピクセル直前と直後を区別する`() {
-        val gesture = path(-30f to -20f)
-        val margin = 20.0 + 2.0 * kotlin.math.sqrt(2.0)
-        val rounded = margin.toFloat()
-        val inside = if (rounded.toDouble() < margin) Math.nextUp(rounded) else rounded
-        gesture.move(-20f, -Math.nextDown(inside))
-        assertNull(gesture.modifier)
-        gesture.move(-20f, -inside)
-        assertEquals(left, gesture.modifier)
-    }
-    @Test fun `線分の分割と境界上のサンプルは修飾を変えない`() {
-        val vertices = listOf(-30f to -20f, -20f to -30f, 30f to 0f, 0f to 0f)
-        assertEquals(up, path(-30f to -13f, 30f to -13f).modifier)
-        val sparse = path(*vertices.toTypedArray())
-        val dense = path()
-        var previous = 0f to 0f
-        vertices.forEach { next ->
-            for (step in 1..100) dense.move(previous.first + (next.first - previous.first) * step / 100,
-                previous.second + (next.second - previous.second) * step / 100)
-            previous = next
-        }
-        assertEquals(sparse.modifier, dense.modifier)
-        val boundary = path(-30f to 0f, -12f to 0f, -8f to 0f, -7f to 0f)
-        assertEquals(path(-30f to 0f, -7f to 0f).modifier, boundary.modifier)
-    }
-    @Test fun `行に効果がない方向でも直前の修飾を置き換える`() {
-        val gesture = path(-30f to 0f, 0f to 0f, 30f to 0f, 0f to 0f)
-        assertEquals(right, gesture.modifier)
-        assertEquals("さ", TenKeyController().output(TenKeyController.KANA[2], center, gesture.modifier))
-    }
+
     @Test fun `行と面で有効な修飾だけに案内名がある`() {
         val controller = TenKeyController()
         assertEquals("濁点", controller.modifierLabel(TenKeyController.KANA[1], left))
@@ -264,17 +110,160 @@ class TenKeyControllerTest {
         controller.cycleFace()
         assertNull(controller.modifierLabel(TenKeyController.NUMBER[0], up))
     }
-
-    @Test fun `中央内部を短く通る軌跡と角に触れるだけの軌跡を区別する`() {
-        // h=2 の中央確定範囲は一辺16です。x+y=-16 はその角に到達します。
-        val tangent = path(-20f to 4f, 4f to -20f)
-        val through = path(-20f to 5f, 5f to -20f)
-        assertEquals(left, tangent.modifier)
-        assertEquals(left, through.modifier)
-        through.move(0f, 0f)
-        assertEquals(up, through.modifier)
-        val dense = path(-20f to 4f, -8f to -8f, 4f to -20f)
-        assertEquals(tangent.modifier, dense.modifier)
+    @Test fun `方向を出ると修飾を適用し同じ方向では解除する`() {
+        val g = path(-30f to 0f, 0f to 0f)
+        assertEquals(left, g.modifier)
+        assertEquals(up, g.move(0f, -30f))
+        assertEquals(left, g.modifier)
+        assertEquals("ぐ", TenKeyController().output(TenKeyController.KANA[1], up, g.modifier))
+        g.move(0f, 0f)
+        assertEquals(up, g.modifier)
+        g.move(0f, -30f); g.move(0f, 0f)
+        assertNull(g.modifier)
+        g.move(-30f, 0f); g.move(30f, 0f); g.move(0f, 0f)
+        assertEquals(right, g.modifier)
+        g.move(0f, 30f); g.move(0f, 0f)
+        assertNull(g.modifier)
     }
-
+    @Test fun `疎な線分と細かい線分で修飾が一致する`() {
+        val vertices = listOf(-40f to -20f, -20f to -40f, 40f to 0f, 0f to 0f)
+        val sparse = path(*vertices.toTypedArray())
+        val dense = path()
+        var previous = 0f to 0f
+        vertices.forEach { next ->
+            for (step in 1..100) dense.move(previous.first + (next.first - previous.first) * step / 100,
+                previous.second + (next.second - previous.second) * step / 100)
+            previous = next
+        }
+        assertEquals(sparse.modifier, dense.modifier)
+        assertEquals(sparse.direction, dense.direction)
+        assertEquals(left, path(-40f to 0f, 40f to 0f).modifier)
+    }
+    @Test fun `環状帯と曖昧な角度は確定領域を維持する`() {
+        val g = path(-30f to 0f)
+        assertEquals(left, g.move(-20f, 0f))
+        assertEquals(left, g.move(-30f, -30f))
+        assertNull(g.modifier)
+        assertEquals(up, g.move(-25f, -30f))
+        assertEquals(left, g.modifier)
+        assertEquals(center, g.move(0f, -16f))
+        assertEquals(up, g.modifier)
+    }
+    @Test fun `ホールド前は固定位置からの変位と領域変更で時間を測り直す`() {
+        val g = gesture { _, _ -> "同じ" }
+        g.start(0f, 0f)
+        g.move(7f, 0f); g.move(-7f, 0f)
+        assertEquals(0, g.motionRevision)
+        g.move(9f, 0f)
+        assertEquals(1, g.motionRevision)
+        g.move(30f, 0f)
+        assertEquals(2, g.motionRevision)
+        assertTrue(g.hold())
+        g.move(40f, 0f)
+        assertTrue(g.boundary)
+    }
+    @Test fun `ホールドの解除は最終出力と一キーの距離で判定する`() {
+        val g = gesture { _, _ -> "同じ" }
+        g.start(0f, 0f); g.move(7f, 0f); assertTrue(g.hold())
+        g.move(100f, 0f)
+        assertTrue(g.boundary)
+        assertEquals(0, g.motionRevision)
+        g.move(107f, 0f)
+        assertFalse(g.boundary)
+        assertEquals(1, g.motionRevision)
+        assertTrue(g.hold())
+        assertNull(g.finish(107f, 250f))
+        assertFalse(g.boundary)
+        assertFalse(g.hold())
+        listOf(100f to 0f, 0f to 50f, 80f to 30f).forEach { (x, y) ->
+            val h = gesture { _, _ -> "同じ" }
+            h.start(0f, 0f); h.hold(); h.move(x * .99f, y * .99f)
+            assertTrue(h.boundary)
+            h.finish(x, y)
+            assertFalse(h.boundary)
+        }
+    }
+    @Test fun `線分途中の実際の出力変更は疎密どちらでもホールドを解除する`() {
+        val controller = TenKeyController()
+        val row = TenKeyController.KANA[1]
+        fun prepared() = TenKeyGesture(metrics, TenKeyOperation.HOLD_AND_RETURN, 100f, 100f) { direction, modifier ->
+            controller.output(row, direction, modifier)
+        }.apply {
+            start(0f, 0f)
+            move(0f, -40f)
+            move(-40f, -25f)
+            assertEquals(up, modifier)
+            assertEquals("2", controller.output(row, direction!!, modifier))
+            assertTrue(hold())
+        }
+        val sparse = prepared()
+        val dense = prepared()
+        val revision = sparse.motionRevision
+        sparse.move(40f, -25f)
+        dense.move(0f, -25f)
+        assertEquals("ぐ", controller.output(row, dense.direction!!, dense.modifier))
+        assertFalse(dense.boundary)
+        dense.move(40f, -25f)
+        assertEquals("2", controller.output(row, sparse.direction!!, sparse.modifier))
+        assertEquals(sparse.direction, dense.direction)
+        assertEquals(sparse.modifier, dense.modifier)
+        assertFalse(sparse.boundary)
+        assertFalse(dense.boundary)
+        assertEquals(revision + 1, sparse.motionRevision)
+        assertTrue(sparse.hold())
+    }
+    @Test fun `修飾後の文字変更はホールドを解除し効果のない修飾は維持する`() {
+        val controller = TenKeyController()
+        val rows = listOf(TenKeyController.KANA[1], TenKeyController.KANA[0], TenKeyController.KANA[1])
+        val modifiers = listOf(left, right, up)
+        (rows.zip(modifiers) + listOf(TenKeyController.ALPHA[6] to right)).forEachIndexed { index, (row, selected) ->
+            if (index == 3) controller.cycleFace()
+            val g = gesture { direction, modifier -> controller.output(row, direction, modifier) }
+            g.start(0f, 0f)
+            val (x, y) = when (selected) { left -> -30f to 0f; right -> 30f to 0f; else -> 0f to -30f }
+            g.move(x, y); assertTrue(g.hold())
+            val revision = g.motionRevision
+            g.move(0f, 0f)
+            assertFalse(g.boundary)
+            assertEquals(revision + 1, g.motionRevision)
+            assertTrue(g.hold())
+        }
+        val kana = TenKeyController()
+        val g = gesture { _, modifier -> kana.output(TenKeyController.KANA[4], center, modifier) }
+        g.start(0f, 0f); g.move(-30f, 0f); g.hold(); g.move(0f, 0f)
+        assertEquals(left, g.modifier)
+        assertTrue(g.boundary)
+    }
+    @Test fun `未確定と空文字ではホールドを有効にしない`() {
+        val ambiguous = path(30f to 30f)
+        assertFalse(ambiguous.hold())
+        val empty = gesture { _, _ -> "" }
+        empty.start(0f, 0f); assertFalse(empty.hold())
+        val flick = TenKeyGesture(metrics, TenKeyOperation.FLICK)
+        flick.start(0f, 0f); assertFalse(flick.hold())
+        flick.move(-30f, 0f); flick.move(0f, 0f)
+        assertNull(flick.modifier)
+    }
+    @Test fun `離す座標は方向と修飾を変えず境界の距離だけを解除する`() {
+        val g = path(-30f to 0f)
+        assertEquals(left, g.finish(0f, 0f))
+        assertNull(g.modifier)
+        assertFalse(g.active)
+        val h = gesture { _, _ -> "同じ" }
+        h.start(0f, 0f); h.hold()
+        assertNull(h.finish(100f, 0f))
+        assertFalse(h.boundary)
+        val small = gesture { _, _ -> "同じ" }
+        small.start(0f, 0f); small.hold()
+        assertEquals(center, small.finish(7f, 0f))
+        assertTrue(small.boundary)
+    }
+    @Test fun `入力取消後は戻ってもタイマーでも復活しない`() {
+        val g = path(250f to 0f)
+        assertTrue(g.cancelled)
+        assertFalse(g.active)
+        assertNull(g.move(0f, 0f))
+        assertFalse(g.hold())
+        assertNull(g.finish(0f, 0f))
+    }
 }

@@ -317,6 +317,7 @@ class TouchKeyboardViewTest {
         val q = key(view, "Q")
         val w = key(view, "W")
         event(q, MotionEvent.ACTION_DOWN)
+        event(q, MotionEvent.ACTION_MOVE, y = -50f)
         event(w, MotionEvent.ACTION_DOWN)
         event(w, MotionEvent.ACTION_MOVE, y = -50f)
         event(w, MotionEvent.ACTION_MOVE)
@@ -701,8 +702,49 @@ class TouchKeyboardViewTest {
         view.configure(TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY))
         val kind = key(view, "ア")
         event(kind, MotionEvent.ACTION_DOWN)
+        event(kind, MotionEvent.ACTION_MOVE, x = 30f, y = -40f)
         event(kind, MotionEvent.ACTION_UP, x = 30f, y = -40f)
         assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.ConvertTouchReading())), commands)
+    }
+
+    @Test @Config(qualifiers = "land-hdpi") fun `固定距離の小さな揺れはキー寸法を変えてもタップになる`() {
+        for ((width, height) in listOf(24 to 28, 80 to 120, 120 to 48)) {
+            val commands = mutableListOf<TouchKeyboardCommand>()
+            val keyboard = view(commands)
+            val q = key(keyboard, "q")
+            q.layout(0, 0, width, height)
+            val density = q.resources.displayMetrics.density
+            event(q, MotionEvent.ACTION_DOWN)
+            event(q, MotionEvent.ACTION_MOVE, y = 10f - 12f * density)
+            event(q, MotionEvent.ACTION_UP, y = 10f - 20f * density)
+            assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.Text("q"))), commands)
+        }
+    }
+    @Test fun `離す座標だけの上移動と横移動は文字を送らない`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val keyboard = view(commands)
+        val q = key(keyboard, "q")
+        event(q, MotionEvent.ACTION_DOWN)
+        event(q, MotionEvent.ACTION_UP, y = -80f)
+        event(q, MotionEvent.ACTION_DOWN)
+        event(q, MotionEvent.ACTION_MOVE, x = 90f)
+        event(q, MotionEvent.ACTION_UP, x = 90f)
+        assertTrue(commands.isEmpty())
+    }
+
+    @Test fun `離すイベントの接触履歴で確定した方向は最後の揺れで変わらない`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val keyboard = view(commands)
+        val q = key(keyboard, "q")
+        event(q, MotionEvent.ACTION_DOWN)
+        val time = SystemClock.uptimeMillis()
+        MotionEvent.obtain(time, time, MotionEvent.ACTION_MOVE, 10f, -50f, 0).also {
+            it.addBatch(time + 1, 10f, 10f, 1f, 1f, 0)
+            it.action = MotionEvent.ACTION_UP
+            q.dispatchTouchEvent(it)
+            it.recycle()
+        }
+        assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.Text("Q"))), commands)
     }
 
 }

@@ -78,10 +78,12 @@ class LayoutSwitchKeyTest {
             f.calls.clear()
             f.touch(MotionEvent.ACTION_DOWN)
             f.touch(MotionEvent.ACTION_MOVE, boundary + hysteresis, 50f)
+            f.touch(MotionEvent.ACTION_MOVE, boundary - hysteresis - 1f, 50f)
             f.touch(MotionEvent.ACTION_UP, boundary - hysteresis - 1f, 50f)
             assertEquals(listOf("ime"), f.calls)
             f.calls.clear()
             f.touch(MotionEvent.ACTION_DOWN)
+            f.touch(MotionEvent.ACTION_MOVE, boundary + hysteresis - 1f, 50f)
             f.touch(MotionEvent.ACTION_UP, boundary + hysteresis - 1f, 50f)
             assertEquals(listOf("ime"), f.calls)
         }
@@ -123,6 +125,7 @@ class LayoutSwitchKeyTest {
         f.key.layout(0, 0, 40, 100)
         assertEquals(40, f.key.guideCellSize)
         f.touch(MotionEvent.ACTION_DOWN, 20f, 50f)
+        f.touch(MotionEvent.ACTION_MOVE, 120f, 50f)
         f.touch(MotionEvent.ACTION_UP, 120f, 50f)
         assertEquals(listOf("settings"), f.calls)
     }
@@ -162,6 +165,7 @@ class LayoutSwitchKeyTest {
         assertTrue(bounds.width() <= frame.width())
         assertTrue(f.key.guideCellSize < minOf(f.key.width, f.key.height))
         val distance = f.key.guideCellSize * 1.5f + 2 * f.key.resources.displayMetrics.density
+        f.touch(MotionEvent.ACTION_MOVE, 50f + distance, 50f)
         f.touch(MotionEvent.ACTION_UP, 50f + distance, 50f)
         assertEquals(listOf("settings"), f.calls)
     }
@@ -170,6 +174,7 @@ class LayoutSwitchKeyTest {
         val f = Fixture()
         f.touch(MotionEvent.ACTION_DOWN)
         f.touch(MotionEvent.ACTION_MOVE, 130f, 50f)
+        f.touch(MotionEvent.ACTION_MOVE)
         f.touch(MotionEvent.ACTION_UP)
         assertTrue(f.calls.isEmpty())
         f.touch(MotionEvent.ACTION_DOWN)
@@ -260,4 +265,24 @@ class LayoutSwitchKeyTest {
         assertEquals("", ten.text.toString())
         assertFalse(ten.showAlternativeHint)
     }
+    @Test fun `離す座標だけでは機能を開始せず選択済み機能も変更しない`() {
+        val f = Fixture()
+        f.touch(MotionEvent.ACTION_DOWN)
+        f.touch(MotionEvent.ACTION_UP, 130f, 50f)
+        assertTrue(f.calls.isEmpty())
+        f.touch(MotionEvent.ACTION_DOWN)
+        f.touch(MotionEvent.ACTION_MOVE, 130f, 50f)
+        f.touch(MotionEvent.ACTION_UP, 220f, 50f)
+        assertEquals(listOf("ime"), f.calls)
+    }
+    @Test fun `上限で取消後は接触中に戻っても実行しない`() {
+        val f = Fixture()
+        f.touch(MotionEvent.ACTION_DOWN)
+        f.touch(MotionEvent.ACTION_MOVE, 50f + FlickMetrics.fromContext(f.key.context).cancelPx, 50f)
+        assertTrue(f.key.isGuideShowing)
+        f.touch(MotionEvent.ACTION_MOVE)
+        f.touch(MotionEvent.ACTION_UP)
+        assertTrue(f.calls.isEmpty())
+    }
+
 }

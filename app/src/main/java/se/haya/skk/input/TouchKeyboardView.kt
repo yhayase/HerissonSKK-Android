@@ -15,7 +15,6 @@ import android.os.Build
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.LinearLayout
@@ -47,6 +46,18 @@ internal class TouchKeyboardView(
     internal var onGeometryChanged: ((TouchKeyboardSettings) -> Unit)? = null
     private var adjustmentPanel: ScrollView? = null
     internal val adjustingGeometry get() = adjustmentPanel != null
+
+    /** 候補・調整面・下の余白を除く、表示中の文字面に限って操作を引き受けます。 */
+    internal fun isCharacterAreaHit(rawX: Float, rawY: Float): Boolean {
+        if (!characterArea.isShown) return false
+        val bounds = Rect()
+        if (!characterArea.getLocalVisibleRect(bounds)) return false
+        val location = IntArray(2)
+        characterArea.getLocationOnScreen(location)
+        bounds.offset(location[0], location[1])
+        return rawX >= bounds.left && rawX < bounds.right &&
+            rawY >= bounds.top && rawY < bounds.bottom
+    }
 
     /** 調整操作は文字面の状態とSKKの入力状態を変えません。 */
     internal fun setTenKeyGeometry(heightDp: Int, widthPercent: Int, positionPercent: Int, bottomPaddingDp: Int = keyboardSettings.tenKeyBottomPaddingDp) {
@@ -447,7 +458,7 @@ internal class TouchKeyboardView(
             }
         }
         characterButtons += button to value
-        val gesture = KeyFlickGesture(maxOf(ViewConfiguration.get(context).scaledTouchSlop.toFloat(), keyHeight() * .22f))
+        val gesture = KeyFlickGesture(FlickMetrics.fromContext(context))
         var pointer = -1
         var guideWasShown = false
         var guideCenter = value
@@ -489,26 +500,26 @@ internal class TouchKeyboardView(
                     val index = event.findPointerIndex(pointer)
                     if (index < 0) clear()
                     else {
+                        for (sample in 0 until event.historySize)
+                            gesture.direction(event.getHistoricalX(index, sample), event.getHistoricalY(index, sample))
                         val direction = gesture.direction(event.getX(index), event.getY(index))
-                        if (direction != null) {
+                        if (direction != TouchKeyboardController.Flick.TAP || guideWasShown) {
                             button.removeCallbacks(showGuide)
-                            when (direction) {
-                                TouchKeyboardController.Flick.UP,
-                                TouchKeyboardController.Flick.DOWN -> {
-                                    guideWasShown = true
-                                    showGuide(button, value, guideCenter, direction)
-                                }
-                                TouchKeyboardController.Flick.TAP -> if (guideWasShown)
-                                    showGuide(button, value, guideCenter, direction)
+                            guideWasShown = true
+                            val assigned = when (direction) {
+                                TouchKeyboardController.Flick.UP -> direction.takeIf { controller.up(value) != null }
+                                TouchKeyboardController.Flick.DOWN -> direction.takeIf { controller.down(value) != null }
+                                else -> direction
                             }
-                        } else if (guideWasShown) {
-                            showGuide(button, value, guideCenter, null)
+                            showGuide(button, value, guideCenter, assigned)
                         }
                     }
                 }
                 MotionEvent.ACTION_UP -> {
                     val index = event.findPointerIndex(pointer)
                     if (index >= 0) {
+                        for (sample in 0 until event.historySize)
+                            gesture.direction(event.getHistoricalX(index, sample), event.getHistoricalY(index, sample))
                         val direction = gesture.finish(event.getX(index), event.getY(index))
                         when {
                             direction == TouchKeyboardController.Flick.TAP -> button.performClick()
@@ -521,7 +532,7 @@ internal class TouchKeyboardView(
                     }
                     clear()
                 }
-                MotionEvent.ACTION_CANCEL -> clear()
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> clear()
             }
             true
         }
@@ -806,7 +817,11 @@ internal class TouchKeyboardView(
                 TouchKeyboardController.Flick.DOWN -> 2
                 null -> -1
             }
-            options.forEachIndexed { index, option -> style(option, outputs[index], index == selectedIndex) }
+            val cancelled = selectedIndex < 0 || outputs.getOrNull(selectedIndex) == null
+            options.forEachIndexed { index, option ->
+                option.text = if (cancelled && index == 1) "×" else outputs[index]?.let { "${marks[index]}  $it" }.orEmpty()
+                style(option, outputs[index], index == selectedIndex)
+            }
         }
 
         private fun option(mark: String, output: String?): TextView = TextView(context).apply {

@@ -45,6 +45,85 @@ class TenKeyInputTest {
 
     @After fun restoreQwerty() { device.pressBack(); configureLayout("QWERTY") }
 
+    @Test fun holdTimeSliderControlsMinimumAndMaximumDelay() {
+        try {
+            configureLayout("10キー", holdMillis = 100)
+            withEditor { editor, _ ->
+                gesture("か", emptyList(), hold = true, holdMillis = 150)
+                awaitText(editor, "か")
+                composition(editor, true)
+            }
+            configureLayout("10キー", holdMillis = 1000)
+            withEditor { editor, _ ->
+                gesture("か", emptyList(), hold = true, holdMillis = 450)
+                awaitText(editor, "か")
+                composition(editor, false)
+                gesture("か", emptyList(), hold = true, holdMillis = 1100)
+                awaitText(editor, "かか")
+                composition(editor, true)
+            }
+        } finally { configureLayout("10キー", holdMillis = 350) }
+    }
+
+    @Test fun sharedDistancesRejectJitterAndReleaseOnlyFlicks() = withEditor { editor, _ ->
+        fun stroke(label: String, path: List<Pair<Float, Float>>, release: Pair<Float, Float> = path.lastOrNull() ?: (0f to 0f),
+            screenshot: String? = null) {
+            device.waitForIdle()
+            val box = Rect().also(key(label)::getBoundsInScreen)
+            val density = instrumentation.targetContext.resources.displayMetrics.density
+            val down = SystemClock.uptimeMillis()
+            fun inject(action: Int, point: Pair<Float, Float>) {
+                val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action,
+                    box.exactCenterX() + point.first * density, box.exactCenterY() + point.second * density, 0).apply {
+                    source = InputDevice.SOURCE_TOUCHSCREEN
+                }
+                try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+            }
+            inject(MotionEvent.ACTION_DOWN, 0f to 0f)
+            try {
+                // 各接触点を別フレームで届け、同時刻の人工イベントが統合されるのを避けます。
+                path.forEach { SystemClock.sleep(16); inject(MotionEvent.ACTION_MOVE, it) }
+                screenshot?.let { SystemClock.sleep(50); capture(it) }
+                SystemClock.sleep(16)
+                inject(MotionEvent.ACTION_UP, release)
+            } catch (error: Throwable) {
+                inject(MotionEvent.ACTION_CANCEL, release)
+                throw error
+            }
+            instrumentation.waitForIdleSync()
+        }
+        stroke("か", listOf(0f to 12f), 0f to -20f)
+        awaitText(editor, "か")
+        composition(editor, false)
+        stroke("か", emptyList(), 0f to -32f)
+        awaitText(editor, "か")
+        tap("QWERTYへ切替")
+        stroke("a", listOf(0f to 12f), 0f to -20f)
+        awaitText(editor, "かあ")
+        composition(editor, false)
+        stroke("a", emptyList(), 0f to -32f)
+        awaitText(editor, "かあ")
+        stroke("a", listOf(0f to -32f), 0f to 20f)
+        awaitText(editor, "かああ")
+        composition(editor, true)
+        tap("確定")
+        stroke("q", listOf(0f to 32f))
+        awaitText(editor, "かああ1")
+        stroke("a", listOf(32f to 0f))
+        awaitText(editor, "かああ1")
+        stroke("a", listOf(0f to -260f, 0f to 0f), screenshot = "qwerty-terminal-cancel")
+        awaitText(editor, "かああ1")
+        tap("10キーへ切替")
+        for ((point, expected) in listOf((0f to -32f) to "く", (-32f to 0f) to "き",
+            (32f to 0f) to "け", (0f to 32f) to "こ")) {
+            stroke("か", listOf(point))
+            awaitText(editor, "かああ1" + "くきけこ".substringBefore(expected) + expected)
+        }
+        composition(editor, false)
+        stroke("か", listOf(0f to -260f, 0f to 0f), screenshot = "ten-key-terminal-cancel")
+        awaitText(editor, "かああ1くきけこ")
+    }
+
     @Test fun tapRoundTripAndCancellationDoNotDuplicateCharacters() = withEditor { editor, _ ->
         tap("か")
         awaitText(editor, "か")
@@ -118,7 +197,7 @@ class TenKeyInputTest {
         device.waitForIdle()
         val source = Rect().also(key("か")::getBoundsInScreen)
         val threshold = maxOf(android.view.ViewConfiguration.get(instrumentation.targetContext).scaledTouchSlop.toFloat(),
-            minOf(source.width(), source.height()) * .2f)
+            24f * instrumentation.targetContext.resources.displayMetrics.density)
         val density = instrumentation.targetContext.resources.displayMetrics.density
         val down = SystemClock.uptimeMillis()
         fun inject(action: Int, dx: Float) {
@@ -135,7 +214,7 @@ class TenKeyInputTest {
             inject(MotionEvent.ACTION_MOVE, -threshold - .5f * density)
         }
         inject(MotionEvent.ACTION_UP, -threshold + .5f * density)
-        awaitText(editor, "か")
+        awaitText(editor, "き")
         composition(editor, false)
     }
 
@@ -840,7 +919,7 @@ class TenKeyInputTest {
         }
     }
 
-    private fun configureLayout(layout: String) {
+    private fun configureLayout(layout: String, holdMillis: Int = 350) {
         device.executeShellCommand("am start -W -a android.intent.action.VIEW -f 0x14000000 -n se.haya.skk/.SettingsActivity")
         device.waitForIdle()
         if (!device.findObject(UiSelector().text("画面キーボード")).waitForExists(1_000)) {
@@ -854,12 +933,40 @@ class TenKeyInputTest {
         select("配列", layout)
         if (layout == "10キー") {
             select("10キーの操作", "ホールド＋往復")
-            select("ホールド判定", "標準（350 ms）")
+            setHoldMillis(holdMillis)
 
         }
         assertTrue(device.findObject(UiSelector().text("保存").className("android.widget.Button")).click())
         device.waitForIdle()
         await("設定の保存が完了しません") { device.findObject(UiSelector().text("設定")).exists() }
+    }
+
+    private fun setHoldMillis(millis: Int) {
+        fun seek(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+            if (node.className?.toString() == "android.widget.SeekBar") return node
+            for (index in 0 until node.childCount) node.getChild(index)?.let { child ->
+                seek(child)?.let { return it }
+            }
+            return null
+        }
+        var row = key("ホールド判定")
+        var slider: AccessibilityNodeInfo? = null
+        repeat(6) {
+            if (slider == null) slider = seek(row)
+            if (slider == null) row = checkNotNull(row.parent)
+        }
+        val control = checkNotNull(slider)
+        val range = checkNotNull(control.rangeInfo)
+        val progress = range.min + (range.max - range.min) * (millis - 100) / 900f
+        val args = Bundle().apply {
+            putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, progress)
+        }
+        if (kotlin.math.abs(range.current - progress) >= .5f) {
+            assertTrue("ホールド判定を変更できません: ${range.current} -> $progress", control.performAction(
+                AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id, args))
+        }
+        device.waitForIdle()
+        key("$millis ms")
     }
 
     private fun cycleFaces() { listOf("ABC", "123", "かな").forEach(::tap) }

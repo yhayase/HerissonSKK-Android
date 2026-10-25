@@ -258,7 +258,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             else group?.let { emit(it, TenKeyController.Direction.CENTER, null, false) }
         }
         var gesture: TenKeyGesture? = null
-        var direction = TenKeyController.Direction.CENTER
+        var direction: TenKeyController.Direction? = TenKeyController.Direction.CENTER
         fun vibrate(feedback: Int) {
             if (settings.vibrateOnBoundary && (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.hasVibrator() == true) button.performHapticFeedback(feedback)
         }
@@ -273,7 +273,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
         val delayedGuide = Runnable { gesture?.takeIf { it.active }?.let { showGuide(button, group, direction, it) } }
         fun clear(keepCancelPulse: Boolean = false) { if (!keepCancelPulse) button.removeCallbacks(secondCancelPulse); button.removeCallbacks(hold); button.removeCallbacks(delayedGuide); gesture?.cancel(); gesture = null; button.isPressed = false; dismissGuide() }
         cancellations += { clear() }
-        fun sample(event: MotionEvent, reschedule: Boolean) {
+        fun sample(event: MotionEvent, reschedule: Boolean, includeCurrent: Boolean = true) {
             val active = gesture ?: return
             val revision = active.motionRevision
             fun move(x: Float, y: Float) {
@@ -286,10 +286,10 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                 }
             }
             for (index in 0 until event.historySize) move(event.getHistoricalX(index), event.getHistoricalY(index))
-            move(event.x, event.y)
+            if (includeCurrent) move(event.x, event.y)
             if (revision != active.motionRevision) {
                 button.removeCallbacks(hold)
-                if (reschedule && !kind) button.postDelayed(hold, settings.holdMillis.toLong())
+                if (reschedule && !kind && active.active && direction != null) button.postDelayed(hold, settings.holdMillis.toLong())
             }
         }
         button.setOnTouchListener { _, event ->
@@ -299,7 +299,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                     // 修飾の領域切替には、画面描画用の予測座標ではなく実際の移動を使います。
                     if (!kind && settings.operation == TenKeyOperation.HOLD_AND_RETURN) button.requestUnbufferedDispatch(event)
                     clear()
-                    gesture = TenKeyGesture(maxOf(ViewConfiguration.get(context).scaledTouchSlop.toFloat(), minOf(button.width, button.height) * .2f), if(kind) TenKeyOperation.FLICK else settings.operation, ViewConfiguration.get(context).scaledTouchSlop.toFloat(), 2f * resources.displayMetrics.density, button.width.toFloat(), button.height.toFloat(),
+                    gesture = TenKeyGesture(FlickMetrics.fromContext(context), if(kind) TenKeyOperation.FLICK else settings.operation, button.width.toFloat(), button.height.toFloat(),
                         { selected, modifier -> group?.let { controller.output(it, selected, modifier) } }).also { it.start(event.x, event.y) }
                     direction = TenKeyController.Direction.CENTER; button.isPressed = true
                     if (!kind) button.postDelayed(hold, settings.holdMillis.toLong())
@@ -309,13 +309,20 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                     sample(event, true)
                     if (direction != TenKeyController.Direction.CENTER || pendingGuide != null) showGuide(button, group, direction, it)
                 }
-                MotionEvent.ACTION_UP -> gesture?.takeIf { it.active }?.let {
-                    sample(event, false)
+                MotionEvent.ACTION_UP -> gesture?.let {
+                    sample(event, false, includeCurrent = false)
+                    val hadBoundary = it.boundary
+                    direction = it.finish(event.x, event.y)
+                    if (hadBoundary && !it.boundary) {
+                        button.removeCallbacks(secondCancelPulse)
+                        vibrate(HapticFeedbackConstants.KEYBOARD_TAP)
+                        button.postDelayed(secondCancelPulse, 60)
+                    }
                     if (kind) when {
                         direction == TenKeyController.Direction.CENTER -> button.performClick()
                         skkEnabled && readingConversionEnabled && controller.face == TenKeyController.Face.KANA && direction == TenKeyController.Direction.UP -> action(BasicSkkAction.ConvertTouchReading())
                         skkEnabled && readingConversionEnabled && controller.face == TenKeyController.Face.KANA && direction == TenKeyController.Direction.RIGHT -> action(BasicSkkAction.ConvertTouchReading(true))
-                    } else group?.let { row -> emit(row, direction, it.modifier, it.boundary) }
+                    } else direction?.let { selected -> group?.let { row -> emit(row, selected, it.modifier, it.boundary) } }
                     clear(keepCancelPulse = true)
                 }
                 MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> clear()
@@ -331,11 +338,11 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
             controller.nextBoundary = false
         }
     }
-    private fun showGuide(anchor: Button, group: List<String>?, direction: TenKeyController.Direction, gesture: TenKeyGesture?) {
+    private fun showGuide(anchor: Button, group: List<String>?, direction: TenKeyController.Direction?, gesture: TenKeyGesture?) {
         val options = group?.let { controller.modifiedRow(it, gesture?.modifier) }
             ?: if (controller.face == TenKeyController.Face.KANA && skkEnabled && readingConversionEnabled) listOf(anchor.text.toString(), "", "カナ", "ｶﾅ", "")
             else listOf(anchor.text.toString(), "", "", "", "")
-        val chosen = options.getOrNull(direction.ordinal).orEmpty()
+        val chosen = if (direction == null || gesture?.cancelled == true) "×" else options.getOrNull(direction.ordinal).orEmpty()
         fun modifierSymbol(candidate: TenKeyController.Direction?): String? {
             if (group == null || controller.modifierLabel(group, candidate) == null) return null
             return when (candidate) {

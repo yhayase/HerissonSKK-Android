@@ -10,12 +10,10 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.PopupWindow
 import se.haya.skk.R
 import se.haya.skk.settings.ScreenKeyboardLayout
-import kotlin.math.abs
 import kotlin.math.max
 
 /** タップと方向フリックを離した時点で確定する配列切り替えキーです。 */
@@ -37,6 +35,7 @@ internal class LayoutSwitchKey(
     private var originX = 0f
     private var originY = 0f
     private var moved = false
+    private val gesture = FlickGesture(FlickMetrics.fromContext(context))
     private var selection = Selection.CENTER
     private var guide: PopupWindow? = null
     private var shownGuideCell: Int? = null
@@ -76,6 +75,7 @@ internal class LayoutSwitchKey(
                 tracking = true
                 pointer = event.getPointerId(0)
                 originX = event.x; originY = event.y
+                gesture.start(event.x, event.y)
                 selection = Selection.CENTER
                 isPressed = true
                 parent?.requestDisallowInterceptTouchEvent(true)
@@ -88,9 +88,10 @@ internal class LayoutSwitchKey(
                     cancelInteraction(); return true
                 }
                 for (sample in 0 until event.historySize) select(event.getHistoricalX(0, sample), event.getHistoricalY(0, sample))
-                select(event.x, event.y)
+                if (event.actionMasked == MotionEvent.ACTION_MOVE) select(event.x, event.y)
                 if (event.actionMasked == MotionEvent.ACTION_UP) {
-                    val chosen = selection
+                    val finalRegion = gesture.finish(event.x, event.y)
+                    val chosen = if (finalRegion == null) Selection.NONE else selection
                     val tap = !moved
                     cancelInteraction()
                     if (available()) when (chosen) {
@@ -107,25 +108,27 @@ internal class LayoutSwitchKey(
     }
 
     private fun select(x: Float, y: Float) {
-        val dx = x - originX; val dy = y - originY
-        val threshold = max(ViewConfiguration.get(context).scaledTouchSlop.toFloat(), minOf(width, height) * .2f)
-        selection = if (max(abs(dx), abs(dy)) < threshold) Selection.CENTER else {
-            moved = true
-            if (abs(dx) >= abs(dy)) {
-                if (dx > 0) {
-                    val boundary = guideCellSize * 1.5f
-                    val hysteresis = 2 * resources.displayMetrics.density
-                    val settings = if (selection == Selection.SETTINGS) dx >= boundary - hysteresis
-                        else dx >= boundary + hysteresis
-                    if (settings) Selection.SETTINGS else Selection.RIGHT
-                } else Selection.NONE
-            } else if (dy < 0 && onAdjustGeometry != null) Selection.UP else Selection.NONE
+        val dx = x - originX
+        val transitions = gesture.move(x, y)
+        if (gesture.region != FlickGesture.Region.CENTER || transitions.any { it.to != FlickGesture.Region.CENTER }) moved = true
+        selection = when (gesture.region) {
+            FlickGesture.Region.CENTER -> if (moved) Selection.NONE else Selection.CENTER
+            FlickGesture.Region.RIGHT -> {
+                val boundary = guideCellSize * 1.5f
+                val hysteresis = 2 * resources.displayMetrics.density
+                val settings = if (selection == Selection.SETTINGS) dx >= boundary - hysteresis
+                    else dx >= boundary + hysteresis
+                if (settings) Selection.SETTINGS else Selection.RIGHT
+            }
+            FlickGesture.Region.UP -> if (onAdjustGeometry != null) Selection.UP else Selection.NONE
+            else -> Selection.NONE
         }
         guide?.contentView?.invalidate()
     }
 
     internal fun cancelInteraction() {
         tracking = false
+        gesture.cancel()
         pointer = -1
         moved = false
         isPressed = false
@@ -203,6 +206,13 @@ internal class LayoutSwitchKey(
             drawCell(canvas, 1, row, R.drawable.ic_globe_white, Selection.RIGHT)
             drawCell(canvas, 2, row, R.drawable.ic_keyboard_settings, Selection.SETTINGS)
             if (onAdjustGeometry != null) drawCell(canvas, 0, 0, R.drawable.ic_keyboard_resize, Selection.UP)
+            if (selection == Selection.NONE) {
+                paint.style = Paint.Style.FILL
+                paint.color = colors.text
+                paint.textSize = 28 * resources.displayMetrics.scaledDensity
+                paint.textAlign = Paint.Align.CENTER
+                canvas.drawText("×", cell / 2f, (row + .5f) * cell - (paint.ascent() + paint.descent()) / 2, paint)
+            }
         }
         private fun drawCell(canvas: Canvas, column: Int, row: Int, iconResource: Int, value: Selection) {
             val left = column * cell.toFloat(); val top = row * cell.toFloat()
