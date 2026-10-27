@@ -78,6 +78,7 @@ class PredictionCandidateCollector(
     }
 
     fun add(value: PredictionCandidate) {
+        PredictionCancellation.check()
         val previous = representatives[value.committedText]
         if (previous != null) {
             if (comparePrediction(value, previous) < 0) representatives[value.committedText] = value
@@ -97,6 +98,7 @@ class PredictionCandidateCollector(
 
     /** 未走査の候補がないときだけ、確定可能な結果として公開します。 */
     fun result(): PredictionSearchResult {
+        PredictionCancellation.check()
         if (representatives.isEmpty()) return PredictionSearchResult.ConfirmedEmpty
         val items = representatives.values.sortedWith(::comparePrediction)
         if (items.sumOf(::predictionCandidateRetainedChars) > totalResultCharsLimit) {
@@ -127,6 +129,7 @@ fun predictionCandidateRetainedChars(value: PredictionCandidate): Long {
 }
 
 private fun comparePrediction(left: PredictionCandidate, right: PredictionCandidate): Int {
+    PredictionCancellation.check()
     val leftUsed = left.lastUsedSequence
     val rightUsed = right.lastUsedSequence
     if (leftUsed != null || rightUsed != null) {

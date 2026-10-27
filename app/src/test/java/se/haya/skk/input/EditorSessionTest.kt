@@ -718,6 +718,51 @@ class EditorSessionTest {
         assertEquals("蚊", current.view.prediction?.items?.single()?.committedText)
     }
 
+    @Test fun `追加予測の検索中にページ操作を繰り返しても進行中の検索を中止しない`() {
+        val background = QueueExecutor()
+        val callbacks = QueueExecutor()
+        val limits = mutableListOf<Int>()
+        var repeated = false
+        var cancelled = false
+        lateinit var current: EditorSession
+        val dictionary = object : BasicSkkDictionary {
+            override fun lookup(query: DictionaryQuery) = emptyList<DictionaryCandidate>()
+            override fun predict(query: PredictionQuery): PredictionSearchResult {
+                limits += query.limit
+                if (query.limit > 16 && !repeated) {
+                    repeated = true
+                    checkNotNull(se.haya.skk.core.PredictionCancellation.current).onCancel { cancelled = true }.use {
+                        current.handle(BasicSkkAction.NextCandidatePage)
+                        current.handle(BasicSkkAction.PreviousCandidatePage)
+                        se.haya.skk.core.PredictionCancellation.check()
+                    }
+                }
+                return PredictionSearchResult.Ready((0 until query.limit).map { index ->
+                    val text = "候補%02d".format(index)
+                    PredictionCandidate(DictionaryCandidate(text), text,
+                        PredictionHistoryTarget("か", text, null, text))
+                }, true)
+            }
+        }
+        current = EditorSession(1, Connection(), false, true, 0, 0, dictionary,
+            callbackExecutor = callbacks, dictionaryExecutor = background,
+            candidatePageSizeProvider = { 1 })
+        current.setTouchCandidatePresentation(true)
+        current.type("Ka")
+        background.runAll()
+        callbacks.runAll()
+        repeat(16) { current.handle(BasicSkkAction.NextCandidatePage) }
+        assertTrue(current.view.prediction!!.loadingMore)
+        background.runAll()
+        callbacks.runAll()
+        assertTrue(repeated)
+        assertFalse(cancelled)
+        assertEquals(listOf(16, 32), limits)
+        assertFalse(current.view.prediction!!.loadingMore)
+        assertEquals(16, current.view.prediction!!.pageStart)
+        current.close()
+    }
+
     @Test fun `画面モード選択は予測候補でなく入力中の読みを確定する`() {
         val connection = Connection()
         val target = se.haya.skk.core.PredictionHistoryTarget("か", "蚊", null, "蚊")

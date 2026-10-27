@@ -69,6 +69,12 @@ data class PredictionView(
     val items: List<PredictionCandidate> = emptyList(),
     val fallbackText: String? = null,
     val failure: PredictionSearchFailure? = null,
+    val pageStart: Int = 0,
+    val pageSize: Int = 0,
+    val canPreviousPage: Boolean = false,
+    val canNextPage: Boolean = false,
+    val loadingMore: Boolean = false,
+    val hasMore: Boolean = false,
 )
 
 /**
@@ -272,6 +278,19 @@ class BasicSkkEngine(
     private var dynamicCompletion: String? = null
     private var touchPredictionEnabled = false
     private var prediction: PredictionView? = null
+    private var predictionDemand = PredictionDemand()
+    private var predictionDemandEpoch = 0L
+
+    /** 辞書更新時に、以前の順位と追加取得要求を破棄します。 */
+    fun resetPredictionDemand() {
+        predictionDemandEpoch++
+        clearPredictionDemand()
+    }
+
+    private fun clearPredictionDemand() {
+        predictionDemand = PredictionDemand()
+        prediction = null
+    }
     private var conversionSuffix = ""
     private var preferredEditColumn: Int? = null
     private var preferredEditTarget: String? = null
@@ -316,7 +335,7 @@ class BasicSkkEngine(
             clearPreferredEditColumn()
         }
         if (action == BasicSkkAction.RefreshPrediction) {
-            refreshPrediction()
+            refreshPrediction(force = true)
             return result(Outcome(true))
         }
         if (deletion != null) {
@@ -437,12 +456,14 @@ class BasicSkkEngine(
         return result.copy(view = view())
     }
 
-    private fun refreshPrediction() {
-        prediction = null
-        if (!touchPredictionEnabled || deletion != null || registrations.lastOrNull()?.savingToken != null) return
-        if (phase != InputPhase.READING && phase != InputPhase.ABBREV) return
-        if (okuriBoundary != null || okuriConsonant != null || okuriText().isNotEmpty()) return
-        if (buffer.text.isEmpty() && romanizer.pending.isEmpty()) return
+    private fun refreshPrediction(force: Boolean = false) {
+        if (!touchPredictionEnabled || deletion != null || registrations.lastOrNull()?.savingToken != null ||
+            phase != InputPhase.READING && phase != InputPhase.ABBREV ||
+            okuriBoundary != null || okuriConsonant != null || okuriText().isNotEmpty() ||
+            buffer.text.isEmpty() && romanizer.pending.isEmpty()) {
+            clearPredictionDemand()
+            return
+        }
         val abbrev = phase == InputPhase.ABBREV
         val prefixes = if (abbrev || romanizer.pending.isEmpty()) listOf(buffer.text) else {
             when (val expansion = romanRuleSet.possibleOutputs(
@@ -456,12 +477,14 @@ class BasicSkkEngine(
                         }
                     } + (buffer.text + romanizer.pending)).distinct()
                     if (expanded.size > PredictionQuery.MAX_PREFIXES) {
+                        clearPredictionDemand()
                         prediction = PredictionView(failure = PredictionSearchFailure.WORK_LIMIT)
                         return
                     }
                     expanded
                 }
                 RomanPredictionExpansion.Indeterminate -> {
+                    clearPredictionDemand()
                     prediction = PredictionView(failure = PredictionSearchFailure.WORK_LIMIT)
                     return
                 }
@@ -470,16 +493,97 @@ class BasicSkkEngine(
         if (prefixes.isEmpty()) return
         val fallback = if (abbrev) buffer.text else
             renderKana(buffer.text, readingStartMode) + romanizer.pending
-        prediction = when (val found = dictionary.predict(PredictionQuery(
+        val query = PredictionQuery(
             prefix = prefixes.first(),
             abbrev = abbrev,
             commonReading = touchReading,
             alternativePrefixes = prefixes.drop(1),
-        ))) {
-            is PredictionSearchResult.Ready -> PredictionView(items = found.items.map(::renderPredictionItem))
-            PredictionSearchResult.ConfirmedEmpty -> PredictionView(fallbackText = fallback)
-            is PredictionSearchResult.Indeterminate -> PredictionView(failure = found.failure)
+            limit = PREDICTION_BATCH_SIZE,
+        )
+        val key = PredictionDemandKey(query, mode, readingStartMode, phase, predictionDemandEpoch)
+        if (predictionDemand.key != key) {
+            predictionDemand = PredictionDemand(key = key)
+            prediction = null
+        } else if (!force && prediction != null && prediction?.failure != PredictionSearchFailure.PENDING) return
+        val previous = prediction
+        when (val found = dictionary.predict(query.copy(limit = predictionDemand.limit))) {
+            is PredictionSearchResult.Ready -> {
+                prediction = PredictionView(
+                    items = found.items.take(predictionDemand.limit).map(::renderPredictionItem),
+                    hasMore = found.hasMore && predictionDemand.limit < PredictionQuery.MAX_RESULTS,
+                )
+                val requested = predictionDemand.requestedStart
+                if (requested != null && requested < prediction!!.items.size) {
+                    predictionDemand = predictionDemand.copy(
+                        starts = predictionDemand.starts.take(predictionDemand.position + 1) + requested,
+                        position = predictionDemand.position + 1,
+                    )
+                }
+                predictionDemand = predictionDemand.copy(requestedStart = null)
+            }
+            PredictionSearchResult.ConfirmedEmpty -> {
+                predictionDemand = predictionDemand.copy(requestedStart = null)
+                prediction = PredictionView(fallbackText = fallback)
+            }
+            is PredictionSearchResult.Indeterminate -> {
+                val extending = predictionDemand.requestedStart != null && !previous?.items.isNullOrEmpty()
+                val pending = found.failure == PredictionSearchFailure.PENDING
+                prediction = if (extending) previous!!.copy(
+                    failure = found.failure, loadingMore = pending, hasMore = pending && previous.hasMore,
+                ) else PredictionView(failure = found.failure)
+                if (!pending) predictionDemand = predictionDemand.copy(requestedStart = null)
+            }
         }
+        updatePredictionPage()
+    }
+
+    private fun updatePredictionPage() {
+        val current = prediction ?: return
+        val start = predictionDemand.starts[predictionDemand.position]
+        val size = if (current.items.isEmpty()) 0 else predictionDemand.capacities[start] ?: run {
+            val displayed = current.items.map { it.candidate.copy(text = it.committedText) }
+            val capacity = (candidatePageCapacityProvider?.invoke(displayed, start)
+                ?: candidatePageSizeProvider()).coerceIn(1, candidateDisplayConfig.labels.length)
+                .coerceAtMost((current.items.size - start).coerceAtLeast(1))
+            predictionDemand = predictionDemand.copy(capacities = predictionDemand.capacities + (start to capacity))
+            capacity
+        }
+        prediction = current.copy(
+            pageStart = start, pageSize = size,
+            canPreviousPage = predictionDemand.position > 0 && !current.loadingMore,
+            canNextPage = !current.loadingMore && (start + size < current.items.size || current.hasMore),
+        )
+    }
+
+    private fun movePredictionPage(forward: Boolean): Outcome {
+        val current = prediction ?: return Outcome(true)
+        if (!forward) {
+            if (predictionDemand.position > 0) {
+                // 追加取得中は表示位置を固定し、完了時の移動先を一意にします。
+                if (current.loadingMore) return Outcome(true)
+                predictionDemand = predictionDemand.copy(position = predictionDemand.position - 1)
+            }
+        } else {
+            if (!current.canNextPage) return Outcome(true)
+            val next = current.pageStart + current.pageSize
+            if (next >= current.items.size) {
+                predictionDemand = predictionDemand.copy(
+                    limit = (predictionDemand.limit + PREDICTION_BATCH_SIZE).coerceAtMost(PredictionQuery.MAX_RESULTS),
+                    requestedStart = next,
+                )
+                prediction = current.copy(
+                    failure = PredictionSearchFailure.PENDING, loadingMore = true,
+                    canNextPage = false, canPreviousPage = false,
+                )
+                return Outcome(true)
+            }
+            predictionDemand = predictionDemand.copy(
+                starts = predictionDemand.starts.take(predictionDemand.position + 1) + next,
+                position = predictionDemand.position + 1,
+            )
+        }
+        updatePredictionPage()
+        return Outcome(true)
     }
 
     private fun renderPredictionItem(item: PredictionCandidate): PredictionCandidate {
@@ -1646,8 +1750,8 @@ class BasicSkkEngine(
         }
         BasicSkkAction.PreviousCandidate ->
             if (phase == InputPhase.SELECTING) selectPrevious() else Outcome(true)
-        BasicSkkAction.NextCandidatePage -> moveTouchPage(forward = true)
-        BasicSkkAction.PreviousCandidatePage -> moveTouchPage(forward = false)
+        BasicSkkAction.NextCandidatePage -> if (prediction != null) movePredictionPage(true) else moveTouchPage(forward = true)
+        BasicSkkAction.PreviousCandidatePage -> if (prediction != null) movePredictionPage(false) else moveTouchPage(forward = false)
         BasicSkkAction.CommitPageHead -> if (phase == InputPhase.SELECTING) {
             commitCandidate(touchPageStart())
         } else Outcome(true)
@@ -2264,6 +2368,7 @@ class BasicSkkEngine(
         dynamicCompletion = dynamicCompletion,
         touchPredictionEnabled = touchPredictionEnabled,
         prediction = prediction,
+        predictionDemand = predictionDemand,
         conversionSuffix = conversionSuffix,
         preferredEditColumn = preferredEditColumn,
         preferredEditTarget = preferredEditTarget,
@@ -2298,6 +2403,7 @@ class BasicSkkEngine(
         dynamicCompletion = snapshot.dynamicCompletion
         touchPredictionEnabled = snapshot.touchPredictionEnabled
         prediction = snapshot.prediction
+        predictionDemand = snapshot.predictionDemand
         conversionSuffix = snapshot.conversionSuffix
         preferredEditColumn = snapshot.preferredEditColumn
         preferredEditTarget = snapshot.preferredEditTarget
@@ -2336,7 +2442,7 @@ class BasicSkkEngine(
         deletion = null
         completionCycle = null
         dynamicCompletion = null
-        prediction = null
+        clearPredictionDemand()
         conversionSuffix = ""
         clearPreferredEditColumn()
     }
@@ -2351,6 +2457,23 @@ class BasicSkkEngine(
         val okuriConsonant: Char?,
         val pendingRomaji: String,
         val pendingTargetsOkuri: Boolean,
+    )
+
+    private data class PredictionDemandKey(
+        val query: PredictionQuery,
+        val mode: InputMode,
+        val readingStartMode: InputMode,
+        val phase: InputPhase,
+        val epoch: Long,
+    )
+
+    private data class PredictionDemand(
+        val key: PredictionDemandKey? = null,
+        val limit: Int = PREDICTION_BATCH_SIZE,
+        val starts: List<Int> = listOf(0),
+        val capacities: Map<Int, Int> = emptyMap(),
+        val position: Int = 0,
+        val requestedStart: Int? = null,
     )
 
     private data class EngineSnapshot(
@@ -2381,6 +2504,7 @@ class BasicSkkEngine(
         val dynamicCompletion: String?,
         val touchPredictionEnabled: Boolean,
         val prediction: PredictionView?,
+        val predictionDemand: PredictionDemand,
         val conversionSuffix: String,
         val preferredEditColumn: Int?,
         val preferredEditTarget: String?,
@@ -2443,6 +2567,7 @@ class BasicSkkEngine(
     }
 
     private companion object {
+        const val PREDICTION_BATCH_SIZE = 16
         val AUTO_CONVERSION_ASCII_PUNCTUATION = setOf('.', ',', ']', '}', '?', '!', ';', ':', ')')
         val AUTO_CONVERSION_PUNCTUATION = setOf(
             "、", "。", "．", "，", "？", "」", "！", "；", "：", "）", "”",

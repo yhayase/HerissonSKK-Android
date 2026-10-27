@@ -8,10 +8,13 @@ import se.haya.skk.core.NumericLearningTarget
 import se.haya.skk.core.RegistrationPreparation
 import se.haya.skk.core.PredictionCandidate
 import se.haya.skk.core.PredictionHistoryTarget
+import se.haya.skk.core.PredictionCancellation
+import se.haya.skk.core.PredictionCancelledException
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchFailure
 import se.haya.skk.core.PredictionSearchResult
 import se.haya.skk.core.rankPredictionCandidates
+import se.haya.skk.core.dictionary.DeferredDictionaryReadException
 import se.haya.skk.core.dictionary.CandidateSelection
 import se.haya.skk.core.dictionary.SelectedCandidateOrigin
 import se.haya.skk.core.dictionary.SkkDictionaryCandidate
@@ -27,14 +30,23 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
     override fun predictionUsage(target: PredictionHistoryTarget): Long? = raw.predictionUsage(target)
 
     override fun predict(query: PredictionQuery): PredictionSearchResult {
-        val extraction = try { NumericConversion.extract(query.prefix) } catch (_: RuntimeException) {
+        PredictionCancellation.check()
+        val extraction = try { NumericConversion.extract(query.prefix) } catch (cancelled: PredictionCancelledException) {
+            throw cancelled
+        } catch (deferred: DeferredDictionaryReadException) {
+            throw deferred
+        } catch (_: RuntimeException) {
             return PredictionSearchResult.Indeterminate(PredictionSearchFailure.INVALID_INPUT)
         }
         if (!extraction.isUsable || !extraction.hasNumericSpans) {
             return attachUsage(raw.predict(query), query.limit)
         }
         // 数値を含む現在の読みは、通常変換と同じ経路でテンプレートを展開します。
-        val expanded = try { lookup(DictionaryQuery(query.prefix, abbrev = query.abbrev, commonReading = query.commonReading)) } catch (_: RuntimeException) {
+        val expanded = try { lookup(DictionaryQuery(query.prefix, abbrev = query.abbrev, commonReading = query.commonReading)) } catch (cancelled: PredictionCancelledException) {
+            throw cancelled
+        } catch (deferred: DeferredDictionaryReadException) {
+            throw deferred
+        } catch (_: RuntimeException) {
             return PredictionSearchResult.Indeterminate(PredictionSearchFailure.UNAVAILABLE)
         }
         val values = expanded.filterNot { it.dateExpression }.mapIndexed { order, candidate ->
@@ -69,6 +81,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
         var total = 0L
         var totalOrigins = 0L
         for (template in templates) {
+            PredictionCancellation.check()
             if (template.dateExpression) {
                 val identity = template.text to true
                 val previous = output[identity]
@@ -103,6 +116,7 @@ class NumericSkkDictionary(private val raw: BasicSkkDictionary) : BasicSkkDictio
             if (expanded.candidates.isEmpty()) continue
             anySuccess = true
             for (value in expanded.candidates) {
+                PredictionCancellation.check()
                 val identity = value.text to false
                 val previous = output[identity]
                 if (previous == null) {

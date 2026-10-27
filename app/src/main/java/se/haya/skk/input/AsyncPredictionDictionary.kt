@@ -5,6 +5,8 @@ import java.util.LinkedHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
 import se.haya.skk.core.BasicSkkDictionary
+import se.haya.skk.core.PredictionCancellation
+import se.haya.skk.core.PredictionCancelledException
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchFailure
 import se.haya.skk.core.PredictionSearchResult
@@ -47,6 +49,8 @@ internal class AsyncPredictionDictionary(
     private val cache = LinkedHashMap<CacheKey, Cached>(16, 0.75f, true)
     private var retainedChars = 0L
     private var latestDemand: Demand? = null
+    private data class Work(val demand: Demand, val cancellation: PredictionCancellation)
+    private var running: Work? = null
     private var workerRunning = false
     private var active = true
 
@@ -56,9 +60,14 @@ internal class AsyncPredictionDictionary(
     override fun predict(query: PredictionQuery): PredictionSearchResult {
         val demand = Demand(currentRevision(), query)
         var startWorker = false
-        synchronized(this) {
+        val obsolete = synchronized(this) {
             if (!active) return unavailable()
             latestDemand = demand
+            running?.takeIf { it.demand != demand }?.cancellation
+        }
+        obsolete?.cancel()
+        synchronized(this) {
+            if (!active) return unavailable()
             cache[demand.key]?.let { return it.result }
             if (!workerRunning) {
                 workerRunning = true
@@ -83,42 +92,44 @@ internal class AsyncPredictionDictionary(
         }
     }
 
+    /** 入力の進行だけで予測が不要になった場合も、進行中の I/O を中止します。 */
+    fun invalidateRevision() {
+        val obsolete = synchronized(this) {
+            latestDemand = null
+            running?.cancellation
+        }
+        obsolete?.cancel()
+    }
+
     private fun drain() {
         while (true) {
-            val demand = synchronized(this) {
-                if (!active) {
-                    workerRunning = false
-                    return
-                }
+            val work = synchronized(this) {
                 val latest = latestDemand
-                if (latest == null || cache.containsKey(latest.key)) {
+                if (!active || latest == null || latest.revision != currentRevision() ||
+                    cache.containsKey(latest.key)) {
                     workerRunning = false
                     return
                 }
-                latest
+                Work(latest, PredictionCancellation()).also { running = it }
             }
-            val result = load(demand.query)
-            val current = currentRevision()
+            val result = try {
+                work.cancellation.run { load(work.demand.query) }
+            } catch (_: PredictionCancelledException) {
+                null
+            }
             var notify: Demand? = null
             val continueRunning = synchronized(this) {
-                if (!active) {
-                    workerRunning = false
-                    false
-                } else {
-                    if (current.dictionary == demand.revision.dictionary &&
-                        result != pending()
-                    ) put(demand.key, result)
-                    val latest = latestDemand
-                    if (latest != null && latest.key == demand.key && current == latest.revision &&
-                        cache.containsKey(demand.key)
-                    ) {
-                        notify = latest
-                    }
-                    val needsAnother = latest != null && current.dictionary == latest.revision.dictionary &&
-                        !cache.containsKey(latest.key)
-                    workerRunning = needsAnother
-                    needsAnother
+                val current = currentRevision()
+                running = null
+                val latest = latestDemand
+                if (active && result != null && latest == work.demand && current == latest.revision) {
+                    put(latest.key, result)
+                    notify = latest
                 }
+                val needsAnother = active && latest != null && current == latest.revision &&
+                    !cache.containsKey(latest.key) && (result == null || latest != work.demand)
+                workerRunning = needsAnother
+                needsAnother
             }
             notify?.let(::postReady)
             if (!continueRunning) return
@@ -129,15 +140,21 @@ internal class AsyncPredictionDictionary(
         val scope = DictionaryReadScope()
         return try {
             repeat(MAX_DEFERRED_RETRIES) {
+                PredictionCancellation.check()
                 try {
                     val result = scope.run { loadAllPrefixes(query) }
                     return if (result == pending()) unavailable() else result
                 } catch (pending: DeferredDictionaryReadException) {
+                    PredictionCancellation.check()
                     pending.load()
+                    PredictionCancellation.check()
                 }
             }
             unavailable()
+        } catch (cancelled: PredictionCancelledException) {
+            throw cancelled
         } catch (_: RuntimeException) {
+            PredictionCancellation.check()
             unavailable()
         } finally {
             scope.close()
@@ -145,6 +162,7 @@ internal class AsyncPredictionDictionary(
     }
 
     private fun loadAllPrefixes(query: PredictionQuery): PredictionSearchResult {
+        PredictionCancellation.check()
         val distinctPrefixes = query.prefixes.distinct()
         if (distinctPrefixes.size > PredictionQuery.MAX_PREFIXES) {
             return PredictionSearchResult.Indeterminate(PredictionSearchFailure.INVALID_INPUT)
@@ -161,6 +179,7 @@ internal class AsyncPredictionDictionary(
         val perPrefixWork = (query.workLimit / prefixes.size.coerceAtLeast(1)).coerceAtLeast(1)
         val perPrefixChars = (query.totalResultCharsLimit / prefixes.size.coerceAtLeast(1)).coerceAtLeast(1)
         for (prefix in prefixes) {
+            PredictionCancellation.check()
             when (val result = delegate.predict(query.copy(
                 prefix = prefix,
                 alternativePrefixes = emptyList(),
@@ -181,6 +200,7 @@ internal class AsyncPredictionDictionary(
                 is PredictionSearchResult.Indeterminate -> return result
             }
         }
+        PredictionCancellation.check()
         return when (val ranked = rankPredictionCandidates(values, query.limit)) {
             is PredictionSearchResult.Ready -> ranked.copy(hasMore = ranked.hasMore || hasMore)
             else -> ranked
@@ -227,12 +247,15 @@ internal class AsyncPredictionDictionary(
         return chars
     }
 
-    @Synchronized
     override fun close() {
-        active = false
-        latestDemand = null
-        cache.clear()
-        retainedChars = 0
+        val obsolete = synchronized(this) {
+            active = false
+            latestDemand = null
+            cache.clear()
+            retainedChars = 0
+            running?.cancellation
+        }
+        obsolete?.cancel()
     }
 
     private fun pending() = PredictionSearchResult.Indeterminate(PredictionSearchFailure.PENDING)

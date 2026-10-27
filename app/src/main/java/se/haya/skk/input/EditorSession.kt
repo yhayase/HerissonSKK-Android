@@ -742,7 +742,9 @@ class EditorSession(
             }
             return true
         }
-        if (action != BasicSkkAction.RefreshPrediction) advancePredictionInputRevision()
+        val predictionPageAction = view.prediction != null &&
+            (action == BasicSkkAction.NextCandidatePage || action == BasicSkkAction.PreviousCandidatePage)
+        if (action != BasicSkkAction.RefreshPrediction && !predictionPageAction) advancePredictionInputRevision()
         publishEditState(invalidate = true)
         val deleteCommittedCandidate = action == BasicSkkAction.Backspace &&
             engine.state.registrationDepth == 0 && view.candidate?.menu?.isEmpty() == true
@@ -781,12 +783,15 @@ class EditorSession(
 
     private fun advancePredictionInputRevision() {
         predictionRevision.updateAndGet { it.copy(input = it.input + 1) }
+        predictionDictionary.invalidateRevision()
     }
 
     /** 辞書公開版の変更後に、現在の読みだけを新しい版へ問い合わせ直します。 */
     fun refreshPredictionDictionary() {
         if (!active || failed) return
         predictionRevision.updateAndGet { it.copy(dictionary = it.dictionary + 1) }
+        predictionDictionary.invalidateRevision()
+        engine.resetPredictionDemand()
         refreshPredictionStateOnly()
     }
 

@@ -6,6 +6,8 @@ import se.haya.skk.core.CompletionQuery
 import se.haya.skk.core.DictionaryCandidate
 import se.haya.skk.core.DictionaryQuery
 import se.haya.skk.core.PredictionHistoryTarget
+import se.haya.skk.core.PredictionCancellation
+import se.haya.skk.core.PredictionCancelledException
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchResult
 import se.haya.skk.core.dictionary.DeferredDictionaryReadException
@@ -92,6 +94,7 @@ internal class SQLiteSkkDictionary(
     }.let { (it as UsageValue).sequence }
 
     private fun get(key: Key, read: () -> Cached): Any {
+        PredictionCancellation.check()
         if (keyChars(key) > DictionaryCacheStats.MAX_RETAINED_CHARS) {
             throw DictionaryUnavailableException(DictionaryUnavailableReason.FAILED)
         }
@@ -104,9 +107,14 @@ internal class SQLiteSkkDictionary(
         }
         throw DeferredDictionaryReadException {
             // I/O 中にはキャッシュや管理器のモニターを保持しません。
-            val loaded = try { read() } catch (failure: RuntimeException) {
+            val loaded = try {
+                read().also { PredictionCancellation.check() }
+            } catch (cancelled: PredictionCancelledException) {
+                throw cancelled
+            } catch (failure: RuntimeException) {
                 Cached(null, 0, keyChars(key), failure)
             }
+            PredictionCancellation.check()
             // 再実行中の #4 などは同じ操作の読込結果を固定します。操作終了時に必ず解放します。
             // 大きな一見出しも検索できますが、長寿命の LRU へは入れません。
             scope?.put(scopedKey, loaded)

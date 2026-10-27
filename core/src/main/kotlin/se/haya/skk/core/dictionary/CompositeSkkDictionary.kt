@@ -11,6 +11,7 @@ import se.haya.skk.core.DictionaryCandidate
 import se.haya.skk.core.DictionaryQuery
 import se.haya.skk.core.PredictionCandidate
 import se.haya.skk.core.PredictionHistoryTarget
+import se.haya.skk.core.PredictionCancellation
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchFailure
 import se.haya.skk.core.PredictionSearchResult
@@ -213,6 +214,7 @@ class CompositeSkkDictionary(
     }
 
     override fun predict(query: PredictionQuery): PredictionSearchResult {
+        PredictionCancellation.check()
         val prefixes = query.prefixes.distinct()
         if (prefixes.isEmpty() || prefixes.size > PredictionQuery.MAX_PREFIXES ||
             prefixes.any { it.isEmpty() || it.length > PredictionQuery.MAX_PREFIX_CHARS || !it.hasValidUtf16() } ||
@@ -233,6 +235,7 @@ class CompositeSkkDictionary(
         var work = 0
         val collector = PredictionCandidateCollector(query.limit, query.totalResultCharsLimit)
         while (cursors.isNotEmpty()) {
+            PredictionCancellation.check()
             val key = cursors.peek().key
             do {
                 val cursor = cursors.remove()
@@ -287,6 +290,7 @@ class CompositeSkkDictionary(
     ): List<PredictionCandidate> {
         val values = mutableListOf<PredictionCandidate>()
         resolved.forEachIndexed { candidateOrder, value ->
+            PredictionCancellation.check()
             val candidate = value.candidate
             val entrySection = value.origins.firstOrNull()?.let { origin ->
                 sources.firstOrNull { it.first.id == origin.dictionaryId }?.first?.section(key)
@@ -329,6 +333,7 @@ class CompositeSkkDictionary(
     private fun resolveForPrediction(key: String): List<ResolvedDictionaryCandidate> {
         val byIdentity = linkedMapOf<Triple<String, String?, Boolean>, MutableList<CandidateOrigin>>()
         for ((source, personal) in sources) {
+            PredictionCancellation.check()
             if (!source.enabled) continue
             source.candidates(key).filterNot { candidate ->
                 candidate.dateExpression || !personal && SuppressedDictionaryCandidate(
@@ -349,6 +354,7 @@ class CompositeSkkDictionary(
     fun resolve(query: DictionaryQuery): List<ResolvedDictionaryCandidate> {
         val byText = linkedMapOf<Pair<String, Boolean>, MutableList<CandidateOrigin>>()
         for ((source, personal) in sources) {
+            PredictionCancellation.check()
             if (!source.enabled) continue
             val candidates = source.candidates(query.readingKey).filterNot { candidate ->
                 !personal && SuppressedDictionaryCandidate(

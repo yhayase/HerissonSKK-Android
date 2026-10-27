@@ -18,6 +18,8 @@ import se.haya.skk.core.CompletionQuery
 import se.haya.skk.core.CompletionScope
 import se.haya.skk.core.CompletionException
 import se.haya.skk.core.CompletionFailure
+import se.haya.skk.core.PredictionCancellation
+import se.haya.skk.core.PredictionCandidate
 import se.haya.skk.core.PredictionHistoryTarget
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchFailure
@@ -599,6 +601,7 @@ class SQLiteDictionaryRepository internal constructor(
                 query.workLimit !in 1..PredictionQuery.MAX_WORK_ITEMS ||
                 query.totalResultCharsLimit !in 1..PredictionQuery.MAX_TOTAL_RESULT_CHARS
             ) return@inReadTransaction PredictionSearchResult.Indeterminate(PredictionSearchFailure.INVALID_INPUT)
+            PredictionCancellation.check()
             val upper = prefixUpperBound(query.prefix)
             val args = mutableListOf(query.prefix)
             val upperClause = if (upper == null) "" else " AND entry_key < ?".also { args += upper }
@@ -608,110 +611,163 @@ class SQLiteDictionaryRepository internal constructor(
             val fallbacks = if (readAllowFallback(database)) {
                 fallbackSystems.filter { it.enabled && it.id !in storedIds }
             } else emptyList()
-            val fallbackIterators = fallbacks.map { it.completionKeys(query.prefix).iterator() }
-            val fallbackKeys = fallbackIterators.map { if (it.hasNext()) it.next() else null }.toMutableList()
             val collector = PredictionCandidateCollector(query.limit, query.totalResultCharsLimit)
+            val distinct = hashSetOf<String>()
             var work = 0
-            // SQL の BINARY 順と代替辞書のコードポイント順を同じ順序で併合します。
-            val keyOrder = Comparator<String> { left, right ->
-                val a = left.codePoints().iterator()
-                val b = right.codePoints().iterator()
-                var result = 0
-                while (a.hasNext() && b.hasNext() && result == 0) result = a.nextInt().compareTo(b.nextInt())
-                if (result != 0) result else a.hasNext().compareTo(b.hasNext())
+            fun charge(chars: Long = 0) {
+                PredictionCancellation.check()
+                if (++work > query.workLimit) throw PredictionReadLimitException(PredictionSearchFailure.WORK_LIMIT)
+                if (chars > query.totalResultCharsLimit) throw PredictionReadLimitException(PredictionSearchFailure.RESULT_LIMIT)
             }
-            database.rawQuery(
-                """
-                SELECT c.$COLUMN_ENTRY_KEY,c.$COLUMN_SOURCE_ID,c.$COLUMN_TEXT,c.$COLUMN_ANNOTATION,
-                       c.$COLUMN_OKURI,c.$COLUMN_SECTION,c.$COLUMN_ANNOTATION_IS_PERSONAL
-                  FROM $TABLE_CANDIDATES c JOIN $TABLE_SOURCES s ON c.$COLUMN_SOURCE_ID=s.$COLUMN_ID
-                 WHERE s.$COLUMN_ENABLED=1 AND c.$COLUMN_DATE_EXPRESSION=0 AND c.$COLUMN_ENTRY_KEY>=?$upperClause
-                 ORDER BY c.$COLUMN_ENTRY_KEY,s.$COLUMN_KIND,s.$COLUMN_ORDER,c.$COLUMN_ORDINAL
-                 LIMIT ${query.workLimit + 1}
-                """.trimIndent(), args.toTypedArray(),
-            ).use { candidates ->
-                database.rawQuery(
-                    "SELECT $COLUMN_ENTRY_KEY,$COLUMN_SOURCE_ID,$COLUMN_TEXT,$COLUMN_OKURI FROM $TABLE_SUPPRESSIONS WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY>=?$upperClause ORDER BY $COLUMN_ENTRY_KEY LIMIT ${query.workLimit + 1}",
-                    args.toTypedArray(),
-                ).use { suppressions ->
-                    database.rawQuery(
-                        "SELECT $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE FROM $TABLE_USAGE WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY>=?$upperClause ORDER BY $COLUMN_ENTRY_KEY LIMIT ${query.workLimit + 1}",
-                        args.toTypedArray(),
-                    ).use { usages ->
-                        var candidateReady = candidates.moveToNext()
-                        var suppressionReady = suppressions.moveToNext()
-                        var usageReady = usages.moveToNext()
-                        while (candidateReady || suppressionReady || usageReady || fallbackKeys.any { it != null }) {
-                            val key = (listOfNotNull(
-                                if (candidateReady) candidates.getString(0) else null,
-                                if (suppressionReady) suppressions.getString(0) else null,
-                                if (usageReady) usages.getString(0) else null,
-                            ) + fallbackKeys.filterNotNull()).minWith(keyOrder)
-                            var scratchChars = 0L
-                            fun charge(chars: Long): PredictionSearchResult.Indeterminate? {
-                                if (++work > query.workLimit) return PredictionSearchResult.Indeterminate(PredictionSearchFailure.WORK_LIMIT)
-                                scratchChars += chars
-                                if (scratchChars > query.totalResultCharsLimit) return PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
-                                return null
+            fun add(candidate: PredictionCandidate) {
+                collector.add(candidate)
+                if (distinct.size <= query.limit) distinct += candidate.committedText
+            }
+            // 再訪する読みだけを小さな LRU に残し、作業領域を全前方一致件数へ拡大しません。
+            val readings = object : LinkedHashMap<String, List<PredictionCandidate>>(8, 0.75f, true) {}
+            var cachedChars = 0L
+            fun resolve(key: String): List<PredictionCandidate> {
+                PredictionCancellation.check()
+                readings[key]?.let { return it }
+                var scratchChars = 0L
+                fun chargeBody(chars: Long) {
+                    scratchChars += chars
+                    charge(scratchChars)
+                }
+                // 空の辞書も残し、辞書順位と個人辞書世代を読みごとに変えません。
+                val builders = sourceInfo.associate { source ->
+                    source.id to SnapshotBuilder(source.id, source.generation, source.kind == DictionarySourceKind.PERSONAL)
+                }
+                predictionRead(database,
+                    """SELECT c.$COLUMN_SOURCE_ID,c.$COLUMN_TEXT,c.$COLUMN_ANNOTATION,c.$COLUMN_OKURI,
+                              c.$COLUMN_SECTION,c.$COLUMN_ANNOTATION_IS_PERSONAL
+                         FROM $TABLE_CANDIDATES c JOIN $TABLE_SOURCES s ON c.$COLUMN_SOURCE_ID=s.$COLUMN_ID
+                        WHERE s.$COLUMN_ENABLED=1 AND c.$COLUMN_DATE_EXPRESSION=0 AND c.$COLUMN_ENTRY_KEY=?
+                        ORDER BY s.$COLUMN_KIND,s.$COLUMN_ORDER,c.$COLUMN_ORDINAL
+                        LIMIT ${query.workLimit - work + 1}""".trimIndent(), arrayOf(key),
+                ) { cursor ->
+                    while (cursor.moveToNext()) {
+                        PredictionCancellation.check()
+                        val id = cursor.getString(0)
+                        val text = cursor.getString(1)
+                        val annotation = cursor.nullableString(2)
+                        val okuri = cursor.nullableString(3)
+                        chargeBody(key.length.toLong() + id.length + text.length + (annotation?.length ?: 0) + (okuri?.length ?: 0))
+                        builders.getValue(id).sections.putIfAbsent(key, readSection(cursor.getString(4)))
+                        builders.getValue(id).entries.getOrPut(key) { mutableListOf() } +=
+                            SkkDictionaryCandidate(text, annotation, okuri, cursor.getInt(5) != 0)
+                    }
+                }
+                val hidden = mutableListOf<SuppressedDictionaryCandidate>()
+                predictionRead(database,
+                    "SELECT $COLUMN_SOURCE_ID,$COLUMN_TEXT,$COLUMN_OKURI FROM $TABLE_SUPPRESSIONS WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY=? LIMIT ${query.workLimit - work + 1}", arrayOf(key),
+                ) { cursor ->
+                    while (cursor.moveToNext()) {
+                        PredictionCancellation.check()
+                        val id = cursor.getString(0)
+                        val text = cursor.getString(1)
+                        val okuri = cursor.getString(2).takeIf(String::isNotEmpty)
+                        chargeBody(key.length.toLong() + id.length + text.length + (okuri?.length ?: 0))
+                        hidden += SuppressedDictionaryCandidate(id, key, text, okuri)
+                    }
+                }
+                val history = linkedMapOf<PredictionHistoryTarget, Long>()
+                predictionRead(database,
+                    "SELECT $COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE FROM $TABLE_USAGE WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY=? LIMIT ${query.workLimit - work + 1}", arrayOf(key),
+                ) { cursor ->
+                    while (cursor.moveToNext()) {
+                        PredictionCancellation.check()
+                        val text = cursor.getString(0)
+                        val okuri = cursor.getString(1).takeIf(String::isNotEmpty)
+                        val committed = cursor.getString(2)
+                        chargeBody(key.length.toLong() + text.length + (okuri?.length ?: 0) + committed.length)
+                        history[PredictionHistoryTarget(key, text, okuri, committed)] = cursor.getLong(3)
+                    }
+                }
+                fallbacks.forEach { source ->
+                    PredictionCancellation.check()
+                    source.candidates(key).forEach { candidate ->
+                        chargeBody(key.length.toLong() + source.id.length + candidate.text.length +
+                            (candidate.annotation?.length ?: 0) + (candidate.okuriCondition?.length ?: 0))
+                    }
+                }
+                val composite = CompositeSkkDictionary(
+                    builders.values.firstOrNull { it.personal }?.asSource(),
+                    builders.values.filterNot { it.personal }.map { it.asSource() } + fallbacks,
+                    hidden, history::get,
+                )
+                val resolved = composite.predictionCandidatesForReading(key, query.abbrev)
+                val chars = resolved.sumOf(::predictionCandidateRetainedChars)
+                if (chars > query.totalResultCharsLimit) throw PredictionReadLimitException(PredictionSearchFailure.RESULT_LIMIT)
+                while (readings.isNotEmpty() && (readings.size >= 8 || cachedChars + chars > query.totalResultCharsLimit)) {
+                    val iterator = readings.entries.iterator()
+                    cachedChars -= iterator.next().value.sumOf(::predictionCandidateRetainedChars)
+                    iterator.remove()
+                }
+                readings[key] = resolved
+                cachedChars += chars
+                return resolved
+            }
+            try {
+                // 使用済み候補の順位は索引の降順で確定します。同一連番の塊は最後まで解決します。
+                val historyComplete = predictionRead(database,
+                    """SELECT $COLUMN_ENTRY_KEY,$COLUMN_TEMPLATE_TEXT,$COLUMN_OKURI,$COLUMN_COMMITTED_TEXT,$COLUMN_LAST_USED_SEQUENCE
+                         FROM $TABLE_USAGE INDEXED BY prediction_usage_recency WHERE $COLUMN_DATE_EXPRESSION=0 AND $COLUMN_ENTRY_KEY>=?$upperClause
+                         ORDER BY $COLUMN_LAST_USED_SEQUENCE DESC,$COLUMN_ENTRY_KEY COLLATE BINARY,$COLUMN_COMMITTED_TEXT
+                         LIMIT ${query.workLimit + 1}""".trimIndent(), args.toTypedArray(),
+                ) { cursor ->
+                    var previousSequence: Long? = null
+                    while (cursor.moveToNext()) {
+                        PredictionCancellation.check()
+                        val sequence = cursor.getLong(4)
+                        if (distinct.size > query.limit && previousSequence != sequence) return@predictionRead false
+                        previousSequence = sequence
+                        val key = cursor.getString(0)
+                        val text = cursor.getString(1)
+                        val okuri = cursor.getString(2).takeIf(String::isNotEmpty)
+                        val committed = cursor.getString(3)
+                        charge(key.length.toLong() + text.length + (okuri?.length ?: 0) + committed.length)
+                        val target = PredictionHistoryTarget(key, text, okuri, committed)
+                        resolve(key).firstOrNull { it.historyTarget == target }?.let(::add)
+                    }
+                    true
+                }
+                if (!historyComplete || distinct.size > query.limit) return@inReadTransaction collector.result()
+
+                // 後半では未使用候補だけを、SQL の BINARY 順と同じコードポイント順で併合します。
+                val fallbackIterators = fallbacks.map { it.completionKeys(query.prefix).iterator() }
+                val fallbackKeys = fallbackIterators.map { if (it.hasNext()) it.next() else null }.toMutableList()
+                predictionRead(database,
+                    """SELECT DISTINCT c.$COLUMN_ENTRY_KEY FROM $TABLE_CANDIDATES c
+                         JOIN $TABLE_SOURCES s ON c.$COLUMN_SOURCE_ID=s.$COLUMN_ID
+                         WHERE s.$COLUMN_ENABLED=1 AND c.$COLUMN_DATE_EXPRESSION=0 AND c.$COLUMN_ENTRY_KEY>=?$upperClause
+                         ORDER BY c.$COLUMN_ENTRY_KEY COLLATE BINARY LIMIT ${query.workLimit - work + 1}""".trimIndent(), args.toTypedArray(),
+                ) { cursor ->
+                    var ready = cursor.moveToNext()
+                    while (ready || fallbackKeys.any { it != null }) {
+                        PredictionCancellation.check()
+                        val key = (listOfNotNull(if (ready) cursor.getString(0) else null) + fallbackKeys.filterNotNull()).minWith(CODE_POINT_ORDER)
+                        charge(key.length.toLong())
+                        resolve(key).filter { it.lastUsedSequence == null }.forEach(::add)
+                        if (distinct.size > query.limit) break
+                        if (ready && cursor.getString(0) == key) ready = cursor.moveToNext()
+                        fallbackIterators.forEachIndexed { index, iterator ->
+                            if (fallbackKeys[index] == key) {
+                                PredictionCancellation.check()
+                                fallbackKeys[index] = if (iterator.hasNext()) iterator.next() else null
                             }
-                            // 空の辞書も残し、読みごとに辞書順位と個人辞書世代が変わることを防ぎます。
-                            val builders = sourceInfo.associate { source ->
-                                source.id to SnapshotBuilder(source.id, source.generation, source.kind == DictionarySourceKind.PERSONAL)
-                            }
-                            while (candidateReady && candidates.getString(0) == key) {
-                                val id = candidates.getString(1)
-                                val text = candidates.getString(2)
-                                val annotation = candidates.nullableString(3)
-                                val okuri = candidates.nullableString(4)
-                                charge(key.length.toLong() + id.length + text.length + (annotation?.length ?: 0) + (okuri?.length ?: 0))?.let { return@inReadTransaction it }
-                                builders.getValue(id).sections.putIfAbsent(key, readSection(candidates.getString(5)))
-                                builders.getValue(id).entries.getOrPut(key) { mutableListOf() } +=
-                                    SkkDictionaryCandidate(text, annotation, okuri, candidates.getInt(6) != 0)
-                                candidateReady = candidates.moveToNext()
-                            }
-                            val hidden = mutableListOf<SuppressedDictionaryCandidate>()
-                            while (suppressionReady && suppressions.getString(0) == key) {
-                                val id = suppressions.getString(1)
-                                val text = suppressions.getString(2)
-                                val okuri = suppressions.getString(3).takeIf(String::isNotEmpty)
-                                charge(key.length.toLong() + id.length + text.length + (okuri?.length ?: 0))?.let { return@inReadTransaction it }
-                                hidden += SuppressedDictionaryCandidate(id, key, text, okuri)
-                                suppressionReady = suppressions.moveToNext()
-                            }
-                            val history = linkedMapOf<PredictionHistoryTarget, Long>()
-                            while (usageReady && usages.getString(0) == key) {
-                                val text = usages.getString(1)
-                                val okuri = usages.getString(2).takeIf(String::isNotEmpty)
-                                val committed = usages.getString(3)
-                                charge(key.length.toLong() + text.length + (okuri?.length ?: 0) + committed.length)?.let { return@inReadTransaction it }
-                                history[PredictionHistoryTarget(key, text, okuri, committed)] = usages.getLong(4)
-                                usageReady = usages.moveToNext()
-                            }
-                            fallbacks.forEachIndexed { index, source ->
-                                if (fallbackKeys[index] == key) {
-                                    source.candidates(key).forEach { candidate ->
-                                        charge(key.length.toLong() + source.id.length + candidate.text.length +
-                                            (candidate.annotation?.length ?: 0) + (candidate.okuriCondition?.length ?: 0))?.let { return@inReadTransaction it }
-                                    }
-                                    val iterator = fallbackIterators[index]
-                                    fallbackKeys[index] = if (iterator.hasNext()) iterator.next() else null
-                                }
-                            }
-                            val personal = builders.values.firstOrNull { it.personal }?.asSource()
-                            val systems = builders.values.filterNot { it.personal }.map { it.asSource() }
-                            val composite = CompositeSkkDictionary(personal, systems + fallbacks, hidden, history::get)
-                            val resolved = composite.predictionCandidatesForReading(key, query.abbrev)
-                            if (resolved.sumOf(::predictionCandidateRetainedChars) > query.totalResultCharsLimit) {
-                                return@inReadTransaction PredictionSearchResult.Indeterminate(PredictionSearchFailure.RESULT_LIMIT)
-                            }
-                            resolved.forEach(collector::add)
                         }
                     }
                 }
+                collector.result()
+            } catch (failure: PredictionReadLimitException) {
+                PredictionSearchResult.Indeterminate(failure.failure)
             }
-            collector.result()
         }
     }
+
+    private class PredictionReadLimitException(val failure: PredictionSearchFailure) : RuntimeException()
+
 
     @Synchronized
     fun predictionUsage(target: PredictionHistoryTarget, expectedRevision: Long): Long? {

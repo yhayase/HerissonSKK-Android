@@ -1017,9 +1017,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                         }
                     }
                 }, menuItems = if (prediction != null) {
-                    val capacity = candidateStatusView?.pageCapacity(prediction.items.map { it.committedText }, 0,
-                        pageControls = false) ?: 1
-                    prediction.items.take(capacity).mapIndexed { index, item ->
+                    prediction.items.drop(prediction.pageStart).take(prediction.pageSize).mapIndexed { offset, item ->
+                        val index = prediction.pageStart + offset
                         CandidateMenuItem(' ', item.committedText, item.candidate.annotation,
                             CandidateTapTarget(current.generation, presentationEpoch, index, item,
                                 registration?.depth ?: 0, CandidateTargetKind.PREDICTION))
@@ -1035,9 +1034,11 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                             item.candidate, registration?.depth ?: 0))
                 }, expandedStatus = registration != null, selectedMenuIndex = selectedMenuIndex,
                     selectedPreviewTruncated = selectedPreviewTruncated,
-                    canPreviousPage = candidate?.canPreviousPage == true,
-                    canNextPage = candidate?.canNextPage == true,
-                    showPageControls = candidate != null,
+                    canPreviousPage = prediction?.canPreviousPage ?: (candidate?.canPreviousPage == true),
+                    canNextPage = prediction?.canNextPage ?: (candidate?.canNextPage == true),
+                    showPageControls = prediction?.let {
+                        it.canPreviousPage || it.canNextPage || it.loadingMore
+                    } ?: (candidate != null),
                     registration = registration?.let {
                         RegistrationPresentation.from(it, touch, current.view.completion)
                     })

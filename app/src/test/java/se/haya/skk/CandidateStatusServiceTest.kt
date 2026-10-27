@@ -439,6 +439,64 @@ class CandidateStatusServiceTest {
         }
     }
 
+    @Test fun `予測の矢印はページを移動しタイルは絶対位置の候補を確定する`() {
+        val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
+        val service = controller.get()
+        val root = service.onCreateInputView()
+        val connection = Connection()
+        val pending = java.util.ArrayDeque<Runnable>()
+        var count = 3
+        val dictionary = object : se.haya.skk.core.BasicSkkDictionary {
+            override fun lookup(query: se.haya.skk.core.DictionaryQuery) = emptyList<DictionaryCandidate>()
+            override fun predict(query: se.haya.skk.core.PredictionQuery): se.haya.skk.core.PredictionSearchResult =
+                se.haya.skk.core.PredictionSearchResult.Ready((0 until count).map { index ->
+                    val text = "予測$index"
+                    se.haya.skk.core.PredictionCandidate(DictionaryCandidate(text), text,
+                        se.haya.skk.core.PredictionHistoryTarget(query.prefix, text, null, text))
+                }, hasMore = false)
+        }
+        val session = EditorSession(7, connection, false, false, 0, 0,
+            dictionary = dictionary, candidatePageCapacityProvider = { _, _ -> 1 },
+            dictionaryExecutor = Executor { pending.add(it) }, callbackExecutor = Executor { it.run() })
+        fun update() = ReflectionHelpers.callInstanceMethod<Unit>(service, "updateStatus")
+        fun completePrediction() {
+            while (pending.isNotEmpty()) pending.removeFirst().run()
+            update()
+        }
+        fun arrow(description: String) = descendants(root).first {
+            it.contentDescription?.toString() == description
+        }
+        try {
+            attach(service, connection)
+            ReflectionHelpers.setField(service, "session", session)
+            session.setTouchCandidatePresentation(true)
+            session.handleTouch(BasicSkkAction.StartReading)
+            session.handleTouch(BasicSkkAction.Text("ka", interpretCommands = false))
+            completePrediction()
+            val old = candidateTile(root, "予測0")
+            val next = arrow("次の候補ページ")
+            assertEquals(View.VISIBLE, next.visibility)
+            assertTrue(next.isEnabled)
+            next.performClick()
+            assertEquals(1, session.view.prediction!!.pageStart)
+            old.performClick()
+            assertTrue(session.hasComposition)
+            arrow("前の候補ページ").performClick()
+            assertEquals(0, session.view.prediction!!.pageStart)
+            arrow("次の候補ページ").performClick()
+            candidateTile(root, "予測1").performClick()
+            assertEquals("予測1", connection.editable.toString())
+            assertTrue(!session.hasComposition)
+
+            count = 1
+            session.handleTouch(BasicSkkAction.StartReading)
+            session.handleTouch(BasicSkkAction.Text("na", interpretCommands = false))
+            completePrediction()
+            assertEquals(View.GONE, arrow("次の候補ページ").visibility)
+            assertEquals(View.GONE, arrow("前の候補ページ").visibility)
+        } finally { controller.destroy() }
+    }
+
     private fun key(code: Int, time: Long) = KeyEvent(time, time, KeyEvent.ACTION_DOWN, code, 0)
 
     private fun candidateTile(root: View, prefix: String): View = descendants(root).first {

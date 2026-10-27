@@ -1,11 +1,16 @@
 package se.haya.skk.input
 
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.Executors
 import java.util.concurrent.Executor
 import se.haya.skk.core.BasicSkkDictionary
 import se.haya.skk.core.DictionaryCandidate
 import se.haya.skk.core.DictionaryQuery
 import se.haya.skk.core.PredictionCandidate
 import se.haya.skk.core.PredictionHistoryTarget
+import se.haya.skk.core.PredictionCancellation
 import se.haya.skk.core.PredictionQuery
 import se.haya.skk.core.PredictionSearchFailure
 import se.haya.skk.core.PredictionSearchResult
@@ -225,7 +230,7 @@ class AsyncPredictionDictionaryTest {
         background.runNext()
         callbacks.runNext()
         assertEquals(1, notifications)
-        assertEquals(3, reads)
+        assertEquals(2, reads)
     }
 
     @Test fun `同じ問い合わせを待つ最新入力版へ完了を通知する`() {
@@ -336,6 +341,114 @@ class AsyncPredictionDictionaryTest {
             )
             callbacks.runAll()
             assertEquals(1, reads)
+        }
+    }
+
+    @Test fun `実行中の古い検索を中止して同じワーカーで最新検索を完了する`() {
+        val executor = Executors.newSingleThreadExecutor()
+        val entered = CountDownLatch(1)
+        val cancelled = CountDownLatch(1)
+        val completed = CountDownLatch(1)
+        val revision = AtomicReference(AsyncPredictionRevision(1, 1, 1))
+        val searched = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val notified = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val delegate = object : BasicSkkDictionary {
+            override fun lookup(query: DictionaryQuery) = emptyList<DictionaryCandidate>()
+            override fun predict(query: PredictionQuery): PredictionSearchResult {
+                searched += query.prefix
+                if (query.prefix == "古い") {
+                    val cancellation = checkNotNull(PredictionCancellation.current)
+                    cancellation.onCancel { cancelled.countDown() }.use {
+                        entered.countDown()
+                        check(cancelled.await(5, TimeUnit.SECONDS))
+                        cancellation.throwIfCancelled()
+                    }
+                }
+                assertTrue(!Thread.currentThread().isInterrupted)
+                return ready(query.prefix)
+            }
+        }
+        val dictionary = AsyncPredictionDictionary(delegate, executor, Executor { it.run() }, revision::get) { _, query ->
+            notified += query.prefix
+            completed.countDown()
+        }
+        try {
+            assertPending(dictionary.predict(PredictionQuery("古い")))
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            revision.updateAndGet { it.copy(input = 2) }
+            assertPending(dictionary.predict(PredictionQuery("新しい")))
+            assertTrue(completed.await(5, TimeUnit.SECONDS))
+            assertEquals(listOf("古い", "新しい"), searched)
+            assertEquals(listOf("新しい"), notified)
+            assertEquals(1, dictionary.cacheStats.entries)
+        } finally {
+            dictionary.close()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test fun `遅延読込中の入力変更は次の再試行と結果キャッシュを止める`() {
+        val background = QueueExecutor()
+        val callbacks = QueueExecutor()
+        var revision = AsyncPredictionRevision(1, 1, 1)
+        var reads = 0
+        var scopedLoad = false
+        lateinit var dictionary: AsyncPredictionDictionary
+        val delegate = object : BasicSkkDictionary {
+            override fun lookup(query: DictionaryQuery) = emptyList<DictionaryCandidate>()
+            override fun predict(query: PredictionQuery): PredictionSearchResult {
+                reads++
+                throw DeferredDictionaryReadException {
+                    scopedLoad = PredictionCancellation.current != null
+                    revision = revision.copy(input = revision.input + 1)
+                    dictionary.invalidateRevision()
+                }
+            }
+        }
+        dictionary = AsyncPredictionDictionary(delegate, background, callbacks, { revision }) { _, _ ->
+            error("中止した検索は通知しません")
+        }
+        assertPending(dictionary.predict(PredictionQuery("かな")))
+        background.runAll()
+        assertTrue(scopedLoad)
+        assertEquals(1, reads)
+        assertEquals(0, dictionary.cacheStats.entries)
+        assertEquals(0, callbacks.size)
+        assertEquals(null, PredictionCancellation.current)
+        // 中止を失敗として保存しないため、同じ問い合わせを再度開始できます。
+        assertPending(dictionary.predict(PredictionQuery("かな")))
+        background.runAll()
+        assertEquals(2, reads)
+    }
+
+    @Test fun `実行中の検索は終了と辞書更新だけでも中止できる`() {
+        for (close in listOf(false, true)) {
+            val background = QueueExecutor()
+            val callbacks = QueueExecutor()
+            var revision = AsyncPredictionRevision(1, 1, 1)
+            var cancelled = false
+            lateinit var dictionary: AsyncPredictionDictionary
+            val delegate = object : BasicSkkDictionary {
+                override fun lookup(query: DictionaryQuery) = emptyList<DictionaryCandidate>()
+                override fun predict(query: PredictionQuery): PredictionSearchResult {
+                    checkNotNull(PredictionCancellation.current).onCancel { cancelled = true }.use {
+                        if (close) dictionary.close() else {
+                            revision = revision.copy(dictionary = 2)
+                            dictionary.invalidateRevision()
+                        }
+                        PredictionCancellation.check()
+                    }
+                    error("中止後の検索を続けません")
+                }
+            }
+            dictionary = AsyncPredictionDictionary(delegate, background, callbacks, { revision }) { _, _ ->
+                error("中止した検索は通知しません")
+            }
+            assertPending(dictionary.predict(PredictionQuery("かな")))
+            background.runAll()
+            assertTrue(cancelled)
+            assertEquals(0, dictionary.cacheStats.entries)
+            assertEquals(0, callbacks.size)
         }
     }
 
