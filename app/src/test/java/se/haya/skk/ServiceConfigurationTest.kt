@@ -14,6 +14,25 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35])
 class ServiceConfigurationTest {
+    @Test fun `Enterアクションなしの入力欄では改行ラベルを表示する`() {
+        val service = SkkInputMethodService()
+        val multilineSend = android.view.inputmethod.EditorInfo().apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND or
+                android.view.inputmethod.EditorInfo.IME_FLAG_NO_ENTER_ACTION
+        }
+        assertEquals("⏎", service.primaryEditorActionLabel(multilineSend))
+        assertEquals("送信", service.primaryEditorActionLabel(android.view.inputmethod.EditorInfo().apply {
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND
+        }))
+        assertEquals("検索", service.primaryEditorActionLabel(android.view.inputmethod.EditorInfo().apply {
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+        }))
+        assertEquals("完了", service.primaryEditorActionLabel(android.view.inputmethod.EditorInfo().apply {
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }))
+    }
+
     @Test fun passwordVariantsAreProtected() {
         for (variation in listOf(InputType.TYPE_TEXT_VARIATION_PASSWORD,
             InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) {

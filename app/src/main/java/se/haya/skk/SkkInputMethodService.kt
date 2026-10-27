@@ -1086,15 +1086,20 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             current?.protectedInput != true && current?.view?.registration != null &&
                 current.view.registration?.innerCandidate == null && current.view.registration?.innerComposing == null -> "登録"
             current?.protectedInput != true && current?.hasComposition == true -> "確定"
-            else -> when (currentInputEditorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)) {
-                EditorInfo.IME_ACTION_SEARCH -> "検索"
-                EditorInfo.IME_ACTION_SEND -> "送信"
-                EditorInfo.IME_ACTION_DONE -> "完了"
-                EditorInfo.IME_ACTION_GO -> "実行"
-                EditorInfo.IME_ACTION_NEXT -> "次へ"
-                else -> "⏎"
-            }
+            else -> primaryEditorActionLabel(currentInputEditorInfo)
         }, enabled = touchPrimaryActionAvailable(current))
+    }
+
+    internal fun primaryEditorActionLabel(editorInfo: EditorInfo?): String {
+        if (editorInfo == null || editorInfo.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION != 0) return "⏎"
+        return when (editorInfo.imeOptions and EditorInfo.IME_MASK_ACTION) {
+            EditorInfo.IME_ACTION_SEARCH -> "検索"
+            EditorInfo.IME_ACTION_SEND -> "送信"
+            EditorInfo.IME_ACTION_DONE -> "完了"
+            EditorInfo.IME_ACTION_GO -> "実行"
+            EditorInfo.IME_ACTION_NEXT -> "次へ"
+            else -> "⏎"
+        }
     }
 
     private fun onCandidateTapped(target: CandidateTapTarget) {
