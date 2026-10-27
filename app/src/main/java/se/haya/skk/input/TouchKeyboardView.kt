@@ -290,7 +290,10 @@ internal class TouchKeyboardView(
         tenKeyView?.updatePrimaryAction(label, enabled)
         primaryLabel = label
         primaryEnabled = enabled
-        primaryButton?.apply { text = label; contentDescription = label; isEnabled = enabled }
+        primaryButton?.apply {
+            (this as? PrimaryActionButton)?.setActionLabel(label) ?: run { text = label; contentDescription = label }
+            isEnabled = enabled
+        }
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -396,7 +399,12 @@ internal class TouchKeyboardView(
         bottom.addView(commandKey("␣") { onCommand(TouchKeyboardCommand.SpaceOrConvert()) }.apply { contentDescription = "空白" }, keyParams(3f))
         bottom.addView(textKey(","), keyParams())
         bottom.addView(textKey("."), keyParams())
-        primaryButton = commandKey(primaryLabel) { send(BasicSkkAction.Enter) }
+        val primaryGeneration = generation
+        primaryButton = PrimaryActionButton(context).also { button ->
+            button.configureKey(primaryLabel)
+            button.setActionLabel(primaryLabel)
+            button.setOnClickListener { if (primaryGeneration == generation) send(BasicSkkAction.Enter) }
+        }
         bottom.addView(primaryButton, keyParams(1.5f))
         characterArea.addView(bottom)
         refreshShift()

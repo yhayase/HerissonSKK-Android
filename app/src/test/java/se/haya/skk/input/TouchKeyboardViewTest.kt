@@ -43,6 +43,26 @@ class TouchKeyboardViewTest {
         return view
     }
 
+    @Test fun `送信と検索は単色アイコンになり他の主操作は文字へ戻る`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val view = view(commands)
+        for (layout in ScreenKeyboardLayout.entries) {
+            view.configure(TouchKeyboardSettings(layout = layout))
+            for ((label, expected) in listOf("送信" to "送信", "検索" to "検索", "確定" to "確定", "登録" to "登録", "完了" to "完了", "⏎" to "⏎")) {
+                view.updatePrimaryAction(label)
+                val primary = buttons(view).filterIsInstance<PrimaryActionButton>().single()
+                assertEquals(expected, primary.contentDescription)
+                assertEquals(if (label == "送信" || label == "検索") "" else label, primary.text.toString())
+                assertEquals(label, primary.actionLabel)
+                if (label == "送信" || label == "検索") {
+                    primary.performClick()
+                    assertEquals(listOf(TouchKeyboardCommand.Skk(BasicSkkAction.Enter)), commands)
+                    commands.clear()
+                }
+            }
+        }
+    }
+
     @Test fun `両配列の設定操作は設定コマンドを一度送り入力文字を送らない`() {
         for (layout in ScreenKeyboardLayout.entries) {
             val commands = mutableListOf<TouchKeyboardCommand>()
@@ -428,7 +448,7 @@ class TouchKeyboardViewTest {
         key(view, "123").performClick()
         key(view, "A").performClick()
         assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.SetInputMode(InputMode.HIRAGANA)), commands.single())
-        assertNotNull(key(view, "検索"))
+        assertEquals("検索", buttons(view).filterIsInstance<PrimaryActionButton>().single().contentDescription)
         view.updateMode(InputMode.DIRECT, enabled = false)
         assertFalse(key(view, "A").isEnabled)
         view.updatePrimaryAction("確定", enabled = false)

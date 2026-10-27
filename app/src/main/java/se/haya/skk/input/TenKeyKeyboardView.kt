@@ -82,7 +82,10 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
     fun dispose() { cancelTouches(); layoutSwitchKey?.dispose(); generation++ }
     fun updatePrimaryAction(label: String, enabled: Boolean) {
         primaryLabel = label; primaryEnabled = enabled
-        primary?.apply { text = label; updateSymbolWeight(); contentDescription = label; setTextColor(keyboardColors.text); isEnabled = enabled }
+        primary?.apply {
+            (this as? PrimaryActionButton)?.setActionLabel(label) ?: run { text = label; contentDescription = label }
+            updateSymbolWeight(); setTextColor(keyboardColors.text); isEnabled = enabled
+        }
     }
     fun updateSpaceAction(convert: Boolean) {
         spaceConverts = convert
@@ -136,7 +139,10 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                 0 -> backspaceKey()
                 1 -> key(if (spaceConverts) "変換" else "␣") { send(TouchKeyboardCommand.SpaceOrConvert(controller.face == TenKeyController.Face.ALPHA && controller.wideAlpha)) }.also { spaceButton = it; it.contentDescription = if (spaceConverts) "変換" else "空白" }
                 2 -> readingKey()
-                else -> key(primaryLabel) { action(BasicSkkAction.Enter) }.also { primary = it; it.isEnabled = primaryEnabled }
+                else -> key(primaryLabel, supplied = PrimaryActionButton(context)) { action(BasicSkkAction.Enter) }.also {
+                    (it as PrimaryActionButton).setActionLabel(primaryLabel)
+                    primary = it; it.isEnabled = primaryEnabled
+                }
             }, params())
             addView(row, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         }
@@ -480,7 +486,9 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
                 addState(intArrayOf(), face(if (function) keyboardColors.functionBackground else keyboardColors.characterBackground))
             }
             stateListAnimator = null
-            if (supplied == null) setOnClickListener { if (currentGeneration == generation) click(this) }
+            if (supplied == null || supplied is PrimaryActionButton) {
+                setOnClickListener { if (currentGeneration == generation) click(this) }
+            }
         }
     }
     private fun Button.updateSymbolWeight() {
