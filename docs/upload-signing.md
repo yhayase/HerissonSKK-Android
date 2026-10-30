@@ -4,7 +4,7 @@
 
 ## 鍵の役割
 
-Play App Signing では Google が生成するアプリ署名鍵を選びます。端末へ配信される APK は Google がその鍵で署名します。開発側は別のアップロード鍵を保持し、その鍵で AAB を署名して Console に提出します。Google 生成のアプリ署名秘密鍵をローカルで作成・取得・保管しません。外部配布には Console から取得する Google 署名済み APK を用い、Play 配布版と署名をそろえる方針です。
+Play App Signing では Google が生成するアプリ署名鍵を選びます。端末へ配信される APK は Google がその鍵で署名します。開発側は別のアップロード鍵を保持し、その鍵で AAB を署名して Console に提出します。Google 生成のアプリ署名秘密鍵をローカルで作成・取得・保管しません。Play 配布版と署名をそろえる外部配布には Console から取得する Google 署名済み APK を用います。GitHub の開発署名 APK の例外は[配布方針](distribution.md)に従います。
 
 アップロード鍵を紛失・漏えいした場合は Console でリセットを申請できます。リセットは Google が保持するアプリ署名鍵を変更しません。初回のアプリ署名鍵の選択は更新互換性に影響するため、初回 AAB の登録時に設定を確認し、開発鍵やアップロード鍵をアプリ署名鍵として提供しません。[Android の署名案内](https://developer.android.com/studio/publish/app-signing)を提出時に確認します。
 
