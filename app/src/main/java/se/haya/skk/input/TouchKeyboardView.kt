@@ -374,15 +374,11 @@ internal class TouchKeyboardView(
             }
         }
         val bottom = newRow()
-        bottom.addView(commandKey(if (controller.page == TouchKeyboardController.Page.LETTERS) "123" else "ABC") {
-            controller.togglePage(); rebuildKeys()
-        }, keyParams(1.1f))
         modeButton = commandKey(modeLabel(inputMode), alternative = true) {
             val target = if (inputMode == InputMode.DIRECT || inputMode == InputMode.FULLWIDTH)
                 InputMode.HIRAGANA else InputMode.DIRECT
             send(BasicSkkAction.SetInputMode(target))
         }.apply { setOnLongClickListener { showModeMenu(this); true } }
-        bottom.addView(modeButton, keyParams(1.1f))
         val currentGeneration = generation
         val switchKey = LayoutSwitchKey(context, ScreenKeyboardLayout.TEN_KEY,
             onSwitchLayout = { switchLayout(ScreenKeyboardLayout.TEN_KEY) },
@@ -396,6 +392,10 @@ internal class TouchKeyboardView(
             layoutSwitchKey = button
         }
         bottom.addView(switchKey, keyParams())
+        bottom.addView(commandKey(if (controller.page == TouchKeyboardController.Page.LETTERS) "123" else "ABC") {
+            controller.togglePage(); rebuildKeys()
+        }, keyParams(1.1f))
+        bottom.addView(modeButton, keyParams(1.1f))
         bottom.addView(commandKey("␣") { onCommand(TouchKeyboardCommand.SpaceOrConvert()) }.apply { contentDescription = "空白" }, keyParams(3f))
         bottom.addView(textKey(","), keyParams())
         bottom.addView(textKey("."), keyParams())

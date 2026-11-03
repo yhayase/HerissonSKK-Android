@@ -79,7 +79,7 @@ class TouchKeyboardViewTest {
         val area = view.getChildAt(1) as ViewGroup
         assertEquals(4, area.childCount)
         assertEquals("空白", key(view, "␣").contentDescription)
-        assertEquals(listOf("123", "あ", "", "␣", ",", ".", "⏎"),
+        assertEquals(listOf("", "123", "あ", "␣", ",", ".", "⏎"),
             buttons(area.getChildAt(3)).map { it.text.toString() })
         assertTrue(buttons(area.getChildAt(2)).any { it.text.toString() == "-" })
     }
