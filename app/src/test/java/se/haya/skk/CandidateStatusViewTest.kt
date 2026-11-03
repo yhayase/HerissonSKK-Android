@@ -17,6 +17,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35])
@@ -199,13 +200,16 @@ class CandidateStatusViewTest {
     }
 
     @Test @Config(qualifiers = "w640dp-h800dp")
-    fun `画面候補は一行で物理候補は縦に並ぶ`() {
+    fun `画面候補は上下二段で物理候補は縦に並ぶ`() {
         val view = CandidateStatusView(RuntimeEnvironment.getApplication())
         val items = "asdf".mapIndexed { index, label -> CandidateMenuItem(label, "候補$index") }
         view.show(CandidateStatusPresentation("", menuItems = items))
         layout(view, 640)
-        fun tiles() = descendants(view).filter { it.contentDescription?.toString()?.contains("候補") == true }
-        assertEquals(1, tiles().map { it.top }.distinct().size)
+        fun tiles() = descendants(view).filter { it.contentDescription?.toString()?.contains("候補") == true && it !is Button }
+        fun rowLocations() = tiles().map { tile -> android.graphics.Rect(0, 0, tile.width, tile.height).also {
+            view.offsetDescendantRectToMyCoords(tile, it)
+        }.top }
+        assertEquals(2, rowLocations().distinct().size)
         view.physicalPresentation = true
         view.show(CandidateStatusPresentation("", menuItems = items))
         layout(view, 640)
@@ -222,7 +226,7 @@ class CandidateStatusViewTest {
         val short = view.pageCapacity(List(7) { "候補" }, 0)
         val long = view.pageCapacity(List(7) { "非常に長い候補".repeat(400) }, 0)
         assertTrue(short > long)
-        assertEquals(1, long)
+        assertEquals(2, long)
     }
 
     @Test
@@ -491,7 +495,8 @@ class CandidateStatusViewTest {
     @Test fun `タッチ候補は外枠を持たず隣同士の縦線だけで区切る`() {
         val view = CandidateStatusView(RuntimeEnvironment.getApplication())
         view.show(CandidateStatusPresentation("", menuItems = listOf(
-            CandidateMenuItem('a', "候補", "注釈"), CandidateMenuItem('s', "次候補"))))
+            CandidateMenuItem('a', "候補", "注釈"), CandidateMenuItem('s', "下候補"),
+            CandidateMenuItem('d', "次候補"), CandidateMenuItem('f', "次の下候補"))))
         layout(view, 480)
         val tiles = descendants(view).filter { it.contentDescription == "候補" || it.contentDescription == "次候補" }
         val row = tiles.first().parent as android.widget.LinearLayout
@@ -507,6 +512,90 @@ class CandidateStatusViewTest {
         // 枠のない通常背景は透明で、上下・外側の境界線を描画しません。
         val background = tiles.first().background as android.graphics.drawable.StateListDrawable
         assertTrue(background.current is android.graphics.drawable.GradientDrawable)
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) @Config(sdk = [35], qualifiers = "w480dp-h800dp")
+    fun `候補は17spと全角四分の一余白で左揃えにし上下の列幅を揃える`() {
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication())
+        view.show(CandidateStatusPresentation("", menuItems = listOf(
+            CandidateMenuItem('a', "短"), CandidateMenuItem('s', "長い下段"),
+            CandidateMenuItem('d', "次の列"), CandidateMenuItem('f', "下"))))
+        layout(view, 480)
+        val tiles = listOf("短", "長い下段", "次の列", "下").map { text ->
+            descendants(view).single { it.contentDescription == text } as android.view.ViewGroup
+        }
+        assertEquals(tiles[0].width, tiles[1].width)
+        assertEquals(tiles[2].left, tiles[3].left)
+        val body = tiles[0].getChildAt(0) as TextView
+        assertEquals(17f * view.resources.displayMetrics.scaledDensity, body.textSize, .01f)
+        val expectedPadding = kotlin.math.ceil(body.paint.measureText("あ") / 4f).toInt()
+        assertEquals(expectedPadding, tiles[0].paddingLeft)
+        assertEquals(expectedPadding, tiles[0].paddingRight)
+        assertEquals(android.view.Gravity.START, body.gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK)
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) @Config(sdk = [35], qualifiers = "w480dp-h800dp")
+    fun `予約候補領域は空欄と候補更新と長い状態表示で同じ高さを保つ`() {
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication()).apply { reserveTouchViewport = true }
+        view.show(CandidateStatusPresentation(""))
+        layout(view, 480)
+        val height = view.measuredHeight
+        assertEquals((72 * view.resources.displayMetrics.density).toInt(), height)
+        view.show(CandidateStatusPresentation("状態\n".repeat(100), menuItems = listOf(CandidateMenuItem('a', "候補"))))
+        layout(view, 480)
+        assertEquals(height, view.measuredHeight)
+        view.reserveTouchViewport = false
+        layout(view, 480)
+        assertTrue(view.measuredHeight > height)
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) @Config(sdk = [35], qualifiers = "w240dp-h800dp")
+    fun `百文字の候補本文は固定領域の中で全文を折り返しスクロールして確定できる`() {
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication()).apply { reserveTouchViewport = true }
+        val text = "長い候補文".repeat(20)
+        val target = CandidateTapTarget(1, 1, 0, text, 0)
+        var committed: CandidateTapTarget? = null
+        view.setOnCandidateTapListener { committed = it }
+        view.show(CandidateStatusPresentation("", menuItems = listOf(CandidateMenuItem('a', text, target = target))))
+        layout(view, 240)
+        val tile = descendants(view).single { it.contentDescription == text } as android.view.ViewGroup
+        val body = tile.getChildAt(0) as TextView
+        assertEquals(text, body.text.toString())
+        assertEquals(null, body.ellipsize)
+        assertTrue(body.width > 0)
+        assertTrue(body.width <= view.width - tile.paddingLeft - tile.paddingRight)
+        assertTrue(body.paint.measureText(text) > body.width)
+        assertTrue(body.layout.lineCount > 1)
+        assertEquals(text.length, body.layout.getLineEnd(body.layout.lineCount - 1))
+        assertTrue(tile.height > view.height)
+        assertTrue(view.canScrollVertically(1))
+        view.scrollTo(0, view.getChildAt(0).height)
+        assertTrue(view.scrollY > 0)
+        tile.performClick()
+        assertTrue(committed === target)
+        assertEquals(text, committed?.candidate)
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) @Config(sdk = [35], qualifiers = "w480dp-h800dp")
+    fun `奇数候補の末尾は操作できない空欄で上下の列と区切りを揃える`() {
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication())
+        view.show(CandidateStatusPresentation("", menuItems = listOf(
+            CandidateMenuItem('a', "上"), CandidateMenuItem('s', "下"), CandidateMenuItem('d', "最後"))))
+        layout(view, 480)
+        val upper = descendants(view).single { it.contentDescription == "上" }.parent as android.widget.LinearLayout
+        val lower = descendants(view).single { it.contentDescription == "下" }.parent as android.widget.LinearLayout
+        assertEquals(2, upper.childCount)
+        assertEquals(2, lower.childCount)
+        assertEquals(upper.showDividers, lower.showDividers)
+        assertEquals(upper.dividerDrawable.intrinsicWidth, lower.dividerDrawable.intrinsicWidth)
+        val blank = lower.getChildAt(1)
+        assertEquals(upper.getChildAt(1).left, blank.left)
+        assertEquals(upper.getChildAt(1).width, blank.width)
+        assertFalse(blank.isClickable)
+        assertFalse(blank.isLongClickable)
+        assertFalse(blank.isFocusable)
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, blank.importantForAccessibility)
+        assertEquals(null, blank.contentDescription)
     }
 
     private fun pages(value: String): List<DetailPage> {

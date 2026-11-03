@@ -36,7 +36,7 @@ internal class TouchKeyboardView(
     private val tenKeyController: TenKeyController = TenKeyController(),
     private val onCommand: (TouchKeyboardCommand) -> Unit,
 ) : LinearLayout(context) {
-    val candidateStatusView = CandidateStatusView(context)
+    val candidateStatusView = CandidateStatusView(context).apply { reserveTouchViewport = true }
     private val controller = TouchKeyboardController()
     private var keyboardSettings = TouchKeyboardSettings()
     private var tenKeyView: TenKeyKeyboardView? = null
@@ -237,6 +237,7 @@ internal class TouchKeyboardView(
     fun setCharacterAreaVisible(visible: Boolean) {
         if (charactersVisible && !visible) cancelTouches()
         charactersVisible = visible
+        candidateStatusView.reserveTouchViewport = visible
         characterArea.visibility = if (visible) View.VISIBLE else View.GONE
         applyBottomInset()
     }

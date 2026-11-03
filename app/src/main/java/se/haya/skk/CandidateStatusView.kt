@@ -31,6 +31,7 @@ import se.haya.skk.input.KeyboardColors
 import com.ibm.icu.text.BreakIterator
 import com.ibm.icu.util.ULocale
 import kotlin.math.max
+import kotlin.math.ceil
 
 internal data class CandidateDetailSection(val heading: String, val value: String)
 internal data class CandidateMenuItem(
@@ -208,11 +209,34 @@ internal object CandidateTextBounds {
         start + Character.charCount(value.codePointAt(start))
 }
 
-/** 物理キーボード用の状態表示です。一覧・登録・全文は画面高の40%まで広げます。 */
+/** 画面キーでは固定の候補領域、物理キーでは内容に応じた高さを使います。 */
 internal class CandidateStatusView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : ScrollView(context, attrs) {
+    internal var modalPresentation = false
+    private var compactRegistration = false
+
+    internal fun setCompactRegistration(compact: Boolean) {
+        compactRegistration = compact
+        updateContentPadding()
+        registrationEditor.setModalPresentation(compact)
+    }
+
+    /** 画面キーの位置を候補の更新で変えません。 */
+    var reserveTouchViewport = false
+        set(value) {
+            if (field == value) return
+            field = value
+            updateContentPadding()
+            requestLayout()
+        }
+
+    private fun updateContentPadding() {
+        val vertical = if (reserveTouchViewport || compactRegistration) 0 else dp(8)
+        content.setPadding(dp(16), vertical, dp(16), vertical)
+    }
+
     val statusTextView = TextView(context).apply {
         id = R.id.input_status
         textSize = 18f
@@ -416,21 +440,32 @@ internal class CandidateStatusView @JvmOverloads constructor(
 
     /** 候補本文に実際に必要な幅で先頭から連続した範囲を取ります。長い一件は折り返します。 */
     fun pageCapacity(texts: List<String>, start: Int, pageControls: Boolean = true): Int {
-        val paint = android.text.TextPaint().apply {
-            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 18f, resources.displayMetrics)
+        return touchColumns(texts, start, pageControls).sumOf { it.count }.coerceAtLeast(1)
+    }
+
+    private data class TouchColumn(val width: Int, val count: Int)
+
+    /** 上下二件で幅を共有し、列の境界を揃えます。 */
+    private fun touchColumns(texts: List<String>, start: Int, pageControls: Boolean): List<TouchColumn> {
+        val paint = candidatePaint()
+        val available = ((availableContentWidthDp() * resources.displayMetrics.density).toInt() -
+            if (pageControls) dp(72) else 0).coerceAtLeast(1)
+        val columns = mutableListOf<TouchColumn>()
+        var occupied = 0
+        var index = start
+        while (index < texts.size) {
+            val count = minOf(2, texts.size - index)
+            val width = (index until index + count).maxOf {
+                if (texts[it].length > LongCandidateBodyView.CHUNK_SIZE) available else
+                    ceil(paint.measureText(texts[it])).toInt() + touchCandidatePadding() * 2
+            }.coerceIn(1, available)
+            val separator = if (columns.isEmpty()) 0 else dp(1).coerceAtLeast(1)
+            if (columns.isNotEmpty() && occupied + separator + width > available) break
+            columns += TouchColumn(width, count)
+            occupied += separator + width
+            index += count
         }
-        val available = (availableContentWidthDp() * resources.displayMetrics.density).toInt() - if (pageControls) dp(72) else 0
-        var occupied = 0f
-        var count = 0
-        for (index in start until texts.size) {
-            val width = if (texts[index].length > LongCandidateBodyView.CHUNK_SIZE) available.toFloat()
-                else paint.measureText(texts[index]) + dp(24)
-            if (count > 0 && occupied + width > available) break
-            occupied += width
-            count++
-            if (occupied >= available) break
-        }
-        return count.coerceAtLeast(1)
+        return columns
     }
 
     /** 物理候補を実際のポップアップ幅で折り返し、表示高に収まる先頭からの件数を返します。 */
@@ -457,10 +492,10 @@ internal class CandidateStatusView @JvmOverloads constructor(
                 (rowWidth * ANNOTATION_WEIGHT / (1f + ANNOTATION_WEIGHT)).toInt()
             val bodyWidth = (rowWidth - annotationWidth).coerceAtLeast(1)
             val bodyHeight = if (body.length > LongCandidateBodyView.CHUNK_SIZE) dp(LONG_BODY_HEIGHT_DP)
-                else wrappedTextHeight(body, 18f, bodyWidth)
+                else wrappedTextHeight(body, CANDIDATE_TEXT_SP, bodyWidth)
             val annotationHeight = if (annotation.isNullOrEmpty()) 0 else
                 wrappedTextHeight("注", 13f, annotationWidth.coerceAtLeast(1))
-            val labelHeight = wrappedTextHeight("a:", 18f, dp(PHYSICAL_LABEL_WIDTH_DP))
+            val labelHeight = wrappedTextHeight("a:", CANDIDATE_TEXT_SP, dp(PHYSICAL_LABEL_WIDTH_DP))
             val rowHeight = maxOf(bodyHeight, annotationHeight, labelHeight) + dp(4) +
                 if (count == 0) 0 else dp(1)
             if (count > 0 && height + rowHeight > heightBudget) break
@@ -522,14 +557,20 @@ internal class CandidateStatusView @JvmOverloads constructor(
         pagePrevious.isEnabled = presentation.canPreviousPage
         pageNext.isEnabled = presentation.canNextPage
         cancelRegistration.visibility = View.GONE
-        val columns = if (physicalPresentation) 1 else presentation.menuItems.size.coerceAtLeast(1)
+        val packing = if (physicalPresentation) emptyList() else
+            touchColumns(presentation.menuItems.map { it.text }, 0, presentation.showPageControls)
+        val columns = if (physicalPresentation) 1 else packing.size.coerceAtLeast(1)
         if (renderedMenuItems != presentation.menuItems || renderedMenuColumns != columns) {
             renderedMenuItems = presentation.menuItems.toList()
             renderedMenuColumns = columns
             menuContainer.removeAllViews()
-            val candidateTexts = mutableListOf<TextView>()
-            val annotationTexts = mutableListOf<TextView?>()
-            presentation.menuItems.chunked(columns).forEach { items ->
+            val candidateTexts = arrayOfNulls<TextView>(presentation.menuItems.size)
+            val annotationTexts = arrayOfNulls<TextView>(presentation.menuItems.size)
+            val rows = if (physicalPresentation) presentation.menuItems.map { listOf(it) } else
+                (0 until if (presentation.menuItems.isEmpty()) 0 else 2).map { row ->
+                    presentation.menuItems.filterIndexed { index, _ -> index % 2 == row }
+                }
+            rows.forEachIndexed { rowIndex, items ->
                 val row = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     if (!physicalPresentation) {
@@ -539,13 +580,18 @@ internal class CandidateStatusView @JvmOverloads constructor(
                         showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
                     }
                 }
-                items.forEach { item ->
+                items.forEachIndexed { columnIndex, item ->
                     val tile = LinearLayout(context).apply {
                         orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.TOP
-                        setPadding(dp(4), dp(2), dp(4), dp(2))
+                        gravity = Gravity.START or if (physicalPresentation) Gravity.TOP else Gravity.CENTER_VERTICAL
+                        val horizontal = if (physicalPresentation) dp(4) else touchCandidatePadding()
+                        setPadding(horizontal, if (physicalPresentation) dp(2) else 0,
+                            horizontal, if (physicalPresentation) dp(2) else 0)
                         isFocusable = false
-                        if (!physicalPresentation) background = touchCandidateBackground()
+                        if (!physicalPresentation) {
+                            minimumHeight = touchRowHeight()
+                            background = touchCandidateBackground()
+                        }
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
                         contentDescription = buildString {
                             if (physicalPresentation) append(item.label).append(": ")
@@ -584,16 +630,18 @@ internal class CandidateStatusView @JvmOverloads constructor(
                     }
                     if (physicalPresentation) TextView(context).apply {
                         text = "${item.label}:"
-                        textSize = 18f
+                        textSize = CANDIDATE_TEXT_SP
                         setTextColor(KeyboardColors.resolve(context).text)
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }.also { tile.addView(it, LinearLayout.LayoutParams(
                         dp(PHYSICAL_LABEL_WIDTH_DP), ViewGroup.LayoutParams.WRAP_CONTENT)) }
                     val candidateText = TextView(context).apply {
                         text = item.text
-                        textSize = 18f
+                        textSize = CANDIDATE_TEXT_SP
                         setTextColor(KeyboardColors.resolve(context).text)
                         maxLines = Int.MAX_VALUE
+                        includeFontPadding = physicalPresentation
+                        gravity = Gravity.START or Gravity.CENTER_VERTICAL
                         ellipsize = null
                         breakStrategy = LineBreaker.BREAK_STRATEGY_SIMPLE
                         hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
@@ -625,18 +673,27 @@ internal class CandidateStatusView @JvmOverloads constructor(
                             0, ViewGroup.LayoutParams.WRAP_CONTENT, ANNOTATION_WEIGHT))
                         }
                     }
-                    candidateTexts += candidateText
-                    annotationTexts += annotationText
-                    val weight = if (physicalPresentation || presentation.menuItems.size == 1) 1f
-                        else (candidateText.paint.measureText(item.text.take(LongCandidateBodyView.CHUNK_SIZE)) + dp(24)).coerceAtLeast(1f)
-                    row.addView(tile, LinearLayout.LayoutParams(0,
-                        ViewGroup.LayoutParams.WRAP_CONTENT, weight))
+                    val itemIndex = if (physicalPresentation) rowIndex else columnIndex * 2 + rowIndex
+                    candidateTexts[itemIndex] = candidateText
+                    annotationTexts[itemIndex] = annotationText
+                    if (physicalPresentation) row.addView(tile, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    else row.addView(tile, LinearLayout.LayoutParams(
+                        packing.getOrNull(columnIndex)?.width ?: touchColumns(listOf(item.text), 0, presentation.showPageControls).first().width,
+                        ViewGroup.LayoutParams.WRAP_CONTENT))
+                }
+                if (!physicalPresentation && items.size < (presentation.menuItems.size + 1) / 2) {
+                    // 最後の候補が上段だけでも、下段に同じ幅の空欄を置き区切りを揃えます。
+                    row.addView(View(context).apply {
+                        minimumHeight = touchRowHeight()
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    }, LinearLayout.LayoutParams(packing.last().width, touchRowHeight()))
                 }
                 menuContainer.addView(row, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }
-            renderedCandidateTexts = candidateTexts
-            renderedAnnotationTexts = annotationTexts
+            renderedCandidateTexts = candidateTexts.filterNotNull()
+            renderedAnnotationTexts = annotationTexts.toList()
             menuContainer.visibility = if (presentation.menuItems.isEmpty()) View.GONE else View.VISIBLE
             // API 26 では子 View の入替えだけでは読み上げ用の古い候補が残るため、一覧全体の変更を通知します。
             post {
@@ -732,6 +789,17 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        if (modalPresentation) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            return
+        }
+        if (reserveTouchViewport) {
+            val reserved = touchRowHeight() * 2
+            val available = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED)
+                reserved else MeasureSpec.getSize(heightMeasureSpec)
+            super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(minOf(reserved, available), MeasureSpec.EXACTLY))
+            return
+        }
         val windowHeight = (resources.configuration.screenHeightDp * resources.displayMetrics.density)
             .toInt().takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
         val cap = if (detailContainer.visibility == View.VISIBLE || expandedStatus || menuContainer.visibility == View.VISIBLE) (windowHeight * MAX_HEIGHT_FRACTION).toInt().coerceAtLeast(dp(48))
@@ -859,9 +927,19 @@ internal class CandidateStatusView @JvmOverloads constructor(
         intArrayOf(KeyboardColors.resolve(context).text, 0xff9aa0a6.toInt()),
     )
 
+    private fun candidatePaint() = android.text.TextPaint().apply {
+        textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, CANDIDATE_TEXT_SP, resources.displayMetrics)
+    }
+
+    /** 全角一文字の四分の一を左右それぞれに確保します。 */
+    private fun touchCandidatePadding() = ceil(candidatePaint().measureText("あ") / 4f).toInt()
+
+    private fun touchRowHeight() = maxOf(dp(36), ceil(candidatePaint().fontSpacing).toInt() + dp(8))
+
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     internal companion object {
+        const val CANDIDATE_TEXT_SP = 17f
         const val MAX_HEIGHT_FRACTION = .4f
         const val PHYSICAL_POPUP_WIDTH_DP = 360
         const val PHYSICAL_LABEL_WIDTH_DP = 28

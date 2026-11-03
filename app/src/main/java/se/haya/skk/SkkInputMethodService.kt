@@ -101,6 +101,10 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private var physicalHostRequested = false
     private var changingPhysicalHost = false
     private var inputHost: FrameLayout? = null
+    private var touchRegistrationModal: TouchRegistrationModal? = null
+    private var touchRegistrationBackCallback: PhysicalBackCallback? = null
+    private var touchRegistrationBackDown: Triple<Int, Long, RegistrationView>? = null
+    private var inputWindowVisible = false
     private var physicalPopup: PhysicalInputPopup? = null
     private var physicalPopupHost: PhysicalPopupHostPort? = null
     private var physicalBackCallback: PhysicalBackCallback? = null
@@ -378,6 +382,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             shouldShowTouchCharacters())
 
     override fun onWindowHidden() {
+        dismissTouchRegistrationModal()
+        inputWindowVisible = false
         keyboardTouchWindowCallback?.reset()
         touchKeyboardView?.cancelInteractions()
         candidateStatusView?.closeDetail()
@@ -394,7 +400,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onWindowShown() {
+        inputWindowVisible = true
         super.onWindowShown()
+        updateStatus()
         installKeyboardTouchWindowCallback()
         // 構成変更中に IME のトークンがまだなければ、ホストの追加は失敗します。
         // 窓が表示された時点で再試行し、登録表示だけが失われる状態を避けます。
@@ -406,6 +414,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        dismissTouchRegistrationModal()
+        inputWindowVisible = false
         keyboardTouchWindowCallback?.reset()
         touchKeyboardView?.cancelInteractions()
         candidateStatusView?.closeDetail()
@@ -436,6 +446,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onCreateInputView(): View {
+        dismissTouchRegistrationModal()
         keyboardTouchWindowCallback?.reset()
         touchKeyboardView?.cancelInteractions()
         installKeyboardTouchWindowCallback()
@@ -464,7 +475,10 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             setBackgroundColor(se.haya.skk.input.KeyboardColors.resolve(this@SkkInputMethodService).panelBackground)
             addView(keys, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
-            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> renderPhysicalPopup() }
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                renderPhysicalPopup()
+                renderTouchRegistrationModal()
+            }
             updateTouchKeyboardVisibility()
             updateStatus()
         }
@@ -531,8 +545,56 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 renderedPresentation.text.isNotEmpty())
     }
 
+    private fun renderTouchRegistrationModal() {
+        val current = session
+        val keyboard = touchKeyboardView
+        val parent = window?.window?.decorView
+        if (!inputWindowVisible || !shouldShowTouchCharacters() || current?.active != true ||
+            current.failed || current.protectedInput || renderedRegistration == null || keyboard == null ||
+            parent == null || !keyboard.isShown || keyboard.height <= 0 || parent.windowToken == null) {
+            dismissTouchRegistrationModal()
+            return
+        }
+        val modal = touchRegistrationModal ?: TouchRegistrationModal(this, ::onCandidateTapped).also {
+            touchRegistrationModal = it
+            it.content.setOnPageListeners(
+                { configurationRestart = null; session?.handleTouch(BasicSkkAction.PreviousCandidatePage); render() },
+                { configurationRestart = null; session?.handleTouch(BasicSkkAction.NextCandidatePage); render() },
+                { cancelTouchRegistrationModal(renderedRegistration) })
+        }
+        bindRegistrationCallbacks(modal.content, renderedRegistration)
+        modal.show(parent, keyboard.candidateStatusView, renderedPresentation, renderedMode)
+        if (Build.VERSION.SDK_INT >= 33 && modal.isShowing) {
+            val callback = touchRegistrationBackCallback ?: PhysicalBackCallback {
+                cancelTouchRegistrationModal(renderedRegistration)
+            }.also { touchRegistrationBackCallback = it }
+            callback.register(window!!.window!!.onBackInvokedDispatcher)
+        }
+    }
+
+    private fun dismissTouchRegistrationModal() {
+        touchRegistrationModal?.dismiss()
+        if (Build.VERSION.SDK_INT >= 33) touchRegistrationBackCallback?.unregister()
+    }
+
+    private fun cancelTouchRegistrationModal(expected: RegistrationView?) {
+        val current = session ?: return
+        if (touchRegistrationModal?.isShowing != true || !current.active || current.failed ||
+            current.protectedInput || expected == null || current.view.registration !== expected || expected.saving) return
+        configurationRestart = null
+        current.cancelRegistration(expected)
+        render()
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         configurationRestart = null
+        if (keyCode == KeyEvent.KEYCODE_BACK && touchRegistrationModal?.isShowing == true) {
+            if (event.repeatCount == 0) renderedRegistration?.let {
+                touchRegistrationBackDown = Triple(event.deviceId, event.downTime, it)
+            }
+            event.startTracking()
+            return true
+        }
         if (keyCode == KeyEvent.KEYCODE_BACK && physicalHostRequested &&
             !shouldShowTouchCharacters()) {
             // 予測型の戻るでも DOWN は IME へ届きます。UP より前に窓を閉じると、
@@ -662,6 +724,14 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        val modalBack = touchRegistrationBackDown
+        if (keyCode == KeyEvent.KEYCODE_BACK && modalBack != null &&
+            modalBack.first == event.deviceId && modalBack.second == event.downTime) {
+            touchRegistrationBackDown = null
+            if (!event.isCanceled) cancelTouchRegistrationModal(modalBack.third)
+            return true
+        }
+
         if (keyCode == KeyEvent.KEYCODE_BACK && event.isTracking && physicalHostRequested &&
             !shouldShowTouchCharacters()) {
             if (!event.isCanceled) handlePhysicalHostBack()
@@ -764,6 +834,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     override fun onDestroy() {
+        dismissTouchRegistrationModal()
         keyboardTouchWindowCallback?.dispose()
         keyboardTouchWindowCallback = null
         candidatePresentationBoundary = null
@@ -876,6 +947,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     }
 
     private fun clearStatusWindow() {
+        dismissTouchRegistrationModal()
         candidatePresentationBoundary = null
         renderedPresentation = CandidateStatusPresentation("")
         renderedRegistration = null
@@ -1067,13 +1139,14 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         } }.orEmpty()
         candidateStatusView?.let {
             bindRegistrationCallbacks(it, renderedRegistration)
-            it.show(presentation)
+            it.show(if (touch && renderedRegistration != null) CandidateStatusPresentation("") else presentation)
         } ?: run { statusView?.text = presentation.text }
         renderPhysicalPopup()
+        renderTouchRegistrationModal()
         val statusEnabled = getSharedPreferences("settings", Context.MODE_PRIVATE)
             .getBoolean("show_status", true)
-        candidateStatusView?.visibility = if (current == null || current.protectedInput ||
-            ((!statusEnabled || shouldShowTouchCharacters()) && !current.hasComposition && !current.failed && appEmacsNotice == null)) View.GONE else View.VISIBLE
+        candidateStatusView?.visibility = if (touch) View.VISIBLE else if (current == null || current.protectedInput ||
+            (!statusEnabled && !current.hasComposition && !current.failed && appEmacsNotice == null)) View.GONE else View.VISIBLE
         touchKeyboardView?.updateMode(current?.engine?.state?.mode,
             current != null && current.active && !current.failed && !current.protectedInput &&
                 current.view.registration?.saving != true && current.view.deletion == null)
@@ -1205,6 +1278,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         touchKeyboardView?.visibility = if (touch) View.VISIBLE else View.GONE
         touchKeyboardView?.setCharacterAreaVisible(touch)
         updateInputViewShown()
+        if (!touch) dismissTouchRegistrationModal()
         if (touch) {
             physicalPopup?.dismiss()
             if (annotationConnection != null) clearInlineAnnotation()

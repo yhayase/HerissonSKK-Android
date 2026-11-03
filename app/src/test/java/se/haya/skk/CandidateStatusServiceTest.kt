@@ -497,6 +497,47 @@ class CandidateStatusServiceTest {
         } finally { controller.destroy() }
     }
 
+    @Test fun `タッチ登録の本文を通常候補欄へ重複表示せず文字面の位置を保つ`() {
+        val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
+        val service = controller.get()
+        val root = service.onCreateInputView()
+        val connection = Connection()
+        val session = EditorSession(7, connection, false, false, 0, 0,
+            registrationSaver = { _, _ -> })
+        fun update() = ReflectionHelpers.callInstanceMethod<Unit>(service, "updateStatus")
+        fun geometry(): List<Int> {
+            root.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.AT_MOST))
+            root.layout(0, 0, root.measuredWidth, root.measuredHeight)
+            val keyboard = descendants(root).filterIsInstance<se.haya.skk.input.TouchKeyboardView>().single()
+            assertEquals(View.VISIBLE, keyboard.candidateStatusView.visibility)
+            return listOf(root.height, keyboard.height, keyboard.candidateStatusView.height,
+                keyboard.getChildAt(1).top, keyboard.getChildAt(1).bottom)
+        }
+        try {
+            attach(service, connection)
+            ReflectionHelpers.setField(service, "session", session)
+            session.setTouchCandidatePresentation(true)
+            update()
+            val before = geometry()
+            session.handle(BasicSkkAction.Text("Mitorokupamyu "))
+            assertEquals(1, session.view.registration?.depth)
+            update()
+            assertEquals(before, geometry())
+            val keyboard = descendants(root).filterIsInstance<se.haya.skk.input.TouchKeyboardView>().single()
+            assertEquals(View.GONE, keyboard.candidateStatusView.registrationEditor.visibility)
+            assertTrue(ReflectionHelpers.getField<CandidateStatusPresentation>(service,
+                "renderedPresentation").registration != null)
+            session.handle(BasicSkkAction.Text(" Goropazu "))
+            assertEquals(2, session.view.registration?.depth)
+            update()
+            assertEquals(before, geometry())
+            session.cancelRegistration(session.view.registration!!)
+            update()
+            assertEquals(before, geometry())
+        } finally { controller.destroy() }
+    }
+
     private fun key(code: Int, time: Long) = KeyEvent(time, time, KeyEvent.ACTION_DOWN, code, 0)
 
     private fun candidateTile(root: View, prefix: String): View = descendants(root).first {

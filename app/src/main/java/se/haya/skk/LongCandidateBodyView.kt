@@ -28,7 +28,7 @@ internal class LongCandidateBodyView(
             override fun getItemId(position: Int) = position.toLong()
             override fun getView(position: Int, recycled: View?, parent: ViewGroup): View =
                 ((recycled as? TextView) ?: TextView(context).apply {
-                    textSize = 18f
+                    textSize = CandidateStatusView.CANDIDATE_TEXT_SP
                     setTextColor(0xff202124.toInt())
                     isFocusable = false
                     maxLines = Int.MAX_VALUE

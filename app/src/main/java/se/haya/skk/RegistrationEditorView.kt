@@ -100,6 +100,16 @@ internal class RegistrationEditorView @JvmOverloads constructor(
         addView(cancelButton)
     }
     private var presentation: RegistrationPresentation? = null
+    private var revealCaretThroughParents = false
+
+    internal fun setModalPresentation(compact: Boolean) {
+        revealCaretThroughParents = true
+        listOf(titleView, parentView).forEach {
+            it.maxLines = if (compact) 1 else Int.MAX_VALUE
+            it.ellipsize = if (compact) android.text.TextUtils.TruncateAt.END else null
+        }
+        editorView.setPadding(dp(8), if (compact) 0 else dp(8), dp(8), if (compact) 0 else dp(8))
+    }
     private var onCaret: ((Int) -> Unit)? = null
     private var touchDownX = 0f
     private var touchDownY = 0f
@@ -161,7 +171,8 @@ internal class RegistrationEditorView @JvmOverloads constructor(
         post {
             positionMode()
             val caret = editorView.caretRect()
-            editorScroll.requestChildRectangleOnScreen(editorView, Rect(caret), true)
+            if (revealCaretThroughParents) editorView.requestRectangleOnScreen(Rect(caret), true)
+            else editorScroll.requestChildRectangleOnScreen(editorView, Rect(caret), true)
         }
     }
 
