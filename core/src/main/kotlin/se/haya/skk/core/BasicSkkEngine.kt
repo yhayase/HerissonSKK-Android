@@ -1259,11 +1259,11 @@ class BasicSkkEngine(
 
     private fun onCharacter(character: Char, interpretCommands: Boolean = true): Outcome {
         // z 記号などの継続規則は、モード切替・変換・送り開始より先に解決します。
-        // n+l のようにキー自体を残余へ戻す規則では、残った l をモード切替として扱います。
-        val reprocessesReadingModeKey = phase == InputPhase.READING && interpretCommands &&
-            character in "lL" && romanRuleSet.retainsFollowingKey(romanizer.pending, character.toString())
+        // n+q、n+l のようにキー自体を残余へ戻す規則では、そのキーのコマンドを実行します。
+        val reprocessesModeKey = interpretCommands && character in "qlL" &&
+            romanRuleSet.retainsFollowingKey(romanizer.pending, character.toString())
         if (mode.isKana && phase in listOf(InputPhase.IDLE, InputPhase.READING) &&
-            romanRuleSet.continues(romanizer.pending, character.toString()) && !reprocessesReadingModeKey) {
+            romanRuleSet.continues(romanizer.pending, character.toString()) && !reprocessesModeKey) {
             val output = romanizer.feed(character.toString())
             if (phase == InputPhase.IDLE) return Outcome(true, renderKana(output, mode))
             insertBuffer(output, pendingTargetsOkuri)
@@ -1294,6 +1294,7 @@ class BasicSkkEngine(
                     'Q' -> commitRawReading().then(startReading())
                     'l' -> commitReadingForModeSwitch(InputMode.DIRECT)
                     'L' -> commitReadingForModeSwitch(InputMode.FULLWIDTH)
+                    '/' -> Outcome(true, notice = "読み入力中は abbrev に切り替えられません")
                     '>' -> {
                         finishPendingIntoBuffer()
                         insertBuffer(">")
@@ -1328,9 +1329,7 @@ class BasicSkkEngine(
             interpretCommands && character == 'L' && mode.isKana -> {
                 val commit = finishIdlePending(); mode = InputMode.FULLWIDTH; Outcome(true, commit)
             }
-            character.isUpperCase() && mode.isKana -> finishIdlePending().let {
-                Outcome(true, it).then(startReading()).then(inputReadingCharacter(character, interpretCommands))
-            }
+            character.isUpperCase() && mode.isKana -> startReadingWithCharacter(character, interpretCommands)
             mode == InputMode.DIRECT -> Outcome(true, character.toString())
             mode == InputMode.FULLWIDTH -> Outcome(true, KanaTransforms.toFullwidthAscii(character.toString()))
             romanRuleSet.canStart(character.lowercaseChar()) || interpretCommands && character.isRomajiInput -> {
@@ -1341,19 +1340,39 @@ class BasicSkkEngine(
         }
     }
 
+    private fun startReadingWithCharacter(character: Char, interpretCommands: Boolean): Outcome {
+        val pending = romanizer.pending
+        // 通常入力で保留中の n は先に確定します。ny など未完成の継続列は読みへ引き継ぎます。
+        val continuesPending = romanRuleSet.exact(pending)?.terminalOutput == null &&
+            romanRuleSet.continues(pending, character.lowercaseChar().toString())
+        val committed = if (continuesPending) "" else finishIdlePending()
+        startReading()
+        if (continuesPending) romanizer.feed(pending)
+        return Outcome(true, committed).then(inputReadingCharacter(character, interpretCommands))
+    }
+
     private fun inputReadingCharacter(character: Char, interpretCommands: Boolean = true): Outcome {
         if (character.isUpperCase() && okuriBoundary == null && buffer.cursor > 0) {
             val pending = romanizer.pending
             val lower = character.lowercaseChar()
             val pendingOkuriConsonant = pending.firstOrNull()?.takeIf {
-                character in "AEIOU" && pending.all { letter -> letter in 'a'..'z' && letter !in "aeiou" } &&
+                romanRuleSet.exact(pending)?.terminalOutput == null &&
+                    pending.all { letter -> letter in 'a'..'z' && letter !in "aeiou" } &&
                     romanRuleSet.continues(pending, lower.toString())
             }
             val repeatedOkuriConsonant = lower.takeIf {
                 it !in "aeiou" && pending == it.toString() && romanRuleSet.continues(pending, it.toString())
             }
             if (repeatedOkuriConsonant != null) {
-                insertBuffer(romanizer.feed(repeatedOkuriConsonant.toString()))
+                val output = romanizer.feed(repeatedOkuriConsonant.toString())
+                // 語幹に続く mM/nN の送り開始は、通常の mm/nn の撥音とは異なり促音にします。
+                if (lower in "mn" && output == "ん") {
+                    romanizer.reset()
+                    romanizer.feed(lower.toString())
+                    insertBuffer("っ")
+                } else {
+                    insertBuffer(output)
+                }
             } else if (pendingOkuriConsonant == null) {
                 finishPendingIntoBuffer()
             }
