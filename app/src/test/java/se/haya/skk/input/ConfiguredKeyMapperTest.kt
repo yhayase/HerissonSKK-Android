@@ -54,8 +54,10 @@ class ConfiguredKeyMapperTest {
         }
     }
 
-    @Test fun `標準割当の実キー列は旧コマンド文法と同じ結果になる`() {
-        for (sequence in listOf("nihon", "nqkaq", "Qka ", "Ka   a", "Ka lABC", "Ka LABC", "Ka /API ", "Dai>", "Ka >kai")) {
+    @Test fun `標準割当の実キー列はコアの文字入力と同じ結果になる`() {
+        for (sequence in listOf("nihon", "nqkaq", "nlABC", "nLABC", "Kanq", "KanlABC", "KanLABC", "Kan/",
+            "Qka ", "Ka   a", "Ka lABC", "Ka LABC", "Ka /API ", "Dai>", "Ka >kai",
+            "kA", "sYa", "syA", "sSu", "ssA", "nYa", "nyA", "NYa", "KesSu", "KasYa", "AkYa", "KanNa")) {
             val original = engine()
             val configured = engine()
             val mapper = HardwareKeyMapper()
@@ -67,9 +69,30 @@ class ConfiguredKeyMapperTest {
                 val actual = configured.dispatch((decoded as HardwareKeyMapper.Decoded.Action).action)
                 assertEquals("$sequence / $char", expected.commit, actual.commit)
                 assertEquals("$sequence / $char", expected.view, actual.view)
+                assertEquals("$sequence / $char", expected.notice, actual.notice)
                 assertEquals("$sequence / $char", original.state, configured.state)
             }
         }
+    }
+
+    @Test fun `読み中の既定slashは通知し再割当と生成文字は通常どおり処理する`() {
+        val engine = engine()
+        engine.dispatch(BasicSkkAction.Text("Kan"))
+        val mapper = HardwareKeyMapper()
+        fun decode(bindings: KeyBindings = KeyBindings(), event: KeyEvent = key('/')) =
+            mapper.decodeConfigured(event, engine.state, engine.currentView, bindings, false)
+        val before = engine.state
+        val rejected = decode() as HardwareKeyMapper.Decoded.Action
+        assertEquals(BasicSkkAction.Text("/", true), rejected.action)
+        assertEquals("読み入力中は abbrev に切り替えられません", engine.dispatch(rejected.action).notice)
+        assertEquals(before, engine.state)
+
+        val movedAbbrev = KeyBindings(KeyBindings.defaults + (SkkCommand.ABBREV to KeyGesture("~")))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Text("/", false)), decode(movedAbbrev))
+        val customSlash = KeyBindings(KeyBindings.defaults + (SkkCommand.COMPLETE to KeyGesture("/")))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.CompleteForward), decode(customSlash))
+        assertEquals(HardwareKeyMapper.Decoded.Action(BasicSkkAction.Text("/", false)),
+            decode(event = key('/', KeyEvent.META_ALT_ON or KeyEvent.META_ALT_RIGHT_ON)))
     }
 
     @Test fun `AZIKのqとlを含む継続規則と角括弧エスケープが切替に奪われない`() {

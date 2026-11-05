@@ -132,14 +132,21 @@ class HardwareKeyMapper {
             text.codePointCount(0, text.length) == 1) {
             bindings.resolve(KeyGesture(text, shift = event.isShiftPressed), state, view, emacsBindingEnabled)
         } else null
-        // n+l は n の終端確定後にモード切替、zl は矢印入力として扱います。
-        val readingModeSwitch = state.phase == InputPhase.READING &&
-            command in listOf(BasicSkkAction.ToDirect, BasicSkkAction.ToFullwidth) &&
+        // n+q、n+l は n の終端確定後にモード切替し、zl などキーを消費する規則は継続します。
+        val modeSwitch = command in listOf(BasicSkkAction.ToggleKana,
+            BasicSkkAction.ToDirect, BasicSkkAction.ToFullwidth) &&
             rules.retainsFollowingKey(state.pendingRomaji, text)
-        if (rules.continues(state.pendingRomaji, text) && !readingModeSwitch) {
+        if (rules.continues(state.pendingRomaji, text) && !modeSwitch) {
             return Decoded.Action(BasicSkkAction.Text(text, interpretCommands = false))
         }
         command?.let { return Decoded.Action(it) }
+        // 既定の / は、読みを保って通知するコアの拒否処理へ渡します。再割当と生成文字は優先します。
+        if (state.phase == InputPhase.READING && text == "/" &&
+            !event.isCtrlPressed && !event.isAltPressed && !altText &&
+            unicode and KeyCharacterMap.COMBINING_ACCENT == 0 &&
+            bindings.bindings[SkkCommand.ABBREV] == KeyBindings.defaults[SkkCommand.ABBREV]) {
+            return Decoded.Action(BasicSkkAction.Text(text, interpretCommands = true))
+        }
         return Decoded.Action(BasicSkkAction.Text(text, interpretCommands = false))
     }
 
