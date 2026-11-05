@@ -92,6 +92,82 @@ class RomanizerTest {
     }
 
     @Test
+    fun `標準の拡張かなと長音濁点記号を変換する`() {
+        // 入力操作で確認した出力を、規則生成とは独立した期待値として保持します。
+        val examples = """
+            bye:びぇ byi:びぃ che:ちぇ cya:ちゃ cye:ちぇ cyi:ちぃ cyo:ちょ cyu:ちゅ
+            dha:でゃ dhe:でぇ dhi:でぃ dho:でょ dhu:でゅ dye:ぢぇ dyi:ぢぃ
+            fya:ふゃ fye:ふぇ fyi:ふぃ fyo:ふょ fyu:ふゅ
+            gye:ぎぇ gyi:ぎぃ hye:ひぇ hyi:ひぃ jye:じぇ jyi:じぃ kye:きぇ kyi:きぃ
+            mye:みぇ myi:みぃ nye:にぇ nyi:にぃ pye:ぴぇ pyi:ぴぃ rye:りぇ ryi:りぃ
+            she:しぇ sye:しぇ syi:しぃ tha:てぁ the:てぇ thi:てぃ tho:てょ thu:てゅ
+            tye:ちぇ tyi:ちぃ va:う゛ぁ ve:う゛ぇ vi:う゛ぃ vo:う゛ぉ vu:う゛
+            xwa:ゎ xwe:ゑ xwi:ゐ zye:じぇ zyi:じぃ zn:ー z;:゛ z::゜ z{:〖 z}:〗
+        """.trimIndent().split(Regex("\\s+"))
+
+        examples.forEach { example ->
+            val separator = example.lastIndexOf(':')
+            val input = example.substring(0, separator)
+            val expected = example.substring(separator + 1)
+            val romanizer = Romanizer()
+            assertEquals(input, expected, romanizer.feed(input))
+            assertEquals(input, "", romanizer.pending)
+        }
+    }
+
+    @Test
+    fun `xk の接頭辞を保持して削除後も小書き入力を続ける`() {
+        val romanizer = Romanizer()
+
+        assertEquals("かけ", romanizer.feed("xkaxke"))
+        assertEquals("", romanizer.feed("xk"))
+        assertEquals("xk", romanizer.pending)
+        assertTrue(romanizer.backspacePending())
+        assertEquals("x", romanizer.pending)
+        assertEquals("ぁ", romanizer.feed("a"))
+        assertEquals("", romanizer.pending)
+    }
+
+    @Test
+    fun `拡張かなの継続を撥音の残余より優先する`() {
+        val romanizer = Romanizer()
+
+        assertEquals("", romanizer.feed("ny"))
+        assertEquals("ny", romanizer.pending)
+        assertEquals("にぇ", romanizer.feed("e"))
+        assertEquals("ん", romanizer.feed("nk"))
+        assertEquals("k", romanizer.pending)
+        assertEquals("きぃ", romanizer.feed("yi"))
+        assertEquals("んてぃんう゛ぁ", romanizer.feed("nthinva"))
+        assertEquals("", romanizer.pending)
+    }
+
+    @Test
+    fun `m の重複は撥音を出力し次の m を残す`() {
+        val romanizer = Romanizer()
+
+        assertEquals("", romanizer.feed("m"))
+        assertEquals("ん", romanizer.feed("m"))
+        assertEquals("m", romanizer.pending)
+        assertEquals("ま", romanizer.feed("a"))
+        assertEquals("がんま", romanizer.feed("gamma"))
+        assertEquals("っは", romanizer.feed("hha"))
+        assertEquals("", romanizer.pending)
+    }
+
+    @Test
+    fun `拡張かなの濁点表現を文字種変換でも保持する`() {
+        val hiragana = Romanizer().feed("vavivuvevo")
+
+        assertEquals("う゛ぁう゛ぃう゛う゛ぇう゛ぉ", hiragana)
+        assertEquals("ウ゛ァウ゛ィウ゛ウ゛ェウ゛ォ", KanaTransforms.hiraganaToKatakana(hiragana))
+        assertEquals("ｳﾞｧｳﾞｨｳﾞｳﾞｪｳﾞｫ", KanaTransforms.toHalfwidthKana(hiragana))
+        assertEquals("ﾞﾟ", KanaTransforms.toHalfwidthKana(Romanizer().feed("z;z:")))
+        assertEquals("゛゜", KanaTransforms.hiraganaToKatakana(Romanizer().feed("z;z:")))
+        assertEquals("ティシェヮヰヱ", KanaTransforms.hiraganaToKatakana(Romanizer().feed("thishexwaxwixwe")))
+    }
+
+    @Test
     fun `設定した規則を注入できる`() {
         val romanizer = Romanizer(listOf(RomajiRule("ka", "か゚")))
         val overridden = Romanizer(listOf(RomajiRule("xtu", "小")))

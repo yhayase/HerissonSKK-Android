@@ -132,12 +132,34 @@ internal object StandardRomajiRules {
             row("d", "だぢづでど")
             row("b", "ばびぶべぼ"); row("p", "ぱぴぷぺぽ")
             listOf(
-                "ky" to "き", "sy" to "し", "sh" to "し", "ty" to "ち", "ch" to "ち", "ny" to "に",
+                "ky" to "き", "sy" to "し", "sh" to "し", "ty" to "ち", "ch" to "ち", "cy" to "ち", "ny" to "に",
                 "hy" to "ひ", "my" to "み", "ry" to "り", "gy" to "ぎ", "zy" to "じ", "jy" to "じ",
                 "by" to "び", "py" to "ぴ", "dy" to "ぢ",
             ).forEach { (prefix, base) ->
                 add(RomajiRule(prefix + "a", base + "ゃ")); add(RomajiRule(prefix + "u", base + "ゅ")); add(RomajiRule(prefix + "o", base + "ょ"))
+                add(RomajiRule(prefix + "e", base + "ぇ"))
+                if (prefix.endsWith("y")) add(RomajiRule(prefix + "i", base + "ぃ"))
             }
+            listOf("dh" to "で", "fy" to "ふ").forEach { (prefix, base) ->
+                "aiueo".zip("ゃぃゅぇょ").forEach { (vowel, small) ->
+                    add(RomajiRule(prefix + vowel, base + small))
+                }
+            }
+            "aiueo".zip("ぁぃゅぇょ").forEach { (vowel, small) ->
+                add(RomajiRule("th$vowel", "て$small"))
+            }
+            "aiueo".forEach { vowel ->
+                val small = when (vowel) {
+                    'a' -> "ぁ"
+                    'i' -> "ぃ"
+                    'e' -> "ぇ"
+                    'o' -> "ぉ"
+                    else -> ""
+                }
+                add(RomajiRule("v$vowel", "う゛$small"))
+            }
+            add(RomajiRule("xka", "か")); add(RomajiRule("xke", "け"))
+            add(RomajiRule("xwa", "ゎ")); add(RomajiRule("xwi", "ゐ")); add(RomajiRule("xwe", "ゑ"))
             listOf("x" to "", "l" to "").forEach { (prefix, _) ->
                 add(RomajiRule(prefix + "a", "ぁ")); add(RomajiRule(prefix + "i", "ぃ")); add(RomajiRule(prefix + "u", "ぅ")); add(RomajiRule(prefix + "e", "ぇ")); add(RomajiRule(prefix + "o", "ぉ"))
                 add(RomajiRule(prefix + "ya", "ゃ")); add(RomajiRule(prefix + "yu", "ゅ")); add(RomajiRule(prefix + "yo", "ょ")); add(RomajiRule(prefix + "tsu", "っ"))
@@ -149,10 +171,12 @@ internal object StandardRomajiRules {
         mapOf("zh" to "←", "zj" to "↓", "zk" to "↑", "zl" to "→", "zL" to "⇒",
             "z " to "　", "z*" to "※", "z," to "‥", "z-" to "〜", "z." to "…",
             "z/" to "・", "z0" to "○", "z@" to "◎", "z[" to "『", "z]" to "』",
-            "z{" to "〖", "z}" to "〗", "z(" to "（", "z)" to "）").forEach { (input, output) ->
+            "z{" to "〖", "z}" to "〗", "z(" to "（", "z)" to "）",
+            "zn" to "ー", "z;" to "゛", "z:" to "゜").forEach { (input, output) ->
             add(RomajiRule(input, output))
         }
         add(RomajiRule("tt", "っ", "t"))
-        "bcdfghjklmpqrsvwxyz".forEach { consonant -> add(RomajiRule("$consonant$consonant", "っ", consonant.toString())) }
+        add(RomajiRule("mm", "ん", "m"))
+        "bcdfghjklpqrsvwxyz".forEach { consonant -> add(RomajiRule("$consonant$consonant", "っ", consonant.toString())) }
     }
 }

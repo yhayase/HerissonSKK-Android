@@ -7,7 +7,7 @@ object KanaTransforms {
     /** ひらがなを全角カタカナへ変換します。 */
     fun hiraganaToKatakana(text: String): String = buildString(text.length) {
         text.forEach { character ->
-            append(if (character in 'ぁ'..'ゟ') (character.code + 0x60).toChar() else character)
+            append(if (character in 'ぁ'..'ゖ' || character in 'ゝ'..'ゟ') (character.code + 0x60).toChar() else character)
         }
     }
 
@@ -47,7 +47,7 @@ object KanaTransforms {
         'タ' to 'ﾀ', 'チ' to 'ﾁ', 'ツ' to 'ﾂ', 'テ' to 'ﾃ', 'ト' to 'ﾄ', 'ナ' to 'ﾅ', 'ニ' to 'ﾆ', 'ヌ' to 'ﾇ', 'ネ' to 'ﾈ', 'ノ' to 'ﾉ',
         'ハ' to 'ﾊ', 'ヒ' to 'ﾋ', 'フ' to 'ﾌ', 'ヘ' to 'ﾍ', 'ホ' to 'ﾎ', 'マ' to 'ﾏ', 'ミ' to 'ﾐ', 'ム' to 'ﾑ', 'メ' to 'ﾒ', 'モ' to 'ﾓ',
         'ヤ' to 'ﾔ', 'ユ' to 'ﾕ', 'ヨ' to 'ﾖ', 'ラ' to 'ﾗ', 'リ' to 'ﾘ', 'ル' to 'ﾙ', 'レ' to 'ﾚ', 'ロ' to 'ﾛ', 'ワ' to 'ﾜ', 'ン' to 'ﾝ',
-        '゙' to 'ﾞ', '゚' to 'ﾟ', 'ヮ' to 'ﾜ', 'ヵ' to 'ｶ', 'ヶ' to 'ｹ',
+        '゙' to 'ﾞ', '゚' to 'ﾟ', '゛' to 'ﾞ', '゜' to 'ﾟ', 'ヮ' to 'ﾜ', 'ヵ' to 'ｶ', 'ヶ' to 'ｹ',
     )
 
     private val KATAKANA_RANGE = '\u30A0'..'\u30FF'
