@@ -69,7 +69,8 @@ class CompletionServiceTest {
             ReflectionHelpers.setField(service, "mInputEditorInfo", firstInfo)
             service.onStartInput(firstInfo, false)
             assertTrue(service.onShowInputRequested(0, false))
-            assertEquals(View.GONE, candidateSurface.visibility)
+            // タッチ入力では候補が空でも固定の候補領域を確保します。
+            assertEquals(View.VISIBLE, candidateSurface.visibility)
             preferences.edit().putBoolean("dynamic_completion", true).commit()
             val oldSession = session(service)
             // 画面予測とは別の、物理キーボード用動的補完の設定を検証します。
@@ -102,7 +103,8 @@ class CompletionServiceTest {
             service.onStartInput(passwordInfo, false)
             assertTrue(session(service).protectedInput)
             assertEquals("", status.text.toString())
-            assertEquals(View.GONE, candidateSurface.visibility)
+            // 保護欄では内容を消去し、候補領域の高さは維持します。
+            assertEquals(View.VISIBLE, candidateSurface.visibility)
             assertTrue(service.onShowInputRequested(0, false))
         } finally {
             // サービス管理外で作った入力ビューを先に外してから、サービスを破棄します。
