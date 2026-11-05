@@ -132,11 +132,14 @@ class RedesignedCandidateViewTest {
         }
     }
 
-    @Test fun `幅で連続候補を区切り巨大な一件も除外しない`() {
+    @Test fun `横幅いっぱいの候補を含む列も表示段数と同じ件数を収容する`() {
         val view = CandidateStatusView(RuntimeEnvironment.getApplication())
         view.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.AT_MOST))
-        assertEquals(1, view.pageCapacity(listOf("長い本文".repeat(100), "次"), 0))
+        val rowCount = 2
+        // 長い候補と同じ列の残りの段は使えますが、次の列は同じページに入りません。
+        val candidates = listOf("長い本文".repeat(100)) + List(rowCount) { "次$it" }
+        assertEquals(rowCount, view.pageCapacity(candidates, 0))
         assertTrue(view.pageCapacity(listOf("a", "b", "c"), 0) >= 2)
     }
 
