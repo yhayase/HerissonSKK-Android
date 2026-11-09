@@ -108,35 +108,51 @@ class KeyboardVisibilityServiceTest {
         }
     }
 
-    @Test fun `画面入力の表示要求は有効な入力欄だけを受け入れる`() {
-        val connection = Connection()
-        assertTrue(acceptsTouchShowRequest(editor(InputType.TYPE_CLASS_TEXT), connection, true))
-        assertTrue(acceptsTouchShowRequest(editor(InputType.TYPE_CLASS_NUMBER or
-            InputType.TYPE_NUMBER_VARIATION_PASSWORD), connection, true))
-        assertTrue(acceptsTouchShowRequest(editor(InputType.TYPE_CLASS_TEXT or
-            InputType.TYPE_TEXT_VARIATION_PASSWORD), connection, true))
-        assertFalse(acceptsTouchShowRequest(editor(InputType.TYPE_NULL), connection, true))
-        assertFalse(acceptsTouchShowRequest(null, connection, true))
-        assertFalse(acceptsTouchShowRequest(editor(InputType.TYPE_CLASS_TEXT), null, true))
-        assertFalse(acceptsTouchShowRequest(editor(InputType.TYPE_CLASS_TEXT), connection, false))
-    }
-
-    @Test fun `非同期のセッション開始前でもAndroidの有効な表示要求を受け入れる`() {
+    @Test @Config(shadows = [ConnectedPhysicalKeyboard::class])
+    fun `入力欄が未確定でも表示要求と表示評価を受け入れる`() {
         val preferences = RuntimeEnvironment.getApplication()
             .getSharedPreferences("settings", 0)
         preferences.edit().putBoolean("hide_touch_keyboard_with_hardware", false).commit()
         val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
         val service = controller.get()
         try {
-            val connection = Connection()
-            ReflectionHelpers.setField(service, "mInputConnection", connection)
-            ReflectionHelpers.setField(service, "mStartedInputConnection", connection)
-            ReflectionHelpers.setField(service, "mInputEditorInfo",
-                editor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD))
+            // FirefoxなどではEditorInfoや接続の設定前に表示要求が届く。
+            ReflectionHelpers.setField(service, "mInputEditorInfo", null)
+            ReflectionHelpers.setField(service, "mInputConnection", null)
+            ReflectionHelpers.setField(service, "mStartedInputConnection", null)
             assertTrue(service.onShowInputRequested(0, false))
+            assertTrue(service.onEvaluateInputViewShown())
 
             ReflectionHelpers.setField(service, "mInputEditorInfo", editor(InputType.TYPE_NULL))
+            assertTrue(service.onShowInputRequested(0, false))
+            assertTrue(service.onEvaluateInputViewShown())
+
+            // 次の有効な入力欄が開始した後も表示要求を受け入れる。
+            val connection = Connection()
+            ReflectionHelpers.setField(service, "mInputEditorInfo", editor(InputType.TYPE_CLASS_TEXT))
+            ReflectionHelpers.setField(service, "mInputConnection", connection)
+            ReflectionHelpers.setField(service, "mStartedInputConnection", connection)
+            assertTrue(service.onShowInputRequested(0, false))
+            assertTrue(service.onEvaluateInputViewShown())
+        } finally {
+            controller.destroy()
+            preferences.edit().remove("hide_touch_keyboard_with_hardware").commit()
+        }
+    }
+
+    @Test @Config(shadows = [ConnectedPhysicalKeyboard::class])
+    fun `物理キーボード非表示設定は入力欄情報に関係なく表示要求を拒否する`() {
+        val preferences = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("settings", 0)
+        preferences.edit().putBoolean("hide_touch_keyboard_with_hardware", true).commit()
+        val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
+        val service = controller.get()
+        try {
+            ReflectionHelpers.setField(service, "mInputEditorInfo", editor(InputType.TYPE_NULL))
+            ReflectionHelpers.setField(service, "mInputConnection", null)
+            ReflectionHelpers.setField(service, "mStartedInputConnection", null)
             assertFalse(service.onShowInputRequested(0, false))
+            assertFalse(service.onEvaluateInputViewShown())
         } finally {
             controller.destroy()
             preferences.edit().remove("hide_touch_keyboard_with_hardware").commit()

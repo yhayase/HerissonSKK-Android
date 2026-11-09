@@ -372,14 +372,12 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     override fun onEvaluateInputViewShown(): Boolean {
         super.onEvaluateInputViewShown()
-        return acceptsTouchShowRequest(currentInputEditorInfo, currentInputConnection,
-            shouldShowTouchCharacters())
+        return shouldShowTouchCharacters()
     }
     override fun onEvaluateFullscreenMode() = false
 
     override fun onShowInputRequested(flags: Int, configChange: Boolean): Boolean =
-        acceptsTouchShowRequest(currentInputEditorInfo, currentInputConnection,
-            shouldShowTouchCharacters())
+        shouldShowTouchCharacters()
 
     override fun onWindowHidden() {
         dismissTouchRegistrationModal()
@@ -1326,12 +1324,6 @@ internal fun candidateItemsForPresentation(
     candidate: CandidateView?,
     touch: Boolean,
 ): List<LabeledCandidate> = if (touch) candidate?.pageItems.orEmpty() else candidate?.menu.orEmpty()
-
-internal fun acceptsTouchShowRequest(
-    info: EditorInfo?,
-    connection: InputConnection?,
-    touchCharacters: Boolean,
-): Boolean = info != null && connection != null && info.inputType != InputType.TYPE_NULL && touchCharacters
 
 internal fun shouldRestorePhysicalHostForKey(
     touchCharacters: Boolean,

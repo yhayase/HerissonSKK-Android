@@ -17,6 +17,12 @@ class TypeNullFullscreenActivity : Activity() {
         private set
     var createdInputType = Int.MIN_VALUE
         private set
+    private var editableInput = false
+
+    fun switchToEditableInput() {
+        editableInput = true
+        input.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java).restartInput(input)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,10 +37,10 @@ class TypeNullFullscreenActivity : Activity() {
 
             override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
                 inputConnectionCreated = true
-                outAttrs.inputType = InputType.TYPE_NULL
+                outAttrs.inputType = if (editableInput) InputType.TYPE_CLASS_TEXT else InputType.TYPE_NULL
                 createdInputType = outAttrs.inputType
                 outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE
-                return BaseInputConnection(this, false)
+                return BaseInputConnection(this, editableInput)
             }
         }
         setContentView(input)

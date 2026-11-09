@@ -99,7 +99,7 @@ class KeyboardVisibilityTest {
         }
     }
 
-    @Test fun fullscreenTypeNullInputRequestDoesNotShowKeyboard() {
+    @Test fun fullscreenTypeNullRequestAndEditableRestartPreserveKeyboardVisibility() {
         ActivityScenario.launch(TypeNullFullscreenActivity::class.java).use { scenario ->
             awaitCondition("TYPE_NULL の入力接続が開始されません") {
                 var ready = false
@@ -116,7 +116,31 @@ class KeyboardVisibilityTest {
                 activity.input.context.getSystemService(InputMethodManager::class.java)
                     .showSoftInput(activity.input, InputMethodManager.SHOW_IMPLICIT)
             }
+            awaitImeVisible()
+
+            scenario.onActivity { activity -> activity.switchToEditableInput() }
+            awaitCondition("テキスト入力への再接続が開始されません") {
+                var ready = false
+                scenario.onActivity { activity ->
+                    ready = activity.createdInputType == android.text.InputType.TYPE_CLASS_TEXT &&
+                        activity.inputConnectionCreated
+                }
+                ready
+            }
+            awaitImeVisible()
+
+            device.pressBack()
             awaitImeHiddenFor()
+            scenario.onActivity { activity ->
+                activity.input.context.getSystemService(InputMethodManager::class.java).restartInput(activity.input)
+            }
+            awaitImeHiddenFor()
+
+            scenario.onActivity { activity ->
+                activity.input.context.getSystemService(InputMethodManager::class.java)
+                    .showSoftInput(activity.input, InputMethodManager.SHOW_IMPLICIT)
+            }
+            awaitImeVisible()
         }
     }
 
