@@ -1,25 +1,25 @@
 package se.haya.skk
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.os.Vibrator
-import androidx.preference.ListPreference
 import androidx.preference.Preference
-import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceCategory
+import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreferenceCompat
-import se.haya.skk.settings.ScreenKeyboardLayout
+import androidx.preference.ListPreference
 import se.haya.skk.settings.TenKeyOperation
 import se.haya.skk.settings.TouchKeyboardSettings
 import se.haya.skk.settings.TouchKeyboardSettingsStore
 
 class TouchKeyboardSettingsActivity : SettingsPageActivity() {
     private lateinit var page: TouchKeyboardSettingsFragment
+    private val editor: String get() = intent.getStringExtra(EXTRA_PAGE) ?: PAGE_HUB
     private var saved = TouchKeyboardSettings()
     private var draft = TouchKeyboardSettings()
     private var geometryEdited = false
-    private var layoutEdited = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,17 +27,21 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         saved = savedInstanceState?.let { fromBundle(it, "saved_") } ?: saved
         draft = savedInstanceState?.let { fromBundle(it, "draft_") } ?: saved
         geometryEdited = savedInstanceState?.getBoolean(GEOMETRY_EDITED) ?: false
-        layoutEdited = savedInstanceState?.getBoolean(LAYOUT_EDITED) ?: false
-        installSettingsPage("画面キーボード", TouchKeyboardSettingsFragment())
+        if (editor == PAGE_HUB) {
+            installSettingsPage("画面キーボード", TouchKeyboardSettingsHubFragment())
+            renderPageState(false, false)
+            return
+        }
+        page = TouchKeyboardSettingsFragment().apply { arguments = Bundle().apply { putString(EXTRA_PAGE, editor) } }
+        installSettingsPage(if (editor == PAGE_OPERATION) "10キーの操作" else "10キーの大きさと位置", page)
         page = supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
-        page.onDraftChanged = {
-            if (it.layout != draft.layout) layoutEdited = true
-            if (it.hasDifferentGeometry(draft)) geometryEdited = true
-            draft = it
+        page.onDraftChanged = { value ->
+            if (editor == PAGE_GEOMETRY && value.hasDifferentGeometry(draft)) geometryEdited = true
+            draft = value
             render()
         }
         setPageActions(::saveDraft, ::resetDraftToDefaults)
-        page.refresh(draft, hasVibrator())
+        page.refresh(draft, hasVibrator(), editor)
         render()
     }
 
@@ -45,26 +49,33 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         saved.toBundle(outState, "saved_")
         draft.toBundle(outState, "draft_")
         outState.putBoolean(GEOMETRY_EDITED, geometryEdited)
-        outState.putBoolean(LAYOUT_EDITED, layoutEdited)
         super.onSaveInstanceState(outState)
     }
 
     private fun render() {
         if (!::page.isInitialized) return
-        page.refresh(draft, hasVibrator())
-        val dirty = draft != saved || geometryEdited
+        page.refresh(draft, hasVibrator(), editor)
+        val dirty = if (editor == PAGE_GEOMETRY) geometryEdited else
+            draft.operation != saved.operation || draft.holdMillis != saved.holdMillis || draft.vibrateOnBoundary != saved.vibrateOnBoundary
         renderPageState(dirty, false, if (dirty) "変更は未保存です。" else null)
     }
 
     private fun saveDraft() {
         val current = TouchKeyboardSettingsStore.read(this)
-        val mergedDraft = if (layoutEdited) draft else draft.copy(layout = current.layout)
-        val valueToSave = if (geometryEdited) mergedDraft else mergedDraft.copy(
-            tenKeyHeightDp = current.tenKeyHeightDp,
-            tenKeyWidthPercent = current.tenKeyWidthPercent,
-            tenKeyPositionPercent = current.tenKeyPositionPercent,
-            tenKeyBottomPaddingDp = current.tenKeyBottomPaddingDp,
-        )
+        val valueToSave = when {
+            editor == PAGE_GEOMETRY && geometryEdited -> current.copy(
+                tenKeyHeightDp = draft.tenKeyHeightDp,
+                tenKeyWidthPercent = draft.tenKeyWidthPercent,
+                tenKeyPositionPercent = draft.tenKeyPositionPercent,
+                tenKeyBottomPaddingDp = draft.tenKeyBottomPaddingDp,
+            )
+            editor == PAGE_GEOMETRY -> current
+            else -> current.copy(
+                operation = draft.operation,
+                holdMillis = draft.holdMillis,
+                vibrateOnBoundary = draft.vibrateOnBoundary,
+            )
+        }
         if (TouchKeyboardSettingsStore.save(this, valueToSave)) {
             saved = valueToSave
             draft = valueToSave
@@ -72,14 +83,18 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
             renderPageState(false, false, "保存しました。次の入力欄から反映します。")
             finish()
         } else {
-            renderPageState(draft != saved || geometryEdited, false, "保存できませんでした。変更内容は残しています。")
+            render()
+            renderPageState(true, false, "保存できませんでした。変更内容は残しています。")
         }
     }
 
     override fun resetDraftToDefaults() {
-        draft = TouchKeyboardSettings()
-        geometryEdited = true
-        layoutEdited = true
+        draft = if (editor == PAGE_GEOMETRY) draft.copy(
+            tenKeyHeightDp = DEFAULTS.tenKeyHeightDp, tenKeyWidthPercent = DEFAULTS.tenKeyWidthPercent,
+            tenKeyPositionPercent = DEFAULTS.tenKeyPositionPercent, tenKeyBottomPaddingDp = DEFAULTS.tenKeyBottomPaddingDp,
+        ) else draft.copy(operation = DEFAULTS.operation, holdMillis = DEFAULTS.holdMillis,
+            vibrateOnBoundary = DEFAULTS.vibrateOnBoundary)
+        if (editor == PAGE_GEOMETRY) geometryEdited = true
         render()
     }
 
@@ -89,7 +104,10 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         (getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.hasVibrator() == true
 
     companion object {
-        private const val LAYOUT = "touch_layout"
+        const val EXTRA_PAGE = "touch_page"
+        const val PAGE_HUB = "hub"
+        const val PAGE_OPERATION = "operation"
+        const val PAGE_GEOMETRY = "geometry"
         private const val OPERATION = "touch_operation"
         private const val HOLD = "touch_hold"
         private const val VIBRATE = "touch_vibrate"
@@ -97,28 +115,47 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         private const val WIDTH = "touch_width"
         private const val POSITION = "touch_position"
         private const val BOTTOM = "touch_bottom"
-        private const val LAYOUT_EDITED = "touch_layout_edited"
         private const val GEOMETRY_EDITED = "touch_geometry_edited"
+        private val DEFAULTS = TouchKeyboardSettings()
 
         private fun TouchKeyboardSettings.hasDifferentGeometry(other: TouchKeyboardSettings) =
             tenKeyHeightDp != other.tenKeyHeightDp || tenKeyWidthPercent != other.tenKeyWidthPercent ||
                 tenKeyPositionPercent != other.tenKeyPositionPercent || tenKeyBottomPaddingDp != other.tenKeyBottomPaddingDp
 
         private fun TouchKeyboardSettings.toBundle(bundle: Bundle, prefix: String) {
-            bundle.putString(prefix + LAYOUT, layout.name); bundle.putString(prefix + OPERATION, operation.name)
+            bundle.putString(prefix + OPERATION, operation.name)
             bundle.putInt(prefix + HOLD, holdMillis); bundle.putBoolean(prefix + VIBRATE, vibrateOnBoundary)
             bundle.putInt(prefix + HEIGHT, tenKeyHeightDp); bundle.putInt(prefix + WIDTH, tenKeyWidthPercent)
-            bundle.putInt(prefix + POSITION, tenKeyPositionPercent)
-            bundle.putInt(prefix + BOTTOM, tenKeyBottomPaddingDp)
+            bundle.putInt(prefix + POSITION, tenKeyPositionPercent); bundle.putInt(prefix + BOTTOM, tenKeyBottomPaddingDp)
         }
         private fun fromBundle(bundle: Bundle, prefix: String) = TouchKeyboardSettings(
-            layout = enumValueOf<ScreenKeyboardLayout>(bundle.getString(prefix + LAYOUT, ScreenKeyboardLayout.QWERTY.name)),
             operation = enumValueOf<TenKeyOperation>(bundle.getString(prefix + OPERATION, TenKeyOperation.HOLD_AND_RETURN.name)),
             holdMillis = bundle.getInt(prefix + HOLD, 350), vibrateOnBoundary = bundle.getBoolean(prefix + VIBRATE, true),
             tenKeyHeightDp = bundle.getInt(prefix + HEIGHT, 256), tenKeyWidthPercent = bundle.getInt(prefix + WIDTH, 100),
-            tenKeyPositionPercent = bundle.getInt(prefix + POSITION, 50),
-            tenKeyBottomPaddingDp = bundle.getInt(prefix + BOTTOM, 0),
+            tenKeyPositionPercent = bundle.getInt(prefix + POSITION, 50), tenKeyBottomPaddingDp = bundle.getInt(prefix + BOTTOM, 0),
         )
+    }
+}
+
+class TouchKeyboardSettingsHubFragment : PreferenceFragmentCompat() {
+    override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+        val context = requireContext()
+        preferenceScreen = preferenceManager.createPreferenceScreen(context)
+        listOf(
+            TouchKeyboardSettingsActivity.PAGE_OPERATION to ("10キーの操作" to "タップ・フリック、ホールド、振動を設定します。"),
+            TouchKeyboardSettingsActivity.PAGE_GEOMETRY to ("10キーの大きさと位置" to "高さ、幅、左右位置、下の余白を設定します。"),
+        ).forEach { (target, text) ->
+            preferenceScreen.addPreference(Preference(context).apply {
+                title = text.first
+                summary = text.second
+                isIconSpaceReserved = false
+                setOnPreferenceClickListener {
+                    startActivity(Intent(context, TouchKeyboardSettingsActivity::class.java)
+                        .putExtra(TouchKeyboardSettingsActivity.EXTRA_PAGE, target))
+                    true
+                }
+            })
+        }
     }
 }
 
@@ -126,7 +163,7 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
     var onDraftChanged: ((TouchKeyboardSettings) -> Unit)? = null
     private var draft = TouchKeyboardSettings()
     private var refreshing = false
-    private lateinit var layout: ListPreference
+    private var editor = TouchKeyboardSettingsActivity.PAGE_OPERATION
     private lateinit var operation: ListPreference
     private lateinit var hold: SeekBarPreference
     private lateinit var vibrate: SwitchPreferenceCompat
@@ -137,118 +174,80 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         val context = requireContext()
+        editor = arguments?.getString(TouchKeyboardSettingsActivity.EXTRA_PAGE) ?: editor
         preferenceScreen = preferenceManager.createPreferenceScreen(context)
-        val category = PreferenceCategory(context).apply { title = "入力方法"; isIconSpaceReserved = false }
+        val category = PreferenceCategory(context).apply { title = if (editor == TouchKeyboardSettingsActivity.PAGE_OPERATION) "操作" else "大きさと位置"; isIconSpaceReserved = false }
         preferenceScreen.addPreference(category)
         category.addPreference(Preference(context).apply {
-            title = "反映時期"
-            summary = "保存後、次の入力欄から反映します。"
-            isIconSpaceReserved = false
-            isSelectable = false
-        })
-        category.addPreference(Preference(context).apply {
-            title = "10キーの形状"
-            summary = "入力中に配列切替キーを上へフリックしても変更できます。"
+            title = "反映時期"; summary = "保存後、次の入力欄から反映します。"
             isIconSpaceReserved = false; isSelectable = false
         })
-        layout = list(context, "layout", "配列", arrayOf("QWERTY", "TEN_KEY"), arrayOf("QWERTY", "10キー")) { value ->
-            draft.copy(layout = ScreenKeyboardLayout.valueOf(value))
-        }
-        operation = list(context, "operation", "10キーの操作", arrayOf("FLICK", "HOLD", "HOLD_AND_RETURN"),
-            arrayOf("通常タップ・フリック", "ホールドで境界", "ホールド＋往復")) { value ->
-            draft.copy(operation = TenKeyOperation.valueOf(value))
+        operation = ListPreference(context).apply {
+            key = "operation"; title = "操作方式"
+            entries = arrayOf("通常タップ・フリック", "ホールドで境界", "ホールド＋往復")
+            entryValues = arrayOf("FLICK", "HOLD", "HOLD_AND_RETURN")
+            isIconSpaceReserved = false; isPersistent = false
+            summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+            setOnPreferenceChangeListener { _, raw -> if (!refreshing) update(draft.copy(operation = TenKeyOperation.valueOf(raw as String))); true }
         }
         hold = SeekBarPreference(context).apply {
             key = "hold"; title = "ホールド判定"; min = 100; max = 1000; value = 350
-            seekBarIncrement = 10
-            showSeekBarValue = true; isIconSpaceReserved = false; isPersistent = false
-            summary = "350 ms"
+            seekBarIncrement = 10; showSeekBarValue = true; isIconSpaceReserved = false; isPersistent = false
             setOnPreferenceChangeListener { preference, raw ->
                 if (refreshing) return@setOnPreferenceChangeListener true
                 val value = raw as Int
                 val snapped = 100 + ((value - 100 + 5) / 10) * 10
-                if (snapped != value) {
-                    // タッチ操作でも10ms刻みに揃えます。
-                    update(draft.copy(holdMillis = snapped))
-                    (preference as SeekBarPreference).value = snapped
-                    false
-                } else {
-                    update(draft.copy(holdMillis = value))
-                    true
-                }
+                update(draft.copy(holdMillis = snapped))
+                if (snapped != value) { (preference as SeekBarPreference).value = snapped; false } else true
             }
         }
         vibrate = SwitchPreferenceCompat(context).apply {
-            key = "vibrate"; title = "ホールド境界の指定・取消時に振動"; isIconSpaceReserved = false
-            isPersistent = false
+            key = "vibrate"; title = "ホールド境界の指定・取消時に振動"; isIconSpaceReserved = false; isPersistent = false
             setOnPreferenceChangeListener { _, value -> update(draft.copy(vibrateOnBoundary = value as Boolean)); true }
         }
         height = seek(context, "height", "高さ", 160, 400, 256, "dp") { draft.copy(tenKeyHeightDp = it) }
-        width = seek(context, "width", "幅（画面に対する割合）", 60, 100, 100, "%") {
-            draft.copy(tenKeyWidthPercent = it)
-        }
-        position = seek(context, "position", "左右位置", 0, 100, 50, "%") {
-            draft.copy(tenKeyPositionPercent = it)
-        }
-        bottom = seek(context, "bottom", "下の余白", 0, 160, 0, "dp") {
-            draft.copy(tenKeyBottomPaddingDp = it)
-        }
-        listOf(layout, operation, hold, vibrate, height, width, position, bottom).forEach(category::addPreference)
-        vibrate.summary = "振動子のない端末では利用できません。"
+        width = seek(context, "width", "幅（画面に対する割合）", 60, 100, 100, "%") { draft.copy(tenKeyWidthPercent = it) }
+        position = seek(context, "position", "左右位置", 0, 100, 50, "%") { draft.copy(tenKeyPositionPercent = it) }
+        bottom = seek(context, "bottom", "下の余白", 0, 160, 0, "dp") { draft.copy(tenKeyBottomPaddingDp = it) }
+        val items = if (editor == TouchKeyboardSettingsActivity.PAGE_OPERATION)
+            listOf(operation, hold, vibrate) else listOf(height, width, position, bottom)
+        items.forEach(category::addPreference)
     }
 
-    fun refresh(value: TouchKeyboardSettings, hasVibrator: Boolean) {
-        if (!::layout.isInitialized) return
+    fun refresh(value: TouchKeyboardSettings, hasVibrator: Boolean, target: String) {
+        if (!::operation.isInitialized) return
+        editor = target
         draft = value
         refreshing = true
-        layout.value = value.layout.name; operation.value = value.operation.name
+        operation.value = value.operation.name
         hold.value = value.holdMillis; hold.summary = "${value.holdMillis} ms"
         vibrate.isChecked = value.vibrateOnBoundary
         height.value = value.tenKeyHeightDp; width.value = value.tenKeyWidthPercent
-        position.value = value.tenKeyPositionPercent
-        bottom.value = value.tenKeyBottomPaddingDp
+        position.value = value.tenKeyPositionPercent; bottom.value = value.tenKeyBottomPaddingDp
         bottom.summary = "${value.tenKeyBottomPaddingDp} dp（OSの操作領域に追加）"
-        height.summary = "${value.tenKeyHeightDp} dp"
-        width.summary = "${value.tenKeyWidthPercent} %"
+        height.summary = "${value.tenKeyHeightDp} dp"; width.summary = "${value.tenKeyWidthPercent} %"
         position.summary = when (value.tenKeyPositionPercent) {
-            0 -> "左端"
-            50 -> "中央"
-            100 -> "右端"
+            0 -> "左端"; 50 -> "中央"; 100 -> "右端"
             else -> "中央から${if (value.tenKeyPositionPercent < 50) "左" else "右"}へ ${kotlin.math.abs(value.tenKeyPositionPercent - 50)} %"
         }
-        vibrate.isEnabled = hasVibrator
-        vibrate.summary = if (hasVibrator) "境界指定時は一回、取消時は短く二回振動します。"
-            else "この端末には振動子がありません。振動しません。"
-        val tenKey = value.layout == ScreenKeyboardLayout.TEN_KEY
         val usesHold = value.operation != TenKeyOperation.FLICK
-        layout.isVisible = true
-        operation.isVisible = tenKey
-        hold.isVisible = tenKey
         hold.isEnabled = usesHold
-        vibrate.isVisible = tenKey
-        height.isVisible = tenKey; width.isVisible = tenKey; position.isVisible = tenKey; bottom.isVisible = tenKey
+        hold.summary = if (usesHold) "${value.holdMillis} ms" else "通常タップ・フリックでは使用しません。"
         vibrate.isEnabled = hasVibrator && usesHold
+        vibrate.summary = when {
+            !hasVibrator -> "この端末には振動子がありません。振動しません。"
+            !usesHold -> "通常タップ・フリックでは使用しません。"
+            else -> "境界指定時は一回、取消時は短く二回振動します。"
+        }
         refreshing = false
-    }
-
-    private fun list(context: Context, keyValue: String, titleValue: String, values: Array<String>, labels: Array<String>,
-        transform: (String) -> TouchKeyboardSettings): ListPreference = ListPreference(context).apply {
-        key = keyValue; title = titleValue; entries = labels; entryValues = values; isIconSpaceReserved = false
-        isPersistent = false
-        summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
-        setOnPreferenceChangeListener { _, raw -> if (!refreshing) update(transform(raw as String)); true }
     }
 
     private fun seek(context: Context, keyValue: String, titleValue: String, minimum: Int, maximum: Int,
         default: Int, unit: String, transform: (Int) -> TouchKeyboardSettings): SeekBarPreference =
         SeekBarPreference(context).apply {
             key = keyValue; title = titleValue; min = minimum; max = maximum; value = default
-            showSeekBarValue = true; isIconSpaceReserved = false; isPersistent = false
-            summary = "$default $unit"
-            setOnPreferenceChangeListener { _, raw ->
-                if (!refreshing) update(transform(raw as Int))
-                true
-            }
+            showSeekBarValue = true; isIconSpaceReserved = false; isPersistent = false; summary = "$default $unit"
+            setOnPreferenceChangeListener { _, raw -> if (!refreshing) update(transform(raw as Int)); true }
         }
 
     private fun update(value: TouchKeyboardSettings) { draft = value; onDraftChanged?.invoke(value) }

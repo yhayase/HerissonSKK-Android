@@ -1,15 +1,18 @@
 package se.haya.skk
 
 import android.app.AlertDialog
-import android.os.Looper
+import android.content.Intent
+import android.view.View
 import android.os.Bundle
-import androidx.preference.ListPreference
+import android.os.Looper
+import androidx.preference.Preference
 import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreferenceCompat
+import androidx.preference.ListPreference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,197 +20,174 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
+import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowDialog
 import se.haya.skk.settings.ScreenKeyboardLayout
-import se.haya.skk.settings.TenKeyReadingModes
-import se.haya.skk.settings.TenKeyReadingModeStore
 import se.haya.skk.settings.TenKeyOperation
+import se.haya.skk.settings.TenKeyReadingModeStore
+import se.haya.skk.settings.TenKeyReadingModes
 import se.haya.skk.settings.TouchKeyboardSettings
 import se.haya.skk.settings.TouchKeyboardSettingsStore
-import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35])
 class TouchKeyboardSettingsActivityTest {
-    private fun start(): TouchKeyboardSettingsActivity {
-        RuntimeEnvironment.getApplication().getSharedPreferences("settings", 0).edit().clear().commit()
-        return Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java).setup().get()
+    private fun start(page: String? = null, initial: TouchKeyboardSettings? = null): TouchKeyboardSettingsActivity {
+        val app = RuntimeEnvironment.getApplication()
+        app.getSharedPreferences("settings", 0).edit().clear().commit()
+        if (initial != null) assertTrue(TouchKeyboardSettingsStore.save(app, initial))
+        val intent = Intent(app, TouchKeyboardSettingsActivity::class.java)
+        if (page != null) intent.putExtra(TouchKeyboardSettingsActivity.EXTRA_PAGE, page)
+        return Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java, intent).setup().get()
     }
 
-    @Test fun `常時読み入力の全体設定は配列変更後も表示しない`() {
+    private fun fragment(activity: TouchKeyboardSettingsActivity) =
+        activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
+
+    @Test fun `標準の画面は二つの編集先だけを示し配列や保存操作を持たない`() {
         val activity = start()
-        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
-        assertNull(page.findPreference<SwitchPreferenceCompat>("auto_start_reading"))
-        page.findPreference<ListPreference>("layout")!!.callChangeListener("TEN_KEY")
-        assertNull(page.findPreference<SwitchPreferenceCompat>("auto_start_reading"))
+        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsHubFragment
+        assertEquals(2, page.preferenceScreen.preferenceCount)
+        assertEquals("10キーの操作", page.preferenceScreen.getPreference(0).title)
+        assertEquals("10キーの大きさと位置", page.preferenceScreen.getPreference(1).title)
+        assertNull(page.findPreference<Preference>("layout"))
+        assertNull(page.findPreference<Preference>("settings_save"))
+        assertNull(page.findPreference<Preference>("settings_defaults"))
+        assertEquals(View.GONE, activity.findViewById<View>(R.id.settings_actions).visibility)
     }
 
-    @Test fun `標準に戻して再生成した下書きを保存しても入力中の面別状態を維持する`() {
-        RuntimeEnvironment.getApplication().getSharedPreferences("settings", 0).edit().clear().commit()
-        val controller = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java).setup()
+    @Test fun `QWERTY選択中でも操作と形状の各ページを開いて編集でき配列は維持する`() {
+        val activity = start()
+        assertTrue(TouchKeyboardSettingsStore.saveLayout(activity, ScreenKeyboardLayout.QWERTY))
+        val operation = start(TouchKeyboardSettingsActivity.PAGE_OPERATION)
+        val opPage = fragment(operation)
+        assertNotNull(opPage.findPreference<ListPreference>("operation"))
+        assertNotNull(opPage.findPreference<SeekBarPreference>("hold"))
+        assertNotNull(opPage.findPreference<SwitchPreferenceCompat>("vibrate"))
+        opPage.findPreference<ListPreference>("operation")!!.callChangeListener("HOLD")
+        operation.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertEquals(ScreenKeyboardLayout.QWERTY, TouchKeyboardSettingsStore.read(operation).layout)
+        assertEquals(TenKeyOperation.HOLD, TouchKeyboardSettingsStore.read(operation).operation)
+
+        val geometry = start(TouchKeyboardSettingsActivity.PAGE_GEOMETRY)
+        val geometryPage = fragment(geometry)
+        for (key in listOf("height", "width", "position", "bottom"))
+            assertNotNull(geometryPage.findPreference<SeekBarPreference>(key))
+        geometryPage.findPreference<SeekBarPreference>("height")!!.callChangeListener(320)
+        geometry.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertEquals(ScreenKeyboardLayout.QWERTY, TouchKeyboardSettingsStore.read(geometry).layout)
+        assertEquals(320, TouchKeyboardSettingsStore.read(geometry).tenKeyHeightDp)
+    }
+
+    @Test fun `操作ページ保存は後から変更された形状を保つ`() {
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_OPERATION)
+        fragment(activity).findPreference<ListPreference>("operation")!!.callChangeListener("HOLD")
+        assertTrue(TouchKeyboardSettingsStore.saveGeometry(activity, 300, 75, 80, 64))
+        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        val saved = TouchKeyboardSettingsStore.read(activity)
+        assertEquals(TenKeyOperation.HOLD, saved.operation)
+        assertEquals(300, saved.tenKeyHeightDp)
+        assertEquals(75, saved.tenKeyWidthPercent)
+        assertEquals(80, saved.tenKeyPositionPercent)
+        assertEquals(64, saved.tenKeyBottomPaddingDp)
+    }
+
+    @Test fun `形状ページ保存は形状と配列の同時変更を保ち操作を上書きしない`() {
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_GEOMETRY)
+        assertTrue(TouchKeyboardSettingsStore.save(activity, TouchKeyboardSettings(
+            layout = ScreenKeyboardLayout.TEN_KEY, operation = TenKeyOperation.HOLD)))
+        assertTrue(TouchKeyboardSettingsStore.saveGeometry(activity, 300, 75, 80, 64))
+        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        val saved = TouchKeyboardSettingsStore.read(activity)
+        assertEquals(ScreenKeyboardLayout.TEN_KEY, saved.layout)
+        assertEquals(TenKeyOperation.HOLD, saved.operation)
+        assertEquals(300, saved.tenKeyHeightDp)
+        assertEquals(75, saved.tenKeyWidthPercent)
+        assertEquals(80, saved.tenKeyPositionPercent)
+        assertEquals(64, saved.tenKeyBottomPaddingDp)
+    }
+
+    @Test fun `各ページの下書きは回転後に維持し保存して戻る`() {
+        val controller = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), TouchKeyboardSettingsActivity::class.java)
+                .putExtra(TouchKeyboardSettingsActivity.EXTRA_PAGE, TouchKeyboardSettingsActivity.PAGE_GEOMETRY)).setup()
         val activity = controller.get()
-        assertTrue(TouchKeyboardSettingsStore.save(activity, TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY)))
-        val modes = TenKeyReadingModes(kana = true, number = true)
-        assertTrue(TenKeyReadingModeStore.save(activity, modes))
-        activity.findViewById<android.widget.Button>(R.id.settings_defaults).performClick()
-        val resetDialog = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
-        resetDialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        fragment(activity).findPreference<SeekBarPreference>("width")!!.callChangeListener(80)
         val state = Bundle()
         controller.saveInstanceState(state).pause().stop().destroy()
-        val recreated = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java)
+        val recreated = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), TouchKeyboardSettingsActivity::class.java)
+                .putExtra(TouchKeyboardSettingsActivity.EXTRA_PAGE, TouchKeyboardSettingsActivity.PAGE_GEOMETRY))
             .create(state).start().resume().visible().get()
-        val page = recreated.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
-        assertNull(page.findPreference<SwitchPreferenceCompat>("auto_start_reading"))
-        // 設定画面を開いた後のキーボード側の変更も保存対象に含めません。
-        val current = modes.copy(alpha = true)
-        assertTrue(TenKeyReadingModeStore.save(recreated, current))
+        assertEquals(80, fragment(recreated).findPreference<SeekBarPreference>("width")!!.value)
         recreated.findViewById<android.widget.Button>(R.id.settings_save).performClick()
-        assertEquals(current, TenKeyReadingModeStore.read(recreated))
-        assertEquals(TouchKeyboardSettings(), TouchKeyboardSettingsStore.read(recreated))
+        assertTrue(recreated.isFinishing)
+        assertEquals(80, TouchKeyboardSettingsStore.read(recreated).tenKeyWidthPercent)
     }
 
-    @Test fun `配列と操作の下書きを保存すると次回向け設定として保持する`() {
-        val activity = start()
-        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content)
-            as TouchKeyboardSettingsFragment
-        val layout = page.findPreference<ListPreference>("layout")!!
-        val operation = page.findPreference<ListPreference>("operation")!!
-        assertEquals("QWERTY", layout.summary.toString())
-        assertEquals("QWERTY", layout.value)
-        assertTrue(layout.callChangeListener("TEN_KEY"))
-        assertTrue(operation.callChangeListener("HOLD"))
-        assertEquals("10キー", layout.summary.toString())
-        assertEquals("ホールドで境界", operation.summary.toString())
-        assertFalse(activity.isFinishing)
-
-        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
-
-        assertTrue(activity.isFinishing)
-        assertEquals(TouchKeyboardSettings(ScreenKeyboardLayout.TEN_KEY, TenKeyOperation.HOLD),
-            TouchKeyboardSettingsStore.read(activity))
-    }
-
-    @Test fun `未保存変更から戻ると保存破棄キャンセルを確認する`() {
-        val activity = start()
-        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content)
-            as TouchKeyboardSettingsFragment
-        assertTrue(page.findPreference<ListPreference>("layout")!!.callChangeListener("TEN_KEY"))
-
+    @Test fun `未保存変更から戻ると破棄を確認し設定を変更しない`() {
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_OPERATION)
+        fragment(activity).findPreference<ListPreference>("operation")!!.callChangeListener("HOLD")
         activity.requestPageClose()
         val dialog = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
         assertNotNull(dialog)
-        assertEquals("保存して閉じる", dialog.getButton(AlertDialog.BUTTON_POSITIVE).text.toString())
         assertEquals("破棄", dialog.getButton(AlertDialog.BUTTON_NEGATIVE).text.toString())
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
         Shadows.shadowOf(Looper.getMainLooper()).idle()
-
         assertTrue(activity.isFinishing)
         assertEquals(TouchKeyboardSettings(), TouchKeyboardSettingsStore.read(activity))
     }
 
-    @Test fun `10キー形状の下書きは保存され画面再生成後も維持する`() {
-        RuntimeEnvironment.getApplication().getSharedPreferences("settings", 0).edit().clear().commit()
-        val controller = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java).setup()
-        val activity = controller.get()
-        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content)
-            as TouchKeyboardSettingsFragment
-        assertTrue(page.findPreference<ListPreference>("layout")!!.callChangeListener("TEN_KEY"))
-        val height = page.findPreference<SeekBarPreference>("height")!!
-        assertTrue(height.isVisible)
-        assertTrue(height.callChangeListener(320))
-        assertTrue(page.findPreference<SeekBarPreference>("width")!!.callChangeListener(80))
-        assertTrue(page.findPreference<SeekBarPreference>("position")!!.callChangeListener(20))
-        assertTrue(page.findPreference<SeekBarPreference>("bottom")!!.callChangeListener(64))
-
-        val savedState = Bundle()
-        controller.saveInstanceState(savedState).pause().stop().destroy()
-        val recreated = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java)
-            .create(savedState).start().resume().visible().get()
-        val recreatedPage = recreated.supportFragmentManager.findFragmentById(R.id.settings_content)
-            as TouchKeyboardSettingsFragment
-        assertEquals(320, recreatedPage.findPreference<SeekBarPreference>("height")!!.value)
-        assertEquals(80, recreatedPage.findPreference<SeekBarPreference>("width")!!.value)
-        assertEquals(20, recreatedPage.findPreference<SeekBarPreference>("position")!!.value)
-        assertEquals(64, recreatedPage.findPreference<SeekBarPreference>("bottom")!!.value)
-        recreated.findViewById<android.widget.Button>(R.id.settings_save).performClick()
-        assertEquals(TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY,
-            tenKeyHeightDp = 320, tenKeyWidthPercent = 80, tenKeyPositionPercent = 20, tenKeyBottomPaddingDp = 64),
-            TouchKeyboardSettingsStore.read(recreated))
-    }
-
-    @Test fun `画面を開いた後のIME形状調整は形状を編集せずに保存しても残る`() {
-        val activity = start()
-        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content)
-            as TouchKeyboardSettingsFragment
-        assertTrue(page.findPreference<ListPreference>("layout")!!.callChangeListener("TEN_KEY"))
-        assertTrue(TouchKeyboardSettingsStore.saveGeometry(activity, 300, 75, 80, 80))
+    @Test fun `操作ページの標準化は配列と形状を維持する`() {
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_OPERATION, TouchKeyboardSettings(
+            layout = ScreenKeyboardLayout.TEN_KEY, tenKeyHeightDp = 300, operation = TenKeyOperation.HOLD))
+        activity.findViewById<android.widget.Button>(R.id.settings_defaults).performClick()
+        (ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog)
+            .getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
         activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
-        val actual = TouchKeyboardSettingsStore.read(activity)
-        assertEquals(300, actual.tenKeyHeightDp)
-        assertEquals(75, actual.tenKeyWidthPercent)
-        assertEquals(80, actual.tenKeyPositionPercent)
-        assertEquals(80, actual.tenKeyBottomPaddingDp)
+        val saved = TouchKeyboardSettingsStore.read(activity)
+        assertEquals(ScreenKeyboardLayout.TEN_KEY, saved.layout)
+        assertEquals(300, saved.tenKeyHeightDp)
+        assertEquals(TouchKeyboardSettings().operation, saved.operation)
     }
 
-    @Test fun `配列を編集していない下書き保存は入力中の配列切替を保持する`() {
-        val activity = start()
-        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
-        page.findPreference<SeekBarPreference>("hold")!!.callChangeListener(500)
-        assertTrue(TouchKeyboardSettingsStore.saveLayout(activity, ScreenKeyboardLayout.TEN_KEY))
+    @Test fun `形状ページ標準化は配列と操作および読みモードを維持する`() {
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_GEOMETRY, TouchKeyboardSettings(
+            layout = ScreenKeyboardLayout.TEN_KEY, tenKeyHeightDp = 300, operation = TenKeyOperation.HOLD))
+        val modes = TenKeyReadingModes(kana = true, number = true)
+        assertTrue(TenKeyReadingModeStore.save(activity, modes))
+        activity.findViewById<android.widget.Button>(R.id.settings_defaults).performClick()
+        (ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog)
+            .getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
         activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
-        assertEquals(ScreenKeyboardLayout.TEN_KEY, TouchKeyboardSettingsStore.read(activity).layout)
-        assertEquals(500, TouchKeyboardSettingsStore.read(activity).holdMillis)
+        val saved = TouchKeyboardSettingsStore.read(activity)
+        assertEquals(ScreenKeyboardLayout.TEN_KEY, saved.layout)
+        assertEquals(TenKeyOperation.HOLD, saved.operation)
+        assertEquals(256, saved.tenKeyHeightDp)
+        assertEquals(modes, TenKeyReadingModeStore.read(activity))
     }
 
-    @Test fun `ホールド時間スライダーは範囲と刻みと現在値を表示し下書きを保存する`() {
-        val activity = start()
-        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
-        assertTrue(page.findPreference<ListPreference>("layout")!!.callChangeListener("TEN_KEY"))
-        val hold = page.findPreference<SeekBarPreference>("hold")!!
-        assertEquals(100, hold.min)
-        assertEquals(1000, hold.max)
-        assertEquals(10, hold.seekBarIncrement)
+    @Test fun `ホールド時間は10ms単位に丸め保存までは既存値を変えない`() {
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_OPERATION)
+        val hold = fragment(activity).findPreference<SeekBarPreference>("hold")!!
         assertEquals(350, hold.value)
-        assertEquals("350 ms", hold.summary.toString())
-        assertTrue(hold.callChangeListener(1000))
-        assertEquals(1000, hold.value)
-        assertEquals("1000 ms", hold.summary.toString())
-        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
-        assertEquals(1000, TouchKeyboardSettingsStore.read(activity).holdMillis)
-    }
-
-    @Test fun `ホールドのタッチ値を10msへ丸め保存までは既存値を変えない`() {
-        val activity = start()
-        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
-        val hold = page.findPreference<SeekBarPreference>("hold")!!
         assertFalse(hold.callChangeListener(354))
         assertEquals(350, hold.value)
         assertFalse(hold.callChangeListener(355))
         assertEquals(360, hold.value)
-        assertEquals("360 ms", hold.summary.toString())
         assertEquals(350, TouchKeyboardSettingsStore.read(activity).holdMillis)
         activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
         assertEquals(360, TouchKeyboardSettingsStore.read(activity).holdMillis)
     }
 
-    @Test fun `標準に戻す操作は画面を開いた後のIME形状調整も既定値へ戻す`() {
-        val activity = start()
-        assertTrue(TouchKeyboardSettingsStore.saveGeometry(activity, 300, 75, 80, 80))
-
-        activity.findViewById<android.widget.Button>(R.id.settings_defaults).performClick()
-        val resetDialog = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
-        assertEquals("標準に戻す", resetDialog.getButton(AlertDialog.BUTTON_POSITIVE).text.toString())
-        resetDialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content)
-            as TouchKeyboardSettingsFragment
-        assertEquals(256, page.findPreference<SeekBarPreference>("height")!!.value)
-        assertEquals(100, page.findPreference<SeekBarPreference>("width")!!.value)
-        assertEquals(50, page.findPreference<SeekBarPreference>("position")!!.value)
-        assertEquals(0, page.findPreference<SeekBarPreference>("bottom")!!.value)
+    @Test fun `常時読み入力状態は設定画面の変更や保存でも維持する`() {
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_OPERATION)
+        val modes = TenKeyReadingModes(kana = true, number = true)
+        assertTrue(TenKeyReadingModeStore.save(activity, modes))
+        fragment(activity).findPreference<ListPreference>("operation")!!.callChangeListener("HOLD")
         activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
-
-        assertEquals(TouchKeyboardSettings(), TouchKeyboardSettingsStore.read(activity))
+        assertEquals(modes, TenKeyReadingModeStore.read(activity))
     }
 }

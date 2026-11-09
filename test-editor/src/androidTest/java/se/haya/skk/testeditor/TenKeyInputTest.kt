@@ -920,25 +920,30 @@ class TenKeyInputTest {
     }
 
     private fun configureLayout(layout: String, holdMillis: Int = 350) {
-        device.executeShellCommand("am start -W -a android.intent.action.VIEW -f 0x14000000 -n se.haya.skk/.SettingsActivity")
-        device.waitForIdle()
-        if (!device.findObject(UiSelector().text("画面キーボード")).waitForExists(1_000)) {
-            UiScrollable(UiSelector().scrollable(true)).scrollIntoView(UiSelector().text("画面キーボード"))
-        }
-        assertTrue(device.findObject(UiSelector().text("画面キーボード")).click())
-        fun select(title: String, option: String) {
-            assertTrue(device.findObject(UiSelector().text(title)).click())
-            assertTrue(device.findObject(UiSelector().text(option)).click())
-        }
-        select("配列", layout)
         if (layout == "10キー") {
-            select("10キーの操作", "ホールド＋往復")
+            device.executeShellCommand("am start -W -a android.intent.action.VIEW -f 0x14000000 -n se.haya.skk/.SettingsActivity")
+            device.waitForIdle()
+            if (!device.findObject(UiSelector().text("画面キーボード")).waitForExists(1_000)) {
+                UiScrollable(UiSelector().scrollable(true)).scrollIntoView(UiSelector().text("画面キーボード"))
+            }
+            assertTrue(device.findObject(UiSelector().text("画面キーボード")).click())
+            assertTrue(device.findObject(UiSelector().text("10キーの操作")).click())
+            assertTrue(device.findObject(UiSelector().text("操作方式")).click())
+            assertTrue(device.findObject(UiSelector().text("ホールド＋往復")).click())
             setHoldMillis(holdMillis)
-
+            assertTrue(device.findObject(UiSelector().text("保存").className("android.widget.Button")).click())
+            device.waitForIdle()
+            await("設定の保存が完了しません") {
+                device.findObject(UiSelector().text("10キーの大きさと位置")).exists()
+            }
         }
-        assertTrue(device.findObject(UiSelector().text("保存").className("android.widget.Button")).click())
-        device.waitForIdle()
-        await("設定の保存が完了しません") { device.findObject(UiSelector().text("設定")).exists() }
+        // 配列は実際のキーボードの切替キーで選び、次の入力欄にも保持されることを使います。
+        withEditor(requireTenKey = false) { _, _ ->
+            val switchTo = if (layout == "10キー") "10キーへ切替" else "QWERTYへ切替"
+            val switchBack = if (layout == "10キー") "QWERTYへ切替" else "10キーへ切替"
+            if (device.findObject(UiSelector().description(switchTo)).exists()) tap(switchTo)
+            key(switchBack)
+        }
     }
 
     private fun setHoldMillis(millis: Int) {
@@ -1031,7 +1036,7 @@ class TenKeyInputTest {
         return checkNotNull(result)
     }
 
-    private fun withEditor(block: (EditText, ActivityScenario<InputTestActivity>) -> Unit) {
+    private fun withEditor(requireTenKey: Boolean = true, block: (EditText, ActivityScenario<InputTestActivity>) -> Unit) {
         ActivityScenario.launch<InputTestActivity>(android.content.Intent(instrumentation.targetContext,
             InputTestActivity::class.java).putExtra(InputTestActivity.EXTRA_SUPPRESS_LEARNING, true)).use { scenario ->
             lateinit var editor: EditText
@@ -1041,7 +1046,11 @@ class TenKeyInputTest {
                 editor.requestFocus()
                 activity.getSystemService(InputMethodManager::class.java).showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
             }
-            key("ABC")
+            if (requireTenKey) key("ABC") else await("画面キーボードの配列切替キーがありません") {
+                listOf("10キーへ切替", "QWERTYへ切替").any {
+                    device.findObject(UiSelector().description(it)).exists()
+                }
+            }
             try { block(editor, scenario) } catch (error: Throwable) {
                 val folder = java.io.File(instrumentation.targetContext.filesDir, "ten-key-ui-polish").apply { mkdirs() }
                 java.io.File(folder, "failure.png").outputStream().use {
