@@ -42,6 +42,14 @@ android {
 }
 
 dependencies {
+    constraints {
+        testImplementation("com.google.guava:guava:33.7.2-jre") {
+            because("Robolectric の推移依存に含まれる GHSA-xxph-c9ww-hj94 の修正済み版以上を使います")
+        }
+        testImplementation("org.bouncycastle:bcprov-jdk18on:1.85") {
+            because("Robolectric の推移依存に含まれる GHSA-qp49-qgx5-5m26 などの修正済み版以上を使います")
+        }
+    }
     implementation(project(":core"))
     implementation("androidx.preference:preference:1.2.1")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
