@@ -65,6 +65,34 @@ class PredictionPagingTest {
         assertFalse(engine.currentView.prediction!!.loadingMore)
     }
 
+    @Test fun `表示幅が変わっても予測の追加取得で途中の候補を飛ばさない`() {
+        val dictionary = Dictionary()
+        var capacity = 4
+        val engine = BasicSkkEngine(dictionary, RegistrationPolicy(),
+            touchCandidatePageCapacityProvider = { _, _, _ -> capacity })
+        engine.dispatch(BasicSkkAction.SetTouchPrediction(true))
+        engine.dispatch(BasicSkkAction.StartReading)
+        engine.dispatch(BasicSkkAction.Text("ka", interpretCommands = false))
+        repeat(3) { engine.dispatch(BasicSkkAction.NextCandidatePage) }
+        val initial = engine.currentView.prediction!!
+        assertSame(initial, engine.repaginateTouchMenu().prediction)
+
+        dictionary.pending = true
+        engine.dispatch(BasicSkkAction.NextCandidatePage)
+        capacity = 2
+        val resized = engine.repaginateTouchMenu().prediction!!
+        assertEquals(12, resized.pageStart)
+        assertEquals(2, resized.pageSize)
+        assertTrue(resized.loadingMore)
+
+        dictionary.pending = false
+        engine.dispatch(BasicSkkAction.RefreshPrediction)
+        assertEquals(14, engine.currentView.prediction!!.pageStart)
+        engine.dispatch(BasicSkkAction.PreviousCandidatePage)
+        assertEquals(12, engine.currentView.prediction!!.pageStart)
+        assertEquals(2, engine.currentView.prediction!!.pageSize)
+    }
+
     @Test fun `入力が変わると追加要求と古い候補を捨て16件から始める`() {
         val dictionary = Dictionary()
         val engine = engine(dictionary)

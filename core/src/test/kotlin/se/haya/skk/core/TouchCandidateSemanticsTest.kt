@@ -59,6 +59,31 @@ class TouchCandidateSemanticsTest {
         assertEquals("候補3", engine.dispatch(BasicSkkAction.CommitPageHead).commit)
     }
 
+    @Test fun `表示幅の変更後も現在ページの先頭を保ち前後の候補を重複なく辿る`() {
+        var capacity = 3
+        val engine = BasicSkkEngine(
+            dictionary = BasicSkkDictionary { (1..9).map { DictionaryCandidate("候補$it") } },
+            registrationPolicy = RegistrationPolicy(),
+            candidatePageCapacityProvider = { _, _ -> 4 },
+            touchCandidatePageCapacityProvider = { _, _, _ -> capacity },
+        )
+        engine.startConversion()
+        engine.dispatch(BasicSkkAction.NextCandidatePage)
+        val before = engine.currentView.candidate!!
+        assertEquals(3, before.pageStart)
+        assertEquals(4, before.menu.size)
+
+        capacity = 2
+        val resized = engine.repaginateTouchMenu().candidate!!
+        assertEquals(before.menu, resized.menu)
+        assertEquals(before.index, resized.index)
+        assertEquals(listOf(3, 4), resized.pageItems.map { it.index })
+        val previous = engine.dispatch(BasicSkkAction.PreviousCandidatePage).view.candidate!!
+        assertEquals(listOf(2), previous.pageItems.map { it.index })
+        assertEquals(resized.pageItems, engine.dispatch(BasicSkkAction.NextCandidatePage).view.candidate!!.pageItems)
+        assertEquals(listOf(5, 6), engine.dispatch(BasicSkkAction.NextCandidatePage).view.candidate!!.pageItems.map { it.index })
+    }
+
     @Test fun `物理候補ページは測定容量の境界と同じラベルで選択する`() {
         val engine = BasicSkkEngine(
             dictionary = BasicSkkDictionary { (1..9).map { DictionaryCandidate("候補$it") } },

@@ -53,6 +53,7 @@ class EditorSession(
     candidateDisplayConfig: se.haya.skk.core.CandidateDisplayConfig = se.haya.skk.core.CandidateDisplayConfig(),
     candidatePageSizeProvider: () -> Int = { candidateDisplayConfig.fixedPageSize },
     candidatePageCapacityProvider: ((List<se.haya.skk.core.DictionaryCandidate>, Int) -> Int)? = null,
+    touchCandidatePageCapacityProvider: ((List<se.haya.skk.core.DictionaryCandidate>, Int, Boolean) -> Int)? = null,
     private val emacsEnabled: Boolean = false,
     private val internalEmacsEnabled: Boolean = false,
     private val touchEditorAction: Int = android.view.inputmethod.EditorInfo.IME_ACTION_NONE,
@@ -83,7 +84,8 @@ class EditorSession(
         completionConfig = completionConfig, romanRuleSet = romanRuleSet,
         punctuationConfig = punctuationConfig, candidateDisplayConfig = candidateDisplayConfig,
         candidatePageSizeProvider = candidatePageSizeProvider,
-        candidatePageCapacityProvider = candidatePageCapacityProvider)
+        candidatePageCapacityProvider = candidatePageCapacityProvider,
+        touchCandidatePageCapacityProvider = touchCandidatePageCapacityProvider)
     var view = BasicSkkView(null, null, null)
         private set
     var notice: String? = null
@@ -531,6 +533,16 @@ class EditorSession(
         touchCandidatePresentation = enabled
         if (!active || failed || protectedInput) return true
         return handleTouch(BasicSkkAction.SetTouchPrediction(enabled))
+    }
+
+    internal fun repaginateTouchMenu(): Boolean {
+        if (!active || failed || protectedInput || !touchCandidatePresentation) return false
+        val hasMenu = view.candidate != null || view.prediction?.items?.isNotEmpty() == true ||
+            view.registration?.innerCandidate != null
+        val updated = engine.repaginateTouchMenu()
+        if (!hasMenu || updated == view) return false
+        view = updated
+        return true
     }
 
     /** 右下キーは未確定状態だけを確定し、その同じ押下を入力先アクションへ続けません。 */

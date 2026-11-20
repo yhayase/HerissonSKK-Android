@@ -315,19 +315,26 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             },
             punctuationConfig = custom.punctuation, candidateDisplayConfig = custom.candidateDisplay,
             candidatePageCapacityProvider = { candidates, start ->
-                if (shouldShowTouchCharacters()) {
-                    candidateStatusView?.pageCapacity(candidates.map { it.text }, start) ?: 1
-                } else {
-                    val viewport = window?.window?.decorView?.let(PhysicalInputPopup::viewport)
-                    val width = viewport?.width() ?: resources.displayMetrics.widthPixels
-                    val presenter = candidateStatusView
-                    presenter?.physicalPageCapacity(
-                        candidates.map { it.text to it.annotation }, start, custom.candidateDisplay.labels.length,
-                        availableWidthPx = width,
-                        availableHeightPx = viewport?.height() ?: resources.displayMetrics.heightPixels,
-                        reservedHeaderHeightPx = presenter.physicalHeaderHeight(renderedPresentation, width),
-                    ) ?: 1
+                val viewport = window?.window?.decorView?.let(PhysicalInputPopup::viewport)
+                val width = viewport?.width() ?: resources.displayMetrics.widthPixels
+                val presenter = candidateStatusView
+                val entries = object : AbstractList<Pair<String, String?>>() {
+                    override val size: Int get() = candidates.size
+                    override fun get(index: Int): Pair<String, String?> =
+                        candidates[index].let { it.text to it.annotation }
                 }
+                presenter?.physicalPageCapacity(entries, start, custom.candidateDisplay.labels.length,
+                    availableWidthPx = width,
+                    availableHeightPx = viewport?.height() ?: resources.displayMetrics.heightPixels,
+                    reservedHeaderHeightPx = presenter.physicalHeaderHeight(renderedPresentation, width),
+                ) ?: 1
+            },
+            touchCandidatePageCapacityProvider = { candidates, start, registering ->
+                val texts = object : AbstractList<String>() {
+                    override val size: Int get() = candidates.size
+                    override fun get(index: Int): String = candidates[index].text
+                }
+                candidateStatusView?.pageCapacity(texts, start, adaptiveRows = !registering) ?: 1
             },
             candidatePageSizeProvider = {
                 custom.candidateDisplay.pageSize(
@@ -463,6 +470,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
             candidateStatusView = it.candidateStatusView
             statusView = it.candidateStatusView.statusTextView
             it.candidateStatusView.setOnCandidateTapListener(::onCandidateTapped)
+            it.candidateStatusView.onTouchViewportChanged = {
+                if (touchKeyboardView === it && session?.repaginateTouchMenu() == true) render()
+            }
             it.candidateStatusView.setOnPageListeners(
                 { configurationRestart = null; session?.handleTouch(BasicSkkAction.PreviousCandidatePage); render() },
                 { configurationRestart = null; session?.handleTouch(BasicSkkAction.NextCandidatePage); render() },

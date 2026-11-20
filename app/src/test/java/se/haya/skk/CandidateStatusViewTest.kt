@@ -9,6 +9,7 @@ import android.widget.Button
 import android.os.Looper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -547,6 +548,54 @@ class CandidateStatusViewTest {
         view.reserveTouchViewport = false
         layout(view, 480)
         assertTrue(view.measuredHeight > height)
+    }
+
+    @Test @Config(sdk = [35])
+    fun `候補の実測幅で予約高と段数とページ件数を揃える`() {
+        val view = CandidateStatusView(RuntimeEnvironment.getApplication()).apply { reserveTouchViewport = true }
+        val items = List(4) { index ->
+            CandidateMenuItem(' ', "短い候補$index", target = CandidateTapTarget(1, 1, index, Any(), 0))
+        }
+        val presentation = CandidateStatusPresentation("", menuItems = items, showPageControls = true)
+        val selected = mutableListOf<Int>()
+        view.setOnCandidateTapListener { selected += it.index }
+        val long = listOf("候".repeat(LongCandidateBodyView.CHUNK_SIZE + 1), "次の候補", "次の列")
+        fun tiles() = items.map { item -> descendants(view).single { it.contentDescription == item.text } }
+
+        layout(view, 760)
+        val wideHeight = view.measuredHeight
+        view.show(presentation)
+        layout(view, 760)
+        assertEquals(wideHeight, view.measuredHeight)
+        assertEquals(1, tiles().map { it.parent }.distinct().size)
+        assertEquals(1, view.pageCapacity(long, 0))
+        tiles().forEach { it.performClick() }
+        assertEquals(listOf(0, 1, 2, 3), selected)
+        val pageButtons = descendants(view).filterIsInstance<Button>().filter { it.text in listOf("◀", "▶") }
+        assertEquals(listOf(wideHeight, wideHeight), pageButtons.map { it.height })
+
+        layout(view, 390)
+        assertTrue(view.measuredHeight > wideHeight)
+        assertEquals(2, view.pageCapacity(long, 0))
+        assertSame(tiles()[0].parent, tiles()[2].parent)
+        assertSame(tiles()[1].parent, tiles()[3].parent)
+        assertEquals(tiles()[0].left, tiles()[1].left)
+        assertEquals(tiles()[2].left, tiles()[3].left)
+    }
+
+    @Test @Config(sdk = [35])
+    fun `同じ横幅でも大きな文字では候補領域を二段にする`() {
+        val normal = RuntimeEnvironment.getApplication()
+        val large = normal.createConfigurationContext(android.content.res.Configuration(normal.resources.configuration)
+            .apply { fontScale = 2f })
+        val texts = listOf("候".repeat(LongCandidateBodyView.CHUNK_SIZE + 1), "短い候補")
+        fun capacity(context: android.content.Context): Int {
+            val view = CandidateStatusView(context).apply { reserveTouchViewport = true }
+            layout(view, 760)
+            return view.pageCapacity(texts, 0)
+        }
+        assertEquals(1, capacity(normal))
+        assertEquals(2, capacity(large))
     }
 
     @Test @GraphicsMode(GraphicsMode.Mode.NATIVE) @Config(sdk = [35], qualifiers = "w240dp-h800dp")

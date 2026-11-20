@@ -239,6 +239,7 @@ class BasicSkkEngine(
     private val candidateDisplayConfig: CandidateDisplayConfig = CandidateDisplayConfig(),
     private val candidatePageSizeProvider: () -> Int = { candidateDisplayConfig.fixedPageSize },
     private val candidatePageCapacityProvider: ((List<DictionaryCandidate>, Int) -> Int)? = null,
+    private val touchCandidatePageCapacityProvider: ((List<DictionaryCandidate>, Int, Boolean) -> Int)? = null,
 ) {
     constructor(dictionary: BasicSkkDictionary) : this(dictionary, RegistrationPolicy())
 
@@ -264,6 +265,8 @@ class BasicSkkEngine(
     private var touchPageStarts = mutableListOf(0)
     private var touchPageCapacities = mutableMapOf<Int, Int>()
     private var touchPagePosition = 0
+    private var touchViewportRevision = 0L
+    private var touchPageViewportRevision = 0L
     private var frozenCandidatePageSize = candidateDisplayConfig.fixedPageSize
     private val inlineCandidateCount = candidateDisplayConfig.inlineCandidateCount
     private var pendingTargetsOkuri = false
@@ -316,6 +319,12 @@ class BasicSkkEngine(
 
     /** キー処理を発生させずに現在の表示全体を取得します。 */
     val currentView: BasicSkkView get() = view()
+
+    /** 画面の幅や文字サイズが変わったとき、現在ページの先頭を保って画面候補を詰め直します。 */
+    fun repaginateTouchMenu(): BasicSkkView {
+        touchViewportRevision++
+        return view()
+    }
 
     /** 未取得の辞書参照では、確定文字と永続化効果を外へ出す前に操作全体を戻します。 */
     private inline fun dictionaryTransaction(block: () -> BasicSkkResult): BasicSkkResult {
@@ -542,18 +551,22 @@ class BasicSkkEngine(
         val start = predictionDemand.starts[predictionDemand.position]
         val size = if (current.items.isEmpty()) 0 else predictionDemand.capacities[start] ?: run {
             val displayed = current.items.map { it.candidate.copy(text = it.committedText) }
-            val capacity = (candidatePageCapacityProvider?.invoke(displayed, start)
-                ?: candidatePageSizeProvider()).coerceIn(1, candidateDisplayConfig.labels.length)
-                .coerceAtMost((current.items.size - start).coerceAtLeast(1))
+            val capacity = measurePredictionPageCapacity(displayed, start)
             predictionDemand = predictionDemand.copy(capacities = predictionDemand.capacities + (start to capacity))
             capacity
         }
-        prediction = current.copy(
+        val updated = current.copy(
             pageStart = start, pageSize = size,
             canPreviousPage = predictionDemand.position > 0 && !current.loadingMore,
             canNextPage = !current.loadingMore && (start + size < current.items.size || current.hasMore),
         )
+        if (updated != current) prediction = updated
     }
+
+    private fun measurePredictionPageCapacity(displayed: List<DictionaryCandidate>, start: Int): Int =
+        (measureTouchPageCapacity(displayed, start)
+            ?: candidatePageSizeProvider()).coerceIn(1, candidateDisplayConfig.labels.length)
+            .coerceAtMost((displayed.size - start).coerceAtLeast(1))
 
     private fun movePredictionPage(forward: Boolean): Outcome {
         val current = prediction ?: return Outcome(true)
@@ -2013,7 +2026,7 @@ class BasicSkkEngine(
         }
         touchPageStarts = mutableListOf(0)
         touchPageCapacities = mutableMapOf<Int, Int>().also {
-            if (candidates.isNotEmpty()) it[0] = measureCandidatePageCapacity(0)
+            if (candidates.isNotEmpty()) it[0] = measureCandidatePageCapacity(0, touch = true)
         }
         touchPagePosition = 0
     }
@@ -2045,23 +2058,66 @@ class BasicSkkEngine(
 
     private fun touchPageStart(): Int = touchPageStarts.getOrElse(touchPagePosition) { 0 }
 
-    private fun measureCandidatePageCapacity(start: Int): Int {
+    private fun applyTouchViewportChange() {
+        if (touchPageViewportRevision == touchViewportRevision) return
+        touchPageViewportRevision = touchViewportRevision
+        val (starts, capacities) = measurePagesBefore(touchPageStart()) { start ->
+            measureCandidatePageCapacity(start, touch = true)
+        }
+        touchPageStarts = starts
+        touchPageCapacities = capacities
+        touchPagePosition = starts.lastIndex
+
+        val current = prediction ?: return
+        val displayed = current.items.map { it.candidate.copy(text = it.committedText) }
+        val (predictionStarts, predictionCapacities) = measurePagesBefore(current.pageStart) { start ->
+            measurePredictionPageCapacity(displayed, start)
+        }
+        predictionDemand = predictionDemand.copy(starts = predictionStarts,
+            position = predictionStarts.lastIndex, capacities = predictionCapacities)
+        updatePredictionPage()
+        if (predictionDemand.requestedStart != null) {
+            val updated = checkNotNull(prediction)
+            predictionDemand = predictionDemand.copy(requestedStart = updated.pageStart + updated.pageSize)
+        }
+    }
+
+    private fun measurePagesBefore(anchor: Int, measure: (Int) -> Int): Pair<MutableList<Int>, MutableMap<Int, Int>> {
+        val starts = mutableListOf(0)
+        val capacities = mutableMapOf<Int, Int>()
+        var start = 0
+        while (start < anchor) {
+            val size = measure(start).coerceAtMost(anchor - start)
+            capacities[start] = size
+            start += size
+            starts += start
+        }
+        return starts to capacities
+    }
+
+    private fun measureCandidatePageCapacity(start: Int, touch: Boolean = false): Int {
         val suffix = renderedCandidateSuffix()
         val displayedCandidates = if (suffix.isEmpty()) candidates else object : AbstractList<DictionaryCandidate>() {
             override val size: Int get() = candidates.size
             override fun get(index: Int): DictionaryCandidate =
                 candidates[index].let { it.copy(text = it.text + suffix) }
         }
-        return (candidatePageCapacityProvider?.invoke(displayedCandidates, start) ?: frozenCandidatePageSize)
+        val size = if (touch) measureTouchPageCapacity(displayedCandidates, start)
+            else candidatePageCapacityProvider?.invoke(displayedCandidates, start)
+        return (size ?: frozenCandidatePageSize)
             .coerceIn(1, candidateDisplayConfig.labels.length)
     }
+
+    private fun measureTouchPageCapacity(displayed: List<DictionaryCandidate>, start: Int): Int? =
+        touchCandidatePageCapacityProvider?.invoke(displayed, start, registrations.isNotEmpty())
+            ?: candidatePageCapacityProvider?.invoke(displayed, start)
 
     private fun physicalPageCapacity(start: Int): Int = physicalPageCapacities.getOrPut(start) {
         measureCandidatePageCapacity(start)
     }
 
     private fun touchPageCapacity(start: Int): Int = touchPageCapacities.getOrPut(start) {
-        measureCandidatePageCapacity(start)
+        measureCandidatePageCapacity(start, touch = true)
     }
 
     private fun snapshotReading() = ReadingSnapshot(
@@ -2263,6 +2319,7 @@ class BasicSkkEngine(
     }
 
     private fun view(): BasicSkkView {
+        applyTouchViewportChange()
         val candidate = if (phase == InputPhase.SELECTING) {
             val selected = candidates[candidateIndex]
             val menu = if (candidateIndex >= inlineCandidateCount) {
@@ -2377,6 +2434,7 @@ class BasicSkkEngine(
         touchPageStarts = touchPageStarts.toList(),
         touchPageCapacities = touchPageCapacities.toMap(),
         touchPagePosition = touchPagePosition,
+        touchPageViewportRevision = touchPageViewportRevision,
         frozenCandidatePageSize = frozenCandidatePageSize,
         pendingTargetsOkuri = pendingTargetsOkuri,
         selectionReturnState = selectionReturnState,
@@ -2412,6 +2470,7 @@ class BasicSkkEngine(
         touchPageStarts = snapshot.touchPageStarts.toMutableList()
         touchPageCapacities = snapshot.touchPageCapacities.toMutableMap()
         touchPagePosition = snapshot.touchPagePosition
+        touchPageViewportRevision = snapshot.touchPageViewportRevision
         frozenCandidatePageSize = snapshot.frozenCandidatePageSize
         pendingTargetsOkuri = snapshot.pendingTargetsOkuri
         selectionReturnState = snapshot.selectionReturnState
@@ -2513,6 +2572,7 @@ class BasicSkkEngine(
         val touchPageStarts: List<Int>,
         val touchPageCapacities: Map<Int, Int>,
         val touchPagePosition: Int,
+        val touchPageViewportRevision: Long,
         val frozenCandidatePageSize: Int,
         val pendingTargetsOkuri: Boolean,
         val selectionReturnState: ReadingSnapshot?,

@@ -228,6 +228,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
         set(value) {
             if (field == value) return
             field = value
+            if (!value) lastReportedTouchViewport = null
             updateContentPadding()
             requestLayout()
         }
@@ -311,6 +312,12 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     var onContentSizeChanged: (() -> Unit)? = null
+    var onTouchViewportChanged: (() -> Unit)? = null
+    private var touchViewportWidth = 0
+    private var lastReportedTouchViewport: TouchViewport? = null
+    private val reportTouchViewportChange = Runnable {
+        if (reserveTouchViewport && isAttachedToWindow) onTouchViewportChanged?.invoke()
+    }
     private val transientMode = TextView(context).apply { textSize = 18f; visibility = View.GONE }
     private val modeHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val hideTransientMode = Runnable {
@@ -323,7 +330,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
             if (field != value) {
                 field = value
                 closeDetail()
-                renderedMenuItems = emptyList()
+                renderedMenuTextSize = 0f
                 updateMenuDividers()
             }
         }
@@ -335,7 +342,10 @@ internal class CandidateStatusView @JvmOverloads constructor(
     private val cancelRegistration = Button(context).apply { text = "取消"; visibility = View.GONE }
     private var expandedStatus = false
     private var renderedMenuItems: List<CandidateMenuItem> = emptyList()
-    private var renderedMenuColumns = 1
+    private var renderedMenuPacking: List<TouchColumn> = emptyList()
+    private var renderedMenuRows = 2
+    private var renderedMenuTextSize = 0f
+    private var menuPresentation = CandidateStatusPresentation("")
     private var renderedCandidateTexts: List<TextView> = emptyList()
     private var renderedAnnotationTexts: List<TextView?> = emptyList()
     private var identity: CandidateDetailIdentity? = null
@@ -366,9 +376,9 @@ internal class CandidateStatusView @JvmOverloads constructor(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         header.addView(transientMode, LinearLayout.LayoutParams(dp(40), ViewGroup.LayoutParams.WRAP_CONTENT))
         val pageRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        pageRow.addView(pagePrevious, LinearLayout.LayoutParams(dp(36), ViewGroup.LayoutParams.WRAP_CONTENT))
+        pageRow.addView(pagePrevious, LinearLayout.LayoutParams(dp(PAGE_CONTROL_WIDTH_DP), ViewGroup.LayoutParams.WRAP_CONTENT))
         pageRow.addView(menuContainer, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        pageRow.addView(pageNext, LinearLayout.LayoutParams(dp(36), ViewGroup.LayoutParams.WRAP_CONTENT))
+        pageRow.addView(pageNext, LinearLayout.LayoutParams(dp(PAGE_CONTROL_WIDTH_DP), ViewGroup.LayoutParams.WRAP_CONTENT))
         // 登録面では候補を本文カーソルと操作ボタンの間へ置きます。
         content.addView(registrationEditor, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -415,6 +425,8 @@ internal class CandidateStatusView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         modeHandler.removeCallbacks(hideTransientMode)
+        removeCallbacks(reportTouchViewportChange)
+        lastReportedTouchViewport = null
         closeDetail()
         super.onDetachedFromWindow()
     }
@@ -422,6 +434,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
     override fun onConfigurationChanged(newConfig: Configuration) {
         closeDetail()
         super.onConfigurationChanged(newConfig)
+        requestLayout()
     }
 
     fun setOnPageListeners(previous: () -> Unit, next: () -> Unit, cancel: () -> Unit) {
@@ -439,28 +452,43 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     /** 候補本文に実際に必要な幅で先頭から連続した範囲を取ります。長い一件は折り返します。 */
-    fun pageCapacity(texts: List<String>, start: Int, pageControls: Boolean = true): Int {
-        return touchColumns(texts, start, pageControls).sumOf { it.count }.coerceAtLeast(1)
-    }
+    fun pageCapacity(texts: List<String>, start: Int, pageControls: Boolean = true, adaptiveRows: Boolean = true): Int =
+        touchColumns(texts, start, pageControls, if (adaptiveRows) touchViewport().rows else 2,
+            limitToPage = true).sumOf { it.count }.coerceAtLeast(1)
 
     private data class TouchColumn(val width: Int, val count: Int)
+    private data class TouchViewport(val availableWidth: Int, val textSize: Float, val rows: Int)
 
-    /** 上下二件で幅を共有し、列の境界を揃えます。 */
-    private fun touchColumns(texts: List<String>, start: Int, pageControls: Boolean): List<TouchColumn> {
+    /** ページ操作欄を除いた幅と候補の文字サイズで、候補が空でも同じ段数を予約します。 */
+    private fun touchViewport(): TouchViewport {
+        val textSize = candidatePaint().textSize
+        val available = touchContentWidth() - dp(PAGE_CONTROL_WIDTH_DP) * 2
+        val oneRow = reserveTouchViewport && !physicalPresentation && !modalPresentation &&
+            available >= SINGLE_ROW_CONTENT_WIDTH_DP * maxOf(resources.displayMetrics.density,
+                textSize / CANDIDATE_TEXT_SP)
+        return TouchViewport(available, textSize, if (oneRow) 1 else 2)
+    }
+
+    /** 二段のときは上下の候補で幅を共有し、列の境界を揃えます。 */
+    private fun touchColumns(
+        texts: List<String>, start: Int, pageControls: Boolean, rows: Int, limitToPage: Boolean,
+    ): List<TouchColumn> {
         val paint = candidatePaint()
-        val available = ((availableContentWidthDp() * resources.displayMetrics.density).toInt() -
-            if (pageControls) dp(72) else 0).coerceAtLeast(1)
+        val padding = touchCandidatePadding(paint) * 2
+        val available = (touchContentWidth() -
+            if (pageControls) dp(PAGE_CONTROL_WIDTH_DP) * 2 else 0).coerceAtLeast(1)
         val columns = mutableListOf<TouchColumn>()
         var occupied = 0
         var index = start
         while (index < texts.size) {
-            val count = minOf(2, texts.size - index)
+            val count = minOf(rows, texts.size - index)
             val width = (index until index + count).maxOf {
-                if (texts[it].length > LongCandidateBodyView.CHUNK_SIZE) available else
-                    ceil(paint.measureText(texts[it])).toInt() + touchCandidatePadding() * 2
+                val text = texts[it]
+                if (text.length > LongCandidateBodyView.CHUNK_SIZE) available else
+                    ceil(paint.measureText(text)).toInt() + padding
             }.coerceIn(1, available)
             val separator = if (columns.isEmpty()) 0 else dp(1).coerceAtLeast(1)
-            if (columns.isNotEmpty() && occupied + separator + width > available) break
+            if (limitToPage && columns.isNotEmpty() && occupied + separator + width > available) break
             columns += TouchColumn(width, count)
             occupied += separator + width
             index += count
@@ -557,19 +585,53 @@ internal class CandidateStatusView @JvmOverloads constructor(
         pagePrevious.isEnabled = presentation.canPreviousPage
         pageNext.isEnabled = presentation.canNextPage
         cancelRegistration.visibility = View.GONE
+        menuPresentation = presentation
+        renderMenu(presentation, touchViewport())
+        val retainedAnnotation = annotationDetailTarget?.takeIf { target ->
+            presentation.menuItems.any { item ->
+                val next = item.target
+                // 確定操作の描画世代は更新しても、同じ候補の注釈参照は閉じません。
+                next != null && next.sessionGeneration == target.sessionGeneration &&
+                    next.kind == target.kind && next.registrationDepth == target.registrationDepth &&
+                    next.index == target.index && next.candidate === target.candidate &&
+                    item.annotation === annotationDetailText
+            }
+        }
+        val newSections = if (retainedAnnotation != null) sections
+            else presentation.detailSections.filter { it.value.isNotEmpty() }
+        val sameIdentity = presentation.detailIdentity?.sameAs(identity) ?: (identity == null)
+        val changed = if (annotationDetailTarget != null && !physicalPresentation) {
+            retainedAnnotation == null
+        } else !sameIdentity || !sameSectionReferences(sections, newSections) ||
+            (annotationDetailTarget != null && retainedAnnotation == null)
+        if (changed) closeDetail()
+        identity = presentation.detailIdentity
+        sections = newSections
+        selectedPreviewTruncated = presentation.selectedPreviewTruncated
+        detailButton.visibility = View.GONE
+        if (sections.isEmpty() && annotationPopup == null) closeDetail()
+        if (changed) scrollTo(0, 0)
+    }
+
+    private fun renderMenu(presentation: CandidateStatusPresentation, viewport: TouchViewport) {
         val packing = if (physicalPresentation) emptyList() else
-            touchColumns(presentation.menuItems.map { it.text }, 0, presentation.showPageControls)
-        val columns = if (physicalPresentation) 1 else packing.size.coerceAtLeast(1)
-        if (renderedMenuItems != presentation.menuItems || renderedMenuColumns != columns) {
+            touchColumns(presentation.menuItems.map { it.text }, 0, presentation.showPageControls,
+                viewport.rows, limitToPage = reserveTouchViewport && !modalPresentation)
+        if (renderedMenuItems != presentation.menuItems || renderedMenuPacking != packing ||
+            renderedMenuRows != viewport.rows || renderedMenuTextSize != viewport.textSize) {
             renderedMenuItems = presentation.menuItems.toList()
-            renderedMenuColumns = columns
+            renderedMenuPacking = packing
+            renderedMenuRows = viewport.rows
+            renderedMenuTextSize = viewport.textSize
             menuContainer.removeAllViews()
             val candidateTexts = arrayOfNulls<TextView>(presentation.menuItems.size)
             val annotationTexts = arrayOfNulls<TextView>(presentation.menuItems.size)
-            val rows = if (physicalPresentation) presentation.menuItems.map { listOf(it) } else
-                (0 until if (presentation.menuItems.isEmpty()) 0 else 2).map { row ->
-                    presentation.menuItems.filterIndexed { index, _ -> index % 2 == row }
+            val rows = if (physicalPresentation) presentation.menuItems.map { listOf(it) } else {
+                val visibleItems = presentation.menuItems.take(packing.sumOf { it.count })
+                if (visibleItems.isEmpty()) emptyList() else List(viewport.rows) { row ->
+                    visibleItems.filterIndexed { index, _ -> index % viewport.rows == row }
                 }
+            }
             rows.forEachIndexed { rowIndex, items ->
                 val row = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -589,7 +651,7 @@ internal class CandidateStatusView @JvmOverloads constructor(
                             horizontal, if (physicalPresentation) dp(2) else 0)
                         isFocusable = false
                         if (!physicalPresentation) {
-                            minimumHeight = touchRowHeight()
+                            minimumHeight = touchRowHeight(viewport.rows)
                             background = touchCandidateBackground()
                         }
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
@@ -673,16 +735,16 @@ internal class CandidateStatusView @JvmOverloads constructor(
                             0, ViewGroup.LayoutParams.WRAP_CONTENT, ANNOTATION_WEIGHT))
                         }
                     }
-                    val itemIndex = if (physicalPresentation) rowIndex else columnIndex * 2 + rowIndex
+                    val itemIndex = if (physicalPresentation) rowIndex else columnIndex * viewport.rows + rowIndex
                     candidateTexts[itemIndex] = candidateText
                     annotationTexts[itemIndex] = annotationText
                     if (physicalPresentation) row.addView(tile, LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
                     else row.addView(tile, LinearLayout.LayoutParams(
-                        packing.getOrNull(columnIndex)?.width ?: touchColumns(listOf(item.text), 0, presentation.showPageControls).first().width,
+                        packing[columnIndex].width,
                         ViewGroup.LayoutParams.WRAP_CONTENT))
                 }
-                if (!physicalPresentation && items.size < (presentation.menuItems.size + 1) / 2) {
+                if (!physicalPresentation && items.size < packing.size) {
                     // 最後の候補が上段だけでも、下段に同じ幅の空欄を置き区切りを揃えます。
                     row.addView(View(context).apply {
                         minimumHeight = touchRowHeight()
@@ -707,32 +769,8 @@ internal class CandidateStatusView @JvmOverloads constructor(
                 sendAccessibilityEventUnchecked(event)
             }
         }
-        val retainedAnnotation = annotationDetailTarget?.takeIf { target ->
-            presentation.menuItems.any { item ->
-                val next = item.target
-                // 確定操作の描画世代は更新しても、同じ候補の注釈参照は閉じません。
-                next != null && next.sessionGeneration == target.sessionGeneration &&
-                    next.kind == target.kind && next.registrationDepth == target.registrationDepth &&
-                    next.index == target.index && next.candidate === target.candidate &&
-                    item.annotation === annotationDetailText
-            }
-        }
-        val newSections = if (retainedAnnotation != null) sections
-            else presentation.detailSections.filter { it.value.isNotEmpty() }
-        val sameIdentity = presentation.detailIdentity?.sameAs(identity) ?: (identity == null)
-        val changed = if (annotationDetailTarget != null && !physicalPresentation) {
-            retainedAnnotation == null
-        } else !sameIdentity || !sameSectionReferences(sections, newSections) ||
-            (annotationDetailTarget != null && retainedAnnotation == null)
-        if (changed) closeDetail()
-        identity = presentation.detailIdentity
-        sections = newSections
-        selectedPreviewTruncated = presentation.selectedPreviewTruncated
         selectedCandidateText = presentation.selectedMenuIndex?.let { renderedCandidateTexts.getOrNull(it) }
         selectedAnnotationText = presentation.selectedMenuIndex?.let { renderedAnnotationTexts.getOrNull(it) }
-        detailButton.visibility = View.GONE
-        if (sections.isEmpty() && annotationPopup == null) closeDetail()
-        if (changed) scrollTo(0, 0)
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -781,20 +819,33 @@ internal class CandidateStatusView @JvmOverloads constructor(
         return (availableContentWidthDp() / (140f * scale)).toInt().coerceAtLeast(1)
     }
 
-    fun availableContentWidthDp(): Float {
-        val pixels = measuredWidth.takeIf { it > 0 }?.minus(content.paddingLeft + content.paddingRight)
-            ?: ((resources.configuration.screenWidthDp * resources.displayMetrics.density).toInt() -
-                content.paddingLeft - content.paddingRight)
-        return pixels.coerceAtLeast(1) / resources.displayMetrics.density
+    fun availableContentWidthDp(): Float = touchContentWidth() / resources.displayMetrics.density
+
+    private fun touchContentWidth(): Int {
+        val width = touchViewportWidth.takeIf { it > 0 } ?: measuredWidth.takeIf { it > 0 }
+            ?: dp(resources.configuration.screenWidthDp).takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+        return (width - content.paddingLeft - content.paddingRight).coerceAtLeast(1)
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        touchViewportWidth = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) 0
+            else MeasureSpec.getSize(widthMeasureSpec)
+        val viewport = touchViewport()
+        if (!physicalPresentation && menuPresentation.menuItems.isNotEmpty()) renderMenu(menuPresentation, viewport)
+        val reserved = touchRowHeight(viewport.rows) * viewport.rows
+        val controlHeight = if (viewport.rows == 1) reserved else ViewGroup.LayoutParams.WRAP_CONTENT
+        pagePrevious.layoutParams.height = controlHeight
+        pageNext.layoutParams.height = controlHeight
         if (modalPresentation) {
             super.onMeasure(widthMeasureSpec, heightMeasureSpec)
             return
         }
         if (reserveTouchViewport) {
-            val reserved = touchRowHeight() * 2
+            if (lastReportedTouchViewport != viewport) {
+                lastReportedTouchViewport = viewport
+                removeCallbacks(reportTouchViewportChange)
+                post(reportTouchViewportChange)
+            }
             val available = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED)
                 reserved else MeasureSpec.getSize(heightMeasureSpec)
             super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(minOf(reserved, available), MeasureSpec.EXACTLY))
@@ -932,14 +983,18 @@ internal class CandidateStatusView @JvmOverloads constructor(
     }
 
     /** 全角一文字の四分の一を左右それぞれに確保します。 */
-    private fun touchCandidatePadding() = ceil(candidatePaint().measureText("あ") / 4f).toInt()
+    private fun touchCandidatePadding(paint: Paint = candidatePaint()) = ceil(paint.measureText("あ") / 4f).toInt()
 
-    private fun touchRowHeight() = maxOf(dp(36), ceil(candidatePaint().fontSpacing).toInt() + dp(8))
+    private fun touchRowHeight(rows: Int = 2) =
+        maxOf(dp(if (rows == 1) 48 else 36), ceil(candidatePaint().fontSpacing).toInt() + dp(8))
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     internal companion object {
         const val CANDIDATE_TEXT_SP = 17f
+        private const val PAGE_CONTROL_WIDTH_DP = 36
+        // 標準の文字サイズでは、余白とページ操作欄を含む 600dp が一段表示の目安です。
+        private const val SINGLE_ROW_CONTENT_WIDTH_DP = 496
         const val MAX_HEIGHT_FRACTION = .4f
         const val PHYSICAL_POPUP_WIDTH_DP = 360
         const val PHYSICAL_LABEL_WIDTH_DP = 28
