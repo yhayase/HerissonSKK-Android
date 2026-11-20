@@ -39,7 +39,23 @@ class TouchKeyboardSettingsStoreTest {
         assertEquals(expected, TouchKeyboardSettingsStore.readFrom(preferences))
         assertEquals(setOf("touch_keyboard_layout", "ten_key_operation", "ten_key_hold_millis",
             "ten_key_vibrate_on_boundary", "ten_key_height_dp", "ten_key_width_percent",
-            "ten_key_position_percent", "ten_key_bottom_padding_dp"), preferences.all.keys)
+            "ten_key_position_percent", "ten_key_bottom_padding_dp", "qwerty_split",
+            "qwerty_gap_percent", "qwerty_height_dp"), preferences.all.keys)
+    }
+
+    @Test fun `分割と形状の保存はそれぞれ他の設定を保持する`() {
+        val context = RuntimeEnvironment.getApplication()
+        val settingsPreferences = context.getSharedPreferences("settings", 0)
+        val before = TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY,
+            tenKeyHeightDp = 300, qwertyGapPercent = 36, qwertyHeightDp = 220)
+        assertTrue(TouchKeyboardSettingsStore.saveTo(settingsPreferences, before))
+        assertTrue(TouchKeyboardSettingsStore.saveQwertySplit(context, true))
+        assertEquals(before.copy(qwertySplit = true), TouchKeyboardSettingsStore.read(context))
+        assertTrue(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 48, 320))
+        assertFalse(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 49, 320))
+        assertFalse(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 48, 159))
+        assertEquals(before.copy(qwertySplit = true, qwertyGapPercent = 48, qwertyHeightDp = 320),
+            TouchKeyboardSettingsStore.read(context))
     }
 
     @Test fun `形状だけの保存では他の設定を変更しない`() {
