@@ -447,6 +447,21 @@ class EditorSession(
         }
     }
 
+    /** 画面の矢印は候補ページ操作から分離し、未確定内容の所有中に入力先へ漏らしません。 */
+    fun handleTouchMoveCursor(command: EditCommand): Boolean {
+        if (command !in listOf(EditCommand.LEFT, EditCommand.DOWN, EditCommand.UP, EditCommand.RIGHT)) return false
+        if (deferTouchSemantic { handleTouchMoveCursor(command) }) return true
+        if (!active || failed) return false
+        if (command == EditCommand.LEFT) return handleTouch(BasicSkkAction.Left)
+        if (command == EditCommand.RIGHT) return handleTouch(BasicSkkAction.Right)
+        if (protectedInput) return sendTouchNavigation(
+            if (command == EditCommand.UP) KeyEvent.KEYCODE_DPAD_UP else KeyEvent.KEYCODE_DPAD_DOWN)
+        // 縦移動で読み・登録・候補を暗黙に確定せず、その下の本文も動かしません。
+        if (hasComposition || ownsInternalEditing()) return true
+        submitExternal(command)
+        return true
+    }
+
     /** 10キーの文字は候補ラベルやローマ字にせず、現在の入力対象へ一度だけ挿入します。 */
     private fun handleTouchLiteralText(action: BasicSkkAction.TouchText): Boolean {
         if (deferTouchSemantic { handleTouchLiteralText(action) }) return true

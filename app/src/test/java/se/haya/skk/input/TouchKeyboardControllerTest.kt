@@ -3,6 +3,7 @@ package se.haya.skk.input
 import se.haya.skk.core.BasicSkkAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TouchKeyboardControllerTest {
@@ -71,5 +72,16 @@ class TouchKeyboardControllerTest {
         gesture.start(0f, 0f)
         gesture.cancel()
         assertEquals(null, gesture.finish(0f, -40f))
+    }
+
+    @Test fun `左右のShiftを押したとき片方を離しても同時押しが続く`() {
+        val c = TouchKeyboardController()
+        c.pressShift(pointer = 4)
+        c.pressShift(pointer = 7)
+        c.releaseShift(pointer = 4)
+        assertTrue(c.shifted)
+        assertEquals(BasicSkkAction.Text("N"), c.text("n").action)
+        c.releaseShift(pointer = 7)
+        assertFalse(c.shifted)
     }
 }

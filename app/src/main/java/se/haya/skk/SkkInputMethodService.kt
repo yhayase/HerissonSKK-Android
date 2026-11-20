@@ -463,6 +463,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     tenKeyWidthPercent = updated.tenKeyWidthPercent,
                     tenKeyPositionPercent = updated.tenKeyPositionPercent,
                     tenKeyBottomPaddingDp = updated.tenKeyBottomPaddingDp,
+                    qwertySplit = updated.qwertySplit,
+                    qwertyGapPercent = updated.qwertyGapPercent,
+                    qwertyHeightDp = updated.qwertyHeightDp,
                 )
             }
             it.configure(sessionTouchSettings)
@@ -1268,6 +1271,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                 else -> current.handleTouch(action)
             }
             is TouchKeyboardCommand.SpaceOrConvert -> current.handleTouchSpaceOrConvert(command.fullWidthSpace)
+            is TouchKeyboardCommand.MoveCursor -> current.handleTouchMoveCursor(command.command)
             TouchKeyboardCommand.SwitchIme, TouchKeyboardCommand.OpenSettings -> return
         }
         render()

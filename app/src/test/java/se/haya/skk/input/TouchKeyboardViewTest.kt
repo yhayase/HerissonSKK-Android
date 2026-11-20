@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Insets
+import android.graphics.Rect
 import android.os.SystemClock
 import android.os.Looper
 import android.view.MotionEvent
@@ -11,12 +12,15 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.Button
+import android.widget.SeekBar
 import android.widget.TextView
 import se.haya.skk.SkkInputMethodService
 import se.haya.skk.core.BasicSkkAction
 import se.haya.skk.core.InputMode
+import se.haya.skk.core.editing.EditCommand
 import se.haya.skk.settings.ScreenKeyboardLayout
 import se.haya.skk.settings.TouchKeyboardSettings
+import se.haya.skk.settings.TouchKeyboardSettingsStore
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -676,6 +680,140 @@ class TouchKeyboardViewTest {
         assertEquals(panelHeight, keyboard.getChildAt(1).measuredHeight)
         assertEquals(resizedWindowHeight, keyboard.measuredHeight)
     }
+
+    @Test fun `広幅QWERTYは一体と分割の両方で通常キーと共有操作を配置する`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val keyboard = view(commands).apply {
+            configure(TouchKeyboardSettings(qwertyHeightDp = 240))
+            candidateStatusView.visibility = View.GONE
+        }
+        measureWideQwerty(keyboard)
+        val q = key(keyboard, "q")
+        val backspace = key(keyboard, "⌫")
+        assertEquals(q.top, backspace.top)
+        val primary = buttons(keyboard).filterIsInstance<PrimaryActionButton>().single()
+        assertEquals(key(keyboard, "l").top, primary.top)
+        assertTrue(kotlin.math.abs(key(keyboard, "l").width - key(keyboard, "-").width) <= 1)
+        assertEquals("/", (key(keyboard, "m") as TouchKeyboardView.FlickHintButton).displayedDownHint)
+        assertFalse(buttons(keyboard).any { it.text.toString() == "/" })
+        val arrows = listOf("←" to EditCommand.LEFT, "↓" to EditCommand.DOWN, "↑" to EditCommand.UP, "→" to EditCommand.RIGHT)
+        val arrowPositions = arrows.map { (label, _) -> key(keyboard, label).also { it.performClick() }.left }
+        assertEquals(arrowPositions.sorted(), arrowPositions)
+        assertEquals(arrows.map { TouchKeyboardCommand.MoveCursor(it.second) }, commands)
+        commands.clear()
+
+        val toggle = key(keyboard, "←→")
+        assertTrue(kotlin.math.abs(keyboard.width / 2 - (toggle.left + toggle.right) / 2) <= 1)
+        assertEquals((240 * keyboard.resources.displayMetrics.density).toInt(), (q.parent as View).height)
+        assertTrue(toggle.performClick())
+        measureWideQwerty(keyboard)
+        assertTrue(TouchKeyboardSettingsStore.read(keyboard.context).qwertySplit)
+        assertEquals("→←", toggle.text.toString())
+        assertTrue(key(keyboard, "b").right < toggle.left)
+        assertTrue(key(keyboard, "n").left > toggle.right)
+        for (labels in listOf(listOf("t", "g", "b"), listOf("y", "h", "n"))) {
+            val starts = labels.map { key(keyboard, it).left }
+            assertTrue(starts.zipWithNext().all { (first, second) -> first < second })
+        }
+        val spaces = buttons(keyboard).filter { it.text.toString() == "␣" }
+        assertEquals(2, spaces.size)
+        assertTrue(spaces.first().right > gapHandle(keyboard, "左").left)
+        assertTrue(spaces.last().left < gapHandle(keyboard, "右").right)
+        spaces.forEach { it.performClick() }
+        assertEquals(List(2) { TouchKeyboardCommand.SpaceOrConvert() }, commands)
+        keyboard.updateSpaceAction(true)
+        assertTrue(spaces.all { it.contentDescription == "変換" })
+        val shifts = buttons(keyboard).filter { it.contentDescription == "Shift" }
+        assertEquals(2, shifts.size)
+        shifts.first().performClick()
+        assertTrue(shifts.all { it.isSelected })
+        key(keyboard, "H").performClick()
+        assertTrue(shifts.none { it.isSelected })
+        assertEquals(TouchKeyboardCommand.Skk(BasicSkkAction.Text("H")), commands.last())
+
+        val compactWidth = (450 * keyboard.resources.displayMetrics.density).toInt()
+        measureWideQwerty(keyboard, compactWidth)
+        assertEquals(1, buttons(keyboard).count { it.text.toString() == "␣" })
+        assertEquals(1, buttons(keyboard).count { it.contentDescription == "Shift" })
+        assertFalse(buttons(keyboard).any { it.contentDescription == "QWERTYの分割を解除" })
+        measureWideQwerty(keyboard)
+        key(keyboard, "→←").performClick()
+        assertFalse(TouchKeyboardSettingsStore.read(keyboard.context).qwertySplit)
+    }
+
+    @Test fun `広幅QWERTYの境界ドラッグは左右に反映し離したときだけ保存する`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val keyboard = view(commands)
+        val settings = TouchKeyboardSettings(qwertySplit = true)
+        assertTrue(TouchKeyboardSettingsStore.save(keyboard.context, settings))
+        keyboard.configure(settings)
+        measureWideQwerty(keyboard)
+        val left = gapHandle(keyboard, "左")
+        val right = gapHandle(keyboard, "右")
+        val initialLeft = left.left
+        val initialRight = right.right
+        val target = Rect(0, 0, left.width, left.height).also { keyboard.offsetDescendantRectToMyCoords(left, it) }
+        val downTime = SystemClock.uptimeMillis()
+        val movement = (40 * keyboard.resources.displayMetrics.density).toInt()
+        fun touch(action: Int, offset: Int = 0) {
+            val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action,
+                (target.centerX() + offset).toFloat(), target.centerY().toFloat(), 0)
+            assertTrue(keyboard.dispatchTouchEvent(event))
+            event.recycle()
+        }
+        touch(MotionEvent.ACTION_DOWN)
+        touch(MotionEvent.ACTION_MOVE, -movement)
+        measureWideQwerty(keyboard)
+        assertEquals(initialLeft - movement, left.left)
+        assertEquals(initialRight + movement, right.right)
+        assertEquals(28, TouchKeyboardSettingsStore.read(keyboard.context).qwertyGapPercent)
+        touch(MotionEvent.ACTION_CANCEL, -movement)
+        measureWideQwerty(keyboard)
+        assertEquals(initialLeft, left.left)
+        assertEquals(initialRight, right.right)
+
+        touch(MotionEvent.ACTION_DOWN)
+        touch(MotionEvent.ACTION_MOVE, -movement)
+        touch(MotionEvent.ACTION_UP, -movement)
+        measureWideQwerty(keyboard)
+        assertEquals(38, TouchKeyboardSettingsStore.read(keyboard.context).qwertyGapPercent)
+        assertEquals(initialLeft - movement, left.left)
+        assertEquals(initialRight + movement, right.right)
+        assertTrue(commands.isEmpty())
+        assertTrue(key(keyboard, "→←").performLongClick())
+        assertTrue(keyboard.adjustingGeometry)
+        assertTrue(descendants(keyboard).any { it.contentDescription == "QWERTYの高さ" })
+    }
+
+    @Test fun `広幅の下限では分割間隔を狭めて文字キーの幅を保つ`() {
+        val keyboard = view().apply {
+            configure(TouchKeyboardSettings(qwertySplit = true, qwertyGapPercent = 48))
+            candidateStatusView.visibility = View.GONE
+        }
+        val density = keyboard.resources.displayMetrics.density
+        measureWideQwerty(keyboard, (600 * density).toInt())
+        assertTrue(key(keyboard, "l").width >= (36 * density).toInt())
+        val left = gapHandle(keyboard, "左")
+        val right = gapHandle(keyboard, "右")
+        assertTrue(left.right <= right.left)
+        assertTrue(key(keyboard, "→←").performLongClick())
+        val gap = descendants(keyboard).filterIsInstance<SeekBar>().single { it.contentDescription == "QWERTYの分割時の間隔" }
+        assertEquals(gap.max, gap.progress)
+        assertTrue(gap.max < 48)
+        measureWideQwerty(keyboard)
+        assertEquals(gap.max, gap.progress)
+        assertTrue(gap.max > 20)
+    }
+
+    private fun measureWideQwerty(keyboard: TouchKeyboardView,
+        width: Int = (800 * keyboard.resources.displayMetrics.density).toInt()) {
+        keyboard.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.AT_MOST))
+        keyboard.layout(0, 0, width, keyboard.measuredHeight)
+    }
+
+    private fun gapHandle(keyboard: TouchKeyboardView, side: String) =
+        buttons(keyboard).single { it.contentDescription == "${side}側の境界を調整" }
 
     private fun flick(button: Button, delta: Float) {
         event(button, MotionEvent.ACTION_DOWN)

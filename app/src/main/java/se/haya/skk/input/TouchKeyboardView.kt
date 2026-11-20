@@ -15,6 +15,8 @@ import android.os.Build
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.LinearLayout
@@ -25,10 +27,13 @@ import android.widget.TextView
 import se.haya.skk.CandidateStatusView
 import se.haya.skk.R
 import se.haya.skk.core.BasicSkkAction
+import se.haya.skk.core.editing.EditCommand
 import se.haya.skk.core.InputMode
 import se.haya.skk.settings.TouchKeyboardSettings
 import se.haya.skk.settings.ScreenKeyboardLayout
 import se.haya.skk.settings.TouchKeyboardSettingsStore
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** 下部の候補領域と4段の文字面を持ち、物理側の補助行は作りません。 */
 internal class TouchKeyboardView(
@@ -40,11 +45,14 @@ internal class TouchKeyboardView(
     private val controller = TouchKeyboardController()
     private var keyboardSettings = TouchKeyboardSettings()
     private var tenKeyView: TenKeyKeyboardView? = null
+    private var wideQwerty: WideQwertyKeyboard? = null
+    private var wide = false
     internal var onLayoutChanged: ((ScreenKeyboardLayout) -> Unit)? = null
     private var generation = 0
     private var layoutSwitchKey: LayoutSwitchKey? = null
     internal var onGeometryChanged: ((TouchKeyboardSettings) -> Unit)? = null
     private var adjustmentPanel: ScrollView? = null
+    private var qwertyGapSlider: SeekBar? = null
     internal val adjustingGeometry get() = adjustmentPanel != null
 
     /** 候補・調整面・下の余白を除く、表示中の文字面に限って操作を引き受けます。 */
@@ -74,7 +82,8 @@ internal class TouchKeyboardView(
     }
 
     internal fun showGeometryAdjustment() {
-        if (tenKeyView == null || adjustmentPanel != null) return
+        val qwerty = wideQwerty != null
+        if ((!qwerty && tenKeyView == null) || adjustmentPanel != null) return
         cancelTouches()
         val panel = LinearLayout(context).apply { orientation = VERTICAL; setBackgroundColor(KeyboardColors.resolve(context).panelBackground) }
         val scroll = ScrollView(context).apply {
@@ -83,37 +92,78 @@ internal class TouchKeyboardView(
         }
         adjustmentPanel = scroll
         panel.addView(TextView(context).apply { text = "サイズ・位置を調整"; textSize = 14f; setTextColor(KeyboardColors.resolve(context).text) }, LayoutParams(LayoutParams.MATCH_PARENT, dp(24)))
-        fun slider(label: String, minimum: Int, maximum: Int, initial: Int, change: (Int) -> Unit) {
+        fun slider(label: String, minimum: Int, maximum: Int, initial: Int, change: (Int) -> Unit): SeekBar {
             val line = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             val value = TextView(context).apply { text = "$label $initial"; textSize = 12f; setTextColor(KeyboardColors.resolve(context).text) }
             line.addView(value, LayoutParams(dp(100), LayoutParams.MATCH_PARENT))
-            line.addView(SeekBar(context).apply {
-                contentDescription = "10キーの$label"; max = maximum - minimum; progress = initial - minimum
+            val bar = SeekBar(context).apply {
+                contentDescription = "${if (qwerty) "QWERTY" else "10キー"}の$label"
+                min = minimum; max = maximum; progress = initial
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
-                        value.text = "$label ${progress + minimum}"
-                        if (fromUser) change(progress + minimum)
+                        value.text = "$label $progress"
+                        if (fromUser) change(progress)
                     }
                     override fun onStartTrackingTouch(bar: SeekBar?) { cancelTouches() }
                     override fun onStopTrackingTouch(bar: SeekBar?) {}
                 })
-            }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            }
+            line.addView(bar, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
             panel.addView(line, LayoutParams(LayoutParams.MATCH_PARENT, dp(36)))
+            return bar
         }
-        slider("高さ", 160, 400, keyboardSettings.tenKeyHeightDp) { setTenKeyGeometry(it, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent) }
-        slider("幅", 60, 100, keyboardSettings.tenKeyWidthPercent) { setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, it, keyboardSettings.tenKeyPositionPercent) }
-        slider("左右位置", 0, 100, keyboardSettings.tenKeyPositionPercent) { setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, it) }
-        slider("下の余白", 0, 160, keyboardSettings.tenKeyBottomPaddingDp) {
-            setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent, it)
+        if (qwerty) {
+            val height = TouchKeyboardSettings.QWERTY_HEIGHT_DP
+            val gap = qwertyGapPercentRange(maxOf(dp(WIDE_QWERTY_MIN_WIDTH_DP), measuredWidth))
+            slider("高さ", height.first, height.last, keyboardSettings.qwertyHeightDp) {
+                setQwertyGeometry(keyboardSettings.qwertyGapPercent, it)
+            }
+            qwertyGapSlider = slider("分割時の間隔", gap.first, gap.last, keyboardSettings.qwertyGapPercent.coerceIn(gap)) {
+                setQwertyGeometry(it, keyboardSettings.qwertyHeightDp)
+            }
+        } else {
+            slider("高さ", 160, 400, keyboardSettings.tenKeyHeightDp) { setTenKeyGeometry(it, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent) }
+            slider("幅", 60, 100, keyboardSettings.tenKeyWidthPercent) { setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, it, keyboardSettings.tenKeyPositionPercent) }
+            slider("左右位置", 0, 100, keyboardSettings.tenKeyPositionPercent) { setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, it) }
+            slider("下の余白", 0, 160, keyboardSettings.tenKeyBottomPaddingDp) {
+                setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent, it)
+            }
         }
         panel.addView(LinearLayout(context).apply {
             addView(commandKey("標準に戻す") {
-                setTenKeyGeometry(256, 100, 50, 0)
+                if (qwerty) {
+                    val defaults = TouchKeyboardSettings()
+                    setQwertyGeometry(defaults.qwertyGapPercent, defaults.qwertyHeightDp)
+                } else setTenKeyGeometry(256, 100, 50, 0)
                 hideGeometryAdjustment(); showGeometryAdjustment()
             }.apply { contentDescription = "サイズ・位置を標準に戻す" }, LayoutParams(0, dp(40), 1f))
             addView(commandKey("調整を閉じる") { hideGeometryAdjustment() }, LayoutParams(0, dp(40), 1f))
         })
         addView(scroll, 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun setQwertyGeometry(gapPercent: Int, heightDp: Int) {
+        val updated = keyboardSettings.copy(qwertyGapPercent = gapPercent, qwertyHeightDp = heightDp)
+        if (updated != keyboardSettings && TouchKeyboardSettingsStore.saveQwertyGeometry(context, gapPercent, heightDp)) {
+            keyboardSettings = updated
+            onGeometryChanged?.invoke(updated)
+        }
+        qwertyGapSlider?.let { updateQwertyGapSlider(it, measuredWidth) }
+        wideQwerty?.requestLayout()
+    }
+
+    private fun qwertyGapPercentRange(width: Int): IntRange {
+        val maxKeyGap = width - (dp(MIN_WIDE_KEY_WIDTH_DP) * SPLIT_HALF_UNITS * 2).roundToInt()
+        val maxPercent = minOf(TouchKeyboardSettings.QWERTY_GAP_PERCENT.last, maxKeyGap * 100 / width)
+        val minPercent = (dp(HANDLE_WIDTH_DP * 2) * 100 + width - 1) / width
+        return minPercent..maxPercent
+    }
+
+    private fun updateQwertyGapSlider(bar: SeekBar, width: Int) {
+        val range = qwertyGapPercentRange(maxOf(dp(WIDE_QWERTY_MIN_WIDTH_DP), width))
+        bar.max = range.last
+        bar.min = range.first
+        bar.progress = keyboardSettings.qwertyGapPercent.coerceIn(range)
     }
 
     /** 配列だけを保存し、SKKのセッションや各文字面の選択状態を保持します。 */
@@ -132,12 +182,21 @@ internal class TouchKeyboardView(
 
     private fun hideGeometryAdjustment() {
         adjustmentPanel?.let { removeView(it) }; adjustmentPanel = null
+        qwertyGapSlider = null
         requestLayout()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        tenKeyView?.let { keyboard ->
-            val availableWidth = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) resources.displayMetrics.widthPixels else MeasureSpec.getSize(widthMeasureSpec)
+        val availableWidth = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) resources.displayMetrics.widthPixels else MeasureSpec.getSize(widthMeasureSpec)
+        val useWide = availableWidth >= dp(WIDE_QWERTY_MIN_WIDTH_DP)
+        if (wide != useWide) {
+            wide = useWide
+            if (keyboardSettings.layout == ScreenKeyboardLayout.QWERTY) {
+                hideGeometryAdjustment()
+                rebuildKeys()
+            }
+        }
+        (tenKeyView ?: wideQwerty)?.let { keyboard ->
             val screenHeight = resources.displayMetrics.heightPixels
             val availableHeight = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) screenHeight else minOf(screenHeight, MeasureSpec.getSize(heightMeasureSpec))
             val candidateHeight = if (candidateStatusView.visibility == View.GONE) 0 else {
@@ -145,14 +204,16 @@ internal class TouchKeyboardView(
                 candidateStatusView.measuredHeight
             }
             adjustmentPanel?.let { panel ->
+                qwertyGapSlider?.let { updateQwertyGapSlider(it, availableWidth) }
                 // IME窓自身の縮小後の高さを半分にすると、調整面まで再縮小して下に空きが残ります。
                 val maximum = minOf(maxOf(0, availableHeight - candidateHeight - paddingBottom),
                     maxOf(0, (screenHeight - candidateHeight - paddingBottom) / 2))
                 panel.measure(MeasureSpec.makeMeasureSpec(availableWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(maximum, MeasureSpec.AT_MOST))
                 panel.layoutParams.height = panel.measuredHeight
             }
-            val width = availableWidth * keyboardSettings.tenKeyWidthPercent / 100
-            val height = minOf(dp(keyboardSettings.tenKeyHeightDp), maxOf(0, availableHeight - candidateHeight - (adjustmentPanel?.measuredHeight ?: 0) - paddingBottom))
+            val width = if (keyboard === tenKeyView) availableWidth * keyboardSettings.tenKeyWidthPercent / 100 else availableWidth
+            val preferredHeight = if (keyboard === tenKeyView) keyboardSettings.tenKeyHeightDp else keyboardSettings.qwertyHeightDp
+            val height = minOf(dp(preferredHeight), maxOf(0, availableHeight - candidateHeight - (adjustmentPanel?.measuredHeight ?: 0) - paddingBottom))
             val params = keyboard.layoutParams as LayoutParams
             val left = (availableWidth - width) * keyboardSettings.tenKeyPositionPercent / 100
             if (params.width != width || params.height != height || params.leftMargin != left) {
@@ -182,7 +243,7 @@ internal class TouchKeyboardView(
     private val characterButtons = mutableListOf<Pair<Button, String>>()
     private val cancelGestures = mutableListOf<() -> Unit>()
     private val refreshGuides = mutableListOf<() -> Unit>()
-    private var shiftButton: Button? = null
+    private val shiftButtons = mutableListOf<Button>()
     private var modeButton: Button? = null
     private var primaryButton: Button? = null
     private var inputMode: InputMode? = null
@@ -285,6 +346,7 @@ internal class TouchKeyboardView(
     fun updateSpaceAction(convert: Boolean) {
         spaceConverts = convert
         tenKeyView?.updateSpaceAction(convert)
+        wideQwerty?.updateSpaceAction(convert)
     }
 
     fun updatePrimaryAction(label: String, enabled: Boolean = true) {
@@ -301,6 +363,7 @@ internal class TouchKeyboardView(
         // 分割配送の前に二本目を検知し、配列切替だけを取り消します。
         if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN || event.pointerCount > 1) {
             layoutSwitchKey?.cancelInteraction()
+            wideQwerty?.cancelGapDrag()
         }
         return super.dispatchTouchEvent(event)
     }
@@ -315,6 +378,7 @@ internal class TouchKeyboardView(
     private fun cancelTouches() {
         layoutSwitchKey?.cancelInteraction()
         tenKeyView?.cancelTouches()
+        wideQwerty?.cancelGapDrag()
         cancelGestures.forEach { it() }
         controller.cancelPointers()
         guide?.dismiss(); guide = null; guideOwner = null; visibleFlickGuide = null
@@ -332,10 +396,11 @@ internal class TouchKeyboardView(
         characterButtons.clear()
         cancelGestures.clear()
         refreshGuides.clear()
-        shiftButton = null
+        shiftButtons.clear()
         modeButton = null
         primaryButton = null
         tenKeyView = null
+        wideQwerty = null
         if (keyboardSettings.layout == ScreenKeyboardLayout.TEN_KEY) {
             tenKeyView = TenKeyKeyboardView(context, keyboardSettings, tenKeyController, onCommand).also {
                 characterArea.addView(it, LayoutParams(LayoutParams.MATCH_PARENT, dp(keyboardSettings.tenKeyHeightDp)))
@@ -349,11 +414,22 @@ internal class TouchKeyboardView(
             }
             return
         }
+        if (wide) {
+            wideQwerty = buildWideQwerty().also {
+                characterArea.addView(it, LayoutParams(LayoutParams.MATCH_PARENT, dp(keyboardSettings.qwertyHeightDp)))
+            }
+        } else buildCompactQwerty()
+        refreshShift()
+        updateMode(inputMode, modeEnabled)
+        updatePrimaryAction(primaryLabel, primaryEnabled)
+    }
+
+    private fun buildCompactQwerty() {
         if (controller.page == TouchKeyboardController.Page.LETTERS) {
             TouchKeyboardController.LETTER_ROWS.forEachIndexed { index, letters ->
                 val row = newRow()
                 if (index == 1) row.setPadding(dp(12), 0, dp(12), 0)
-                if (index == 2) row.addView(makeShiftKey().also { shiftButton = it }, keyParams())
+                if (index == 2) row.addView(shiftKey(), keyParams())
                 letters.forEach { row.addView(textKey(it.toString()), keyParams()) }
                 if (index == 2) {
                     row.addView(textKey("-"), keyParams())
@@ -366,24 +442,35 @@ internal class TouchKeyboardView(
                 TouchKeyboardController.SYMBOL_ROWS_1 else TouchKeyboardController.SYMBOL_ROWS_2
             rows.forEachIndexed { index, values ->
                 val row = newRow()
-                if (index == 2) row.addView(commandKey(
-                    if (controller.page == TouchKeyboardController.Page.SYMBOLS_1) "記号2" else "記号1",
-                ) { controller.toggleSymbolPage(); rebuildKeys() }, keyParams(1.3f))
+                if (index == 2) row.addView(symbolPageKey(), keyParams(1.3f))
                 values.forEach { row.addView(textKey(it), keyParams()) }
                 if (index == 2) row.addView(backspaceKey(), keyParams(1.3f))
                 characterArea.addView(row)
             }
         }
         val bottom = newRow()
-        modeButton = commandKey(modeLabel(inputMode), alternative = true) {
-            val target = if (inputMode == InputMode.DIRECT || inputMode == InputMode.FULLWIDTH)
-                InputMode.HIRAGANA else InputMode.DIRECT
-            send(BasicSkkAction.SetInputMode(target))
-        }.apply { setOnLongClickListener { showModeMenu(this); true } }
+        bottom.addView(makeLayoutSwitchKey(), keyParams())
+        bottom.addView(pageKey(), keyParams(1.1f))
+        bottom.addView(makeModeKey(), keyParams(1.1f))
+        bottom.addView(spaceKey(), keyParams(3f))
+        bottom.addView(textKey(","), keyParams())
+        bottom.addView(textKey("."), keyParams())
+        bottom.addView(makePrimaryKey(), keyParams(1.5f))
+        characterArea.addView(bottom)
+    }
+
+    private fun makeModeKey() = commandKey(modeLabel(inputMode), alternative = true) {
+        val target = if (inputMode == InputMode.DIRECT || inputMode == InputMode.FULLWIDTH)
+            InputMode.HIRAGANA else InputMode.DIRECT
+        send(BasicSkkAction.SetInputMode(target))
+    }.apply { setOnLongClickListener { showModeMenu(this); true } }.also { modeButton = it }
+
+    private fun makeLayoutSwitchKey(): LayoutSwitchKey {
         val currentGeneration = generation
-        val switchKey = LayoutSwitchKey(context, ScreenKeyboardLayout.TEN_KEY,
+        return LayoutSwitchKey(context, ScreenKeyboardLayout.TEN_KEY,
             onSwitchLayout = { switchLayout(ScreenKeyboardLayout.TEN_KEY) },
             onSwitchIme = { onCommand(TouchKeyboardCommand.SwitchIme) },
+            onAdjustGeometry = if (wide) ::showGeometryAdjustment else null,
             onOpenSettings = { onCommand(TouchKeyboardCommand.OpenSettings) },
             isCurrent = { currentGeneration == generation },
         ).also { button ->
@@ -392,31 +479,246 @@ internal class TouchKeyboardView(
             button.contentDescription = description
             layoutSwitchKey = button
         }
-        bottom.addView(switchKey, keyParams())
-        bottom.addView(commandKey(if (controller.page == TouchKeyboardController.Page.LETTERS) "123" else "ABC") {
-            controller.togglePage(); rebuildKeys()
-        }, keyParams(1.1f))
-        bottom.addView(modeButton, keyParams(1.1f))
-        bottom.addView(commandKey("␣") { onCommand(TouchKeyboardCommand.SpaceOrConvert()) }.apply { contentDescription = "空白" }, keyParams(3f))
-        bottom.addView(textKey(","), keyParams())
-        bottom.addView(textKey("."), keyParams())
+    }
+
+    private fun pageKey() = commandKey(if (controller.page == TouchKeyboardController.Page.LETTERS) "123" else "ABC") {
+        controller.togglePage(); rebuildKeys()
+    }
+
+    private fun symbolPageKey() = commandKey(
+        if (controller.page == TouchKeyboardController.Page.SYMBOLS_1) "記号2" else "記号1",
+    ) { controller.toggleSymbolPage(); rebuildKeys() }
+
+    private fun spaceKey() = commandKey("␣") { onCommand(TouchKeyboardCommand.SpaceOrConvert()) }
+        .apply { contentDescription = "空白" }
+
+    private fun makePrimaryKey(): Button {
         val primaryGeneration = generation
-        primaryButton = PrimaryActionButton(context).also { button ->
+        return PrimaryActionButton(context).also { button ->
             button.configureKey(primaryLabel)
             button.setActionLabel(primaryLabel)
             button.setOnClickListener { if (primaryGeneration == generation) send(BasicSkkAction.Enter) }
+            primaryButton = button
         }
-        bottom.addView(primaryButton, keyParams(1.5f))
-        characterArea.addView(bottom)
-        refreshShift()
-        updateMode(inputMode, modeEnabled)
-        updatePrimaryAction(primaryLabel, primaryEnabled)
     }
 
+    private fun buildWideQwerty() = WideQwertyKeyboard().apply {
+        fun letters(values: String) = values.map { textKey(it.toString()) }
+        if (controller.page == TouchKeyboardController.Page.LETTERS) {
+            addRow(0, 0f, letters("qwert"), letters("yuiop"), backspaceKey(), 1.5f)
+            addRow(1, .5f, letters("asdfg"), letters("hjkl-"), makePrimaryKey())
+            addLetterKey(shiftKey(), 2, 0f, 0f, 1f, splitUnits = 1.5f)
+            addRow(2, 1f, letters("zxcvb"), letters("nm,."), shiftKey(), 1.5f)
+        } else {
+            val rows = if (controller.page == TouchKeyboardController.Page.SYMBOLS_1)
+                TouchKeyboardController.SYMBOL_ROWS_1 else TouchKeyboardController.SYMBOL_ROWS_2
+            addRow(0, 0f, rows[0].take(5).map(::textKey), rows[0].drop(5).map(::textKey), backspaceKey(), 1.5f)
+            addRow(1, .5f, rows[1].take(5).map(::textKey), rows[1].drop(5).map(::textKey), makePrimaryKey())
+            addRow(2, .5f, listOf(symbolPageKey()) + rows[2].take(4).map(::textKey),
+                rows[2].drop(4).map(::textKey) + textKey(","), textKey("."))
+        }
+        addControls()
+    }
+
+    private data class WideKey(
+        val view: View, val row: Int, val joinedStart: Float, val splitStart: Float,
+        val units: Float, val splitUnits: Float, val onRight: Boolean,
+    )
+
+    private inner class WideQwertyKeyboard : ViewGroup(context) {
+        private val letterKeys = mutableListOf<WideKey>()
+        private val leftCommands = listOf(makeLayoutSwitchKey(), pageKey(), makeModeKey())
+        private val leftSpace = spaceKey()
+        private val toggle = commandKey("", alternative = true) { toggleSplit() }.apply {
+            setOnLongClickListener { showGeometryAdjustment(); true }
+        }
+        private val rightSpace = spaceKey()
+        private val rightCommands = listOf(
+            arrowKey("←", "カーソルを左へ移動", EditCommand.LEFT),
+            arrowKey("↓", "カーソルを下へ移動", EditCommand.DOWN),
+            arrowKey("↑", "カーソルを上へ移動", EditCommand.UP),
+            arrowKey("→", "カーソルを右へ移動", EditCommand.RIGHT),
+        )
+        private val leftHandle = handleKey("◀", "左側の境界を調整")
+        private val rightHandle = handleKey("▶", "右側の境界を調整")
+        private val bounds = mutableMapOf<View, Rect>()
+        private var effectiveGap = 0
+        private var drag: GapDrag? = null
+        private var previewGap: Int? = null
+        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+
+        init {
+            isMotionEventSplittingEnabled = true
+            updateSplitPresentation()
+            updateSpaceAction(spaceConverts)
+        }
+
+        fun addControls() {
+            (leftCommands + leftSpace + toggle + rightSpace + rightCommands + leftHandle + rightHandle).forEach { addView(it) }
+        }
+
+        fun updateSpaceAction(convert: Boolean) {
+            listOf(leftSpace, rightSpace).forEach { space ->
+                space.text = if (convert) "変換" else "␣"
+                space.contentDescription = if (convert) "変換" else "空白"
+            }
+        }
+
+        private fun arrowKey(label: String, description: String, action: EditCommand) =
+            commandKey(label) { onCommand(TouchKeyboardCommand.MoveCursor(action)) }.apply {
+                contentDescription = description
+            }
+
+        private fun handleKey(label: String, description: String) = commandKey(label) { showGeometryAdjustment() }.apply {
+            contentDescription = description
+        }
+
+        private fun toggleSplit() {
+            val split = !keyboardSettings.qwertySplit
+            cancelTouches()
+            if (TouchKeyboardSettingsStore.saveQwertySplit(context, split)) {
+                keyboardSettings = keyboardSettings.copy(qwertySplit = split)
+                onGeometryChanged?.invoke(keyboardSettings)
+                updateSplitPresentation()
+                requestLayout()
+            }
+        }
+
+        private fun updateSplitPresentation() {
+            val split = keyboardSettings.qwertySplit
+            toggle.text = if (split) "→←" else "←→"
+            toggle.contentDescription = if (split) "QWERTYの分割を解除" else "QWERTYを分割"
+            leftHandle.visibility = if (split) View.VISIBLE else View.GONE
+            rightHandle.visibility = leftHandle.visibility
+        }
+
+        fun addRow(row: Int, stagger: Float, left: List<View>, right: List<View>, last: View, lastUnits: Float = 1f) {
+            left.forEachIndexed { i, key -> addLetterKey(key, row, stagger + i, stagger + .5f + i) }
+            (right + last).forEachIndexed { i, key ->
+                val units = if (key === last) lastUnits else 1f
+                addLetterKey(key, row, stagger + left.size + i, stagger + i, units, onRight = true)
+            }
+        }
+
+        fun addLetterKey(view: View, row: Int, joinedStart: Float, splitStart: Float,
+            units: Float = 1f, splitUnits: Float = units, onRight: Boolean = false) {
+            addView(view)
+            letterKeys += WideKey(view, row, joinedStart, splitStart, units, splitUnits, onRight)
+        }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val width = MeasureSpec.getSize(widthMeasureSpec)
+            val height = MeasureSpec.getSize(heightMeasureSpec)
+            if (measuredWidth != width) cancelGapDrag()
+            val split = keyboardSettings.qwertySplit
+            val savedGap = (width * keyboardSettings.qwertyGapPercent / 100f).roundToInt()
+            effectiveGap = if (split) limitGap(previewGap ?: savedGap, width) else 0
+            val half = (width - effectiveGap) / 2f
+            val unit = if (split) half / SPLIT_HALF_UNITS else width / JOINED_UNITS
+
+            bounds.clear()
+            fun place(view: View, row: Int, start: Float, end: Float) {
+                val x1 = start.roundToInt()
+                val x2 = end.roundToInt()
+                val y1 = row * height / 4
+                val y2 = (row + 1) * height / 4
+                val marginX = minOf(dp(1), (x2 - x1) / 2)
+                val marginY = minOf(dp(1), (y2 - y1) / 2)
+                bounds[view] = Rect(x1 + marginX, y1 + marginY, x2 - marginX, y2 - marginY)
+            }
+            letterKeys.forEach { key ->
+                val start = if (split) key.splitStart * unit + if (key.onRight) width - half else 0f
+                    else key.joinedStart * unit
+                val units = if (split) key.splitUnits else key.units
+                place(key.view, key.row, start, start + units * unit)
+            }
+
+            val center = width / 2f
+            val toggleHalf = minOf(dp(56).toFloat(), unit) / 2
+            val leftSpaceEnd = minOf(center - toggleHalf, half + unit)
+            val commandsWidth = rightCommands.size * unit
+            leftCommands.forEachIndexed { i, key ->
+                place(key, 3, i * commandsWidth / leftCommands.size, (i + 1) * commandsWidth / leftCommands.size)
+            }
+            place(leftSpace, 3, commandsWidth, leftSpaceEnd)
+            place(toggle, 3, center - toggleHalf, center + toggleHalf)
+            place(rightSpace, 3, width - leftSpaceEnd, width - commandsWidth)
+            rightCommands.forEachIndexed { i, key ->
+                val start = width - commandsWidth + i * unit
+                place(key, 3, start, start + unit)
+            }
+            if (split) {
+                place(leftHandle, 1, half, half + dp(HANDLE_WIDTH_DP))
+                place(rightHandle, 1, width - half - dp(HANDLE_WIDTH_DP), width - half)
+            }
+            bounds.forEach { (view, rect) ->
+                view.measure(MeasureSpec.makeMeasureSpec(rect.width(), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(rect.height(), MeasureSpec.EXACTLY))
+            }
+            setMeasuredDimension(width, height)
+        }
+
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            bounds.forEach { (view, rect) -> view.layout(rect.left, rect.top, rect.right, rect.bottom) }
+        }
+
+        private fun limitGap(gap: Int, width: Int): Int {
+            val range = qwertyGapPercentRange(width)
+            return gap.coerceIn((width * range.first / 100f).roundToInt(), (width * range.last / 100f).roundToInt())
+        }
+
+        override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+            if (event.actionMasked != MotionEvent.ACTION_DOWN || !keyboardSettings.qwertySplit) return false
+            val handle = listOf(leftHandle, rightHandle).firstOrNull {
+                bounds[it]?.contains(event.x.toInt(), event.y.toInt()) == true
+            } ?: return false
+            cancelTouches()
+            drag = GapDrag(handle, event.rawX, effectiveGap)
+            handle.isPressed = true
+            return true
+        }
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            val active = drag ?: return true
+            when (event.actionMasked) {
+                MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
+                    val movement = event.rawX - active.originX
+                    if (previewGap != null || abs(movement) > touchSlop) {
+                        val direction = if (active.handle === leftHandle) -1 else 1
+                        val gap = limitGap((active.originalGap + 2 * direction * movement).roundToInt(), width)
+                        previewGap = gap
+                        requestLayout()
+                        if (event.actionMasked == MotionEvent.ACTION_UP && gap != active.originalGap) {
+                            val percent = (gap * 100f / width).roundToInt().coerceIn(TouchKeyboardSettings.QWERTY_GAP_PERCENT)
+                            setQwertyGeometry(percent, keyboardSettings.qwertyHeightDp)
+                        }
+                    }
+                    if (event.actionMasked == MotionEvent.ACTION_UP) cancelGapDrag()
+                }
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> cancelGapDrag()
+            }
+            return true
+        }
+
+        fun cancelGapDrag() {
+            drag?.handle?.isPressed = false
+            drag = null
+            if (previewGap != null) {
+                previewGap = null
+                requestLayout()
+            }
+        }
+    }
+
+    private data class GapDrag(val handle: View, val originX: Float, val originalGap: Int)
+
     private fun refreshShift() {
-        shiftButton?.isSelected = controller.shifted
-        shiftButton?.text = if (controller.shifted) "⇧●" else "⇧"
-        shiftButton?.contentDescription = if (controller.shifted) "Shift 有効" else "Shift"
+        shiftButtons.forEach { button ->
+            button.isSelected = controller.shifted
+            button.text = if (controller.shifted) "⇧●" else "⇧"
+            button.contentDescription = if (controller.shifted) "Shift 有効" else "Shift"
+        }
         characterButtons.forEach { (button, value) ->
             button.text = if (controller.shifted && controller.page == TouchKeyboardController.Page.LETTERS)
                 value.uppercase() else value
@@ -426,7 +728,8 @@ internal class TouchKeyboardView(
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun makeShiftKey(): Button = commandKey("⇧") { controller.toggleShift(); refreshShift() }.apply {
+    private fun shiftKey(): Button = commandKey("⇧") { controller.toggleShift(); refreshShift() }.apply {
+        shiftButtons += this
         val currentGeneration = generation
         var pointer = -1
         cancelGestures += { pointer = -1; isPressed = false }
@@ -435,14 +738,14 @@ internal class TouchKeyboardView(
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     pointer = event.getPointerId(0)
-                    controller.pressShift(); isPressed = true; refreshShift()
+                    controller.pressShift(pointer = pointer); isPressed = true; refreshShift()
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (pointer == event.getPointerId(event.actionIndex)) controller.releaseShift()
+                    if (pointer == event.getPointerId(event.actionIndex)) controller.releaseShift(pointer = pointer)
                     pointer = -1; isPressed = false; refreshShift()
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    controller.releaseShift(cancelled = true)
+                    if (pointer >= 0) controller.releaseShift(cancelled = true, pointer = pointer)
                     pointer = -1; isPressed = false; refreshShift()
                 }
             }
@@ -854,5 +1157,12 @@ internal class TouchKeyboardView(
         private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     }
 
-    private companion object { const val GUIDE_DELAY_MS = 200L }
+    private companion object {
+        const val GUIDE_DELAY_MS = 200L
+        const val WIDE_QWERTY_MIN_WIDTH_DP = 600
+        const val MIN_WIDE_KEY_WIDTH_DP = 38
+        const val HANDLE_WIDTH_DP = 24
+        const val SPLIT_HALF_UNITS = 6.5f
+        const val JOINED_UNITS = 11.5f
+    }
 }

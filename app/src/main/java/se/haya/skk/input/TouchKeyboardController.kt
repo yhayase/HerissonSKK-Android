@@ -1,8 +1,10 @@
 package se.haya.skk.input
 
 import se.haya.skk.core.BasicSkkAction
+import se.haya.skk.core.editing.EditCommand
 
 internal sealed interface TouchKeyboardCommand {
+    data class MoveCursor(val command: EditCommand) : TouchKeyboardCommand
     data class Skk(val action: BasicSkkAction) : TouchKeyboardCommand
     data class SpaceOrConvert(val fullWidthSpace: Boolean = false) : TouchKeyboardCommand
     data object SwitchIme : TouchKeyboardCommand
@@ -15,9 +17,9 @@ internal class TouchKeyboardController {
     enum class Flick { TAP, UP, DOWN }
 
     private var latched = false
-    private var held = false
+    private val heldShiftPointers = mutableSetOf<Int>()
     private var chordUsed = false
-    val shifted: Boolean get() = latched || held
+    val shifted: Boolean get() = latched || heldShiftPointers.isNotEmpty()
     var page: Page = Page.LETTERS
         private set
 
@@ -29,26 +31,26 @@ internal class TouchKeyboardController {
 
     fun toggleShift() { latched = !latched }
 
-    fun pressShift() {
-        held = true
-        chordUsed = false
+    fun pressShift(pointer: Int = 0) {
+        if (heldShiftPointers.isEmpty()) chordUsed = false
+        heldShiftPointers.add(pointer)
     }
 
-    fun releaseShift(cancelled: Boolean = false) {
-        if (!held) return
-        held = false
+    fun releaseShift(cancelled: Boolean = false, pointer: Int = 0) {
+        if (!heldShiftPointers.remove(pointer) || heldShiftPointers.isNotEmpty()) return
         if (!cancelled && !chordUsed) toggleShift()
         chordUsed = false
     }
 
     /** 同時押しだけを保持します。一回Shiftは次の文字が実際に送られたときに消費します。 */
     fun captureShift(): Boolean {
+        val held = heldShiftPointers.isNotEmpty()
         if (held) chordUsed = true
         return held
     }
 
     fun cancelPointers() {
-        held = false
+        heldShiftPointers.clear()
         chordUsed = false
     }
 
