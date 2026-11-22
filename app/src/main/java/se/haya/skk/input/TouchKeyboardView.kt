@@ -302,7 +302,6 @@ internal class TouchKeyboardView(
         val button = tenKeyAlignmentControl ?: return
         val rightGap = availableWidth - keyboardLeft - keyboardWidth
         val moveRight = keyboardLeft <= rightGap
-        val gapLeft = if (moveRight) keyboardLeft + keyboardWidth else 0
         val gapWidth = if (moveRight) rightGap else keyboardLeft
         val size = minOf(dp(48), gapWidth - dp(8), keyboardHeight - dp(8))
         if (size < dp(32)) {
@@ -311,9 +310,9 @@ internal class TouchKeyboardView(
             return
         }
         button.visibility = View.VISIBLE
-        button.text = if (moveRight) "→|" else "|←"
+        button.text = if (moveRight) "→" else "←"
         button.contentDescription = if (moveRight) "キーボードを右側に移動" else "キーボードを左側に移動"
-        val x = gapLeft + (gapWidth - size) / 2
+        val x = if (moveRight) keyboardLeft + keyboardWidth + dp(4) else keyboardLeft - size - dp(4)
         val y = (keyboardHeight - size) / 2
         tenKeyAlignmentBounds.set(x, y, x + size, y + size)
     }

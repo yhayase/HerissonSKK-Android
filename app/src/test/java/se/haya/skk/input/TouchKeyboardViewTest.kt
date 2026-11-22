@@ -757,11 +757,13 @@ class TouchKeyboardViewTest {
         measureWideQwerty(keyboard, windowWidth)
         val area = keyboard.getChildAt(1) as ViewGroup
         val keys = area.getChildAt(0)
-        val move = key(keyboard, "→|")
+        val move = buttons(keyboard).single { it.contentDescription == "キーボードを右側に移動" }
         assertEquals(windowWidth / 5, keys.width)
         assertEquals(KeyboardColors.resolve(keyboard.context).geometryControl, move.currentTextColor)
         assertNull(move.background)
-        assertTrue(move.left >= keys.right)
+        val margin = (4 * metrics.density).toInt()
+        assertEquals("→", move.text.toString())
+        assertEquals(margin, move.left - keys.right)
         val screen = IntArray(2)
         move.getLocationOnScreen(screen)
         assertTrue(keyboard.isCharacterAreaHit(screen[0] + move.width / 2f, screen[1] + move.height / 2f))
@@ -778,11 +780,12 @@ class TouchKeyboardViewTest {
         }
 
         tapMove()
-        assertEquals("|←", move.text.toString())
-        assertTrue(move.right <= keys.left)
+        assertEquals("←", move.text.toString())
+        assertEquals(margin, keys.left - move.right)
         assertEquals(original.copy(tenKeyPositionPercent = 100), TouchKeyboardSettingsStore.read(keyboard.context))
         tapMove()
-        assertEquals("→|", move.text.toString())
+        assertEquals("→", move.text.toString())
+        assertEquals(margin, move.left - keys.right)
         assertEquals(original, TouchKeyboardSettingsStore.read(keyboard.context))
         assertTrue(commands.isEmpty())
 
