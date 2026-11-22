@@ -73,7 +73,7 @@ internal class TouchKeyboardView(
     /** 調整操作は文字面の状態とSKKの入力状態を変えません。 */
     internal fun setTenKeyGeometry(heightDp: Int, widthPercent: Int, positionPercent: Int, bottomPaddingDp: Int = keyboardSettings.tenKeyBottomPaddingDp) {
         cancelTouches()
-        val updated = keyboardSettings.copy(tenKeyHeightDp = heightDp.coerceIn(160, 400),
+        val updated = keyboardSettings.copy(tenKeyHeightDp = heightDp.coerceIn(TouchKeyboardSettings.TEN_KEY_HEIGHT_DP),
             tenKeyWidthPercent = widthPercent.coerceIn(TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT), tenKeyPositionPercent = positionPercent.coerceIn(0, 100),
             tenKeyBottomPaddingDp = bottomPaddingDp.coerceIn(0, 160))
         if (TouchKeyboardSettingsStore.saveGeometry(context, updated.tenKeyHeightDp, updated.tenKeyWidthPercent, updated.tenKeyPositionPercent, updated.tenKeyBottomPaddingDp)) {
@@ -96,16 +96,18 @@ internal class TouchKeyboardView(
         }
         adjustmentPanel = scroll
         panel.addView(TextView(context).apply { text = "サイズ・位置を調整"; textSize = 14f; setTextColor(KeyboardColors.resolve(context).text) }, LayoutParams(LayoutParams.MATCH_PARENT, dp(ADJUSTMENT_TITLE_HEIGHT_DP)))
-        fun slider(label: String, minimum: Int, maximum: Int, initial: Int, change: (Int) -> Unit): SeekBar {
+        fun slider(label: String, range: IntRange, initial: Int, unit: String, change: (Int) -> Unit): SeekBar {
             val line = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            val value = TextView(context).apply { text = "$label $initial"; textSize = 12f; setTextColor(KeyboardColors.resolve(context).text) }
+            val value = TextView(context).apply { text = "$label $initial$unit"; textSize = 12f; setTextColor(KeyboardColors.resolve(context).text) }
             line.addView(value, LayoutParams(dp(100), LayoutParams.MATCH_PARENT))
             val bar = SeekBar(context).apply {
                 contentDescription = "${if (qwerty) "QWERTY" else "10キー"}の$label"
-                min = minimum; max = maximum; progress = initial
+                max = range.last
+                min = range.first
+                progress = initial
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
-                        value.text = "$label $progress"
+                        value.text = "$label $progress$unit"
                         if (fromUser) change(progress)
                     }
                     override fun onStartTrackingTouch(bar: SeekBar?) { cancelTouches() }
@@ -121,34 +123,35 @@ internal class TouchKeyboardView(
             val width = qwertyWidthRange(measuredWidth)
             val position = TouchKeyboardSettings.QWERTY_POSITION_PERCENT
             val bottom = TouchKeyboardSettings.QWERTY_BOTTOM_PADDING_DP
-            slider("高さ", height.first, height.last, keyboardSettings.qwertyHeightDp) {
+            slider("高さ", height, keyboardSettings.qwertyHeightDp, " dp") {
                 setQwertyGeometry(keyboardSettings.qwertyGapPercent, it)
             }
-            qwertyWidthSlider = slider("幅", width.first, width.last, keyboardSettings.qwertyWidthPercent.coerceIn(width)) {
+            qwertyWidthSlider = slider("幅", width, keyboardSettings.qwertyWidthPercent.coerceIn(width), "%") {
                 setQwertyGeometry(widthPercent = it)
             }
-            slider("左右位置", position.first, position.last, keyboardSettings.qwertyPositionPercent) {
+            slider("左右位置", position, keyboardSettings.qwertyPositionPercent, "%") {
                 setQwertyGeometry(positionPercent = it)
             }
-            slider("下の余白", bottom.first, bottom.last, keyboardSettings.qwertyBottomPaddingDp) {
+            slider("下の余白", bottom, keyboardSettings.qwertyBottomPaddingDp, " dp") {
                 setQwertyGeometry(bottomPaddingDp = it)
             }
             if (wide) {
                 val gap = qwertyGapPercentRange(qwertyWidth(measuredWidth))
-                qwertyGapSlider = slider("分割時の間隔", gap.first, gap.last, keyboardSettings.qwertyGapPercent.coerceIn(gap)) {
+                qwertyGapSlider = slider("分割時の間隔", gap, keyboardSettings.qwertyGapPercent.coerceIn(gap), "%") {
                     setQwertyGeometry(it)
                 }
             }
         } else {
-            slider("高さ", 160, 400, keyboardSettings.tenKeyHeightDp) { setTenKeyGeometry(it, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent) }
-            val width = TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT
-            slider("幅", width.first, width.last, keyboardSettings.tenKeyWidthPercent) {
+            slider("高さ", TouchKeyboardSettings.TEN_KEY_HEIGHT_DP, keyboardSettings.tenKeyHeightDp, " dp") {
+                setTenKeyGeometry(it, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent)
+            }
+            slider("幅", TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT, keyboardSettings.tenKeyWidthPercent, "%") {
                 setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, it, keyboardSettings.tenKeyPositionPercent)
             }
-            tenKeyPositionSlider = slider("左右位置", 0, 100, keyboardSettings.tenKeyPositionPercent) {
+            tenKeyPositionSlider = slider("左右位置", TouchKeyboardSettings.TEN_KEY_POSITION_PERCENT, keyboardSettings.tenKeyPositionPercent, "%") {
                 setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, it)
             }
-            slider("下の余白", 0, 160, keyboardSettings.tenKeyBottomPaddingDp) {
+            slider("下の余白", TouchKeyboardSettings.TEN_KEY_BOTTOM_PADDING_DP, keyboardSettings.tenKeyBottomPaddingDp, " dp") {
                 setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent, it)
             }
         }

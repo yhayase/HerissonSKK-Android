@@ -227,7 +227,8 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
             setOnPreferenceChangeListener { _, value -> update(draft.copy(vibrateOnBoundary = value as Boolean)); true }
         }
         val qwerty = editor == TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY
-        height = seek(context, "height", "高さ", 160, if (qwerty) 320 else 400, if (qwerty) 200 else 256, "dp") {
+        val heightRange = if (qwerty) TouchKeyboardSettings.QWERTY_HEIGHT_DP else TouchKeyboardSettings.TEN_KEY_HEIGHT_DP
+        height = seek(context, "height", "高さ", heightRange.first, heightRange.last, if (qwerty) 200 else 256, "dp") {
             if (qwerty) draft.copy(qwertyHeightDp = it) else draft.copy(tenKeyHeightDp = it)
         }
         val widthRange = if (qwerty) TouchKeyboardSettings.QWERTY_WIDTH_PERCENT else TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT
@@ -277,7 +278,7 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
     private fun seek(context: Context, keyValue: String, titleValue: String, minimum: Int, maximum: Int,
         default: Int, unit: String, transform: (Int) -> TouchKeyboardSettings): SeekBarPreference =
         SeekBarPreference(context).apply {
-            key = keyValue; title = titleValue; min = minimum; max = maximum; value = default
+            key = keyValue; title = titleValue; max = maximum; min = minimum; value = default
             showSeekBarValue = true; isIconSpaceReserved = false; isPersistent = false; summary = "$default $unit"
             setOnPreferenceChangeListener { _, raw -> if (!refreshing) update(transform(raw as Int)); true }
         }
