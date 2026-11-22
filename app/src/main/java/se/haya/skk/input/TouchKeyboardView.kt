@@ -95,7 +95,7 @@ internal class TouchKeyboardView(
             addView(panel, android.widget.FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
         adjustmentPanel = scroll
-        panel.addView(TextView(context).apply { text = "サイズ・位置を調整"; textSize = 14f; setTextColor(KeyboardColors.resolve(context).text) }, LayoutParams(LayoutParams.MATCH_PARENT, dp(24)))
+        panel.addView(TextView(context).apply { text = "サイズ・位置を調整"; textSize = 14f; setTextColor(KeyboardColors.resolve(context).text) }, LayoutParams(LayoutParams.MATCH_PARENT, dp(ADJUSTMENT_TITLE_HEIGHT_DP)))
         fun slider(label: String, minimum: Int, maximum: Int, initial: Int, change: (Int) -> Unit): SeekBar {
             val line = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             val value = TextView(context).apply { text = "$label $initial"; textSize = 12f; setTextColor(KeyboardColors.resolve(context).text) }
@@ -113,7 +113,7 @@ internal class TouchKeyboardView(
                 })
             }
             line.addView(bar, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-            panel.addView(line, LayoutParams(LayoutParams.MATCH_PARENT, dp(36)))
+            panel.addView(line, LayoutParams(LayoutParams.MATCH_PARENT, dp(ADJUSTMENT_ROW_HEIGHT_DP)))
             return bar
         }
         if (qwerty) {
@@ -255,6 +255,9 @@ internal class TouchKeyboardView(
                 candidateStatusView.measure(MeasureSpec.makeMeasureSpec(availableWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(availableHeight, MeasureSpec.AT_MOST))
                 candidateStatusView.measuredHeight
             }
+            val preferredHeight = dp(if (isTenKey) keyboardSettings.tenKeyHeightDp else keyboardSettings.qwertyHeightDp)
+            val reservedHeight = candidateHeight + paddingBottom
+            val keyboardAndPanelHeight = (availableHeight - reservedHeight).coerceAtLeast(0)
             adjustmentPanel?.let { panel ->
                 qwertyGapSlider?.let { updateQwertyGapSlider(it, width) }
                 qwertyWidthSlider?.let { bar ->
@@ -262,14 +265,17 @@ internal class TouchKeyboardView(
                     bar.min = range.first
                     bar.progress = keyboardSettings.qwertyWidthPercent.coerceIn(range)
                 }
-                // IME窓自身の縮小後の高さを半分にすると、調整面まで再縮小して下に空きが残ります。
-                val maximum = minOf(maxOf(0, availableHeight - candidateHeight - paddingBottom),
-                    maxOf(0, (screenHeight - candidateHeight - paddingBottom) / 2))
+                // 見出しと高さ行が入る範囲で、設定した文字面の高さを優先します。
+                val minimumPanelHeight = minOf(dp(ADJUSTMENT_TITLE_HEIGHT_DP) + dp(ADJUSTMENT_ROW_HEIGHT_DP),
+                    keyboardAndPanelHeight / 2)
+                // 画面の高さを基準にし、IME窓の再測定で上限が連鎖して縮むのを防ぎます。
+                val screenPanelLimit = (screenHeight - reservedHeight).coerceAtLeast(0) / 2
+                val maximum = minOf(screenPanelLimit,
+                    maxOf(minimumPanelHeight, keyboardAndPanelHeight - preferredHeight))
                 panel.measure(MeasureSpec.makeMeasureSpec(availableWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(maximum, MeasureSpec.AT_MOST))
                 panel.layoutParams.height = panel.measuredHeight
             }
-            val preferredHeight = if (isTenKey) keyboardSettings.tenKeyHeightDp else keyboardSettings.qwertyHeightDp
-            val height = minOf(dp(preferredHeight), maxOf(0, availableHeight - candidateHeight - (adjustmentPanel?.measuredHeight ?: 0) - paddingBottom))
+            val height = minOf(preferredHeight, keyboardAndPanelHeight - (adjustmentPanel?.measuredHeight ?: 0))
             setMeasuredGeometry(characterArea, if (isTenKey) availableWidth else width,
                 LayoutParams.WRAP_CONTENT, if (isTenKey) 0 else left)
             val keyboard = tenKeyView ?: wideQwerty
@@ -1283,6 +1289,8 @@ internal class TouchKeyboardView(
     }
 
     private companion object {
+        const val ADJUSTMENT_TITLE_HEIGHT_DP = 24
+        const val ADJUSTMENT_ROW_HEIGHT_DP = 36
         const val GUIDE_DELAY_MS = 200L
         const val WIDE_QWERTY_MIN_WIDTH_DP = 600
         const val MIN_WIDE_KEY_WIDTH_DP = 38

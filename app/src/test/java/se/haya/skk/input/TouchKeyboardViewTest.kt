@@ -7,6 +7,7 @@ import android.graphics.Insets
 import android.graphics.Rect
 import android.os.SystemClock
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -701,6 +702,42 @@ class TouchKeyboardViewTest {
             assertEquals(initialBottom, lowerEdge())
         } finally {
             controller.destroy()
+        }
+    }
+
+    @Test @Config(qualifiers = "w800dp-h400dp-land-mdpi")
+    fun `高さが限られた調整中もスライダー下限付近の変更を文字面に反映する`() {
+        val layouts = listOf(ScreenKeyboardLayout.TEN_KEY to 800,
+            ScreenKeyboardLayout.QWERTY to 800, ScreenKeyboardLayout.QWERTY to 520)
+        for ((layout, width) in layouts) {
+            val keyboard = view().apply {
+                configure(TouchKeyboardSettings(layout = layout, tenKeyHeightDp = 160, qwertyHeightDp = 160))
+            }
+            fun measure(height: Int) {
+                keyboard.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.AT_MOST))
+                keyboard.layout(0, 0, keyboard.measuredWidth, keyboard.measuredHeight)
+            }
+            measure(390)
+            keyboard.showGeometryAdjustment()
+            val panel = keyboard.getChildAt(1) as ViewGroup
+            val area = keyboard.getChildAt(2)
+            val slider = descendants(panel).filterIsInstance<SeekBar>().first().apply { keyProgressIncrement = 20 }
+            val right = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT)
+            for (expected in listOf(160, 180, 200)) {
+                measure(390)
+                assertEquals(expected, slider.progress)
+                assertEquals(expected, area.height)
+                assertEquals(keyboard.candidateStatusView.bottom, panel.top)
+                assertTrue(panel.height >= 60)
+                assertTrue(panel.getChildAt(0).height > panel.height)
+                assertEquals(keyboard.height - keyboard.paddingBottom, area.bottom)
+                if (expected < 200) assertTrue(slider.onKeyDown(right.keyCode, right))
+            }
+
+            measure(keyboard.candidateStatusView.height + keyboard.paddingBottom + 80)
+            assertEquals(40, panel.height)
+            assertEquals(40, area.height)
         }
     }
 
