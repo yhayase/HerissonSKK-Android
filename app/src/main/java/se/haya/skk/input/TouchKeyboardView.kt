@@ -756,9 +756,8 @@ internal class TouchKeyboardView(
             }
 
             val center = width / 2f
-            val bottomUnit = width / JOINED_UNITS
-            val toggleHalf = minOf(dp(56).toFloat(), bottomUnit) / 2
-            val commandsWidth = rightCommands.size * bottomUnit
+            val toggleHalf = minOf(dp(56).toFloat(), width / JOINED_UNITS) / 2
+            val commandsWidth = width / 4f
             leftCommands.forEachIndexed { i, key ->
                 place(key, 3, i * commandsWidth / leftCommands.size, (i + 1) * commandsWidth / leftCommands.size)
             }
@@ -766,8 +765,9 @@ internal class TouchKeyboardView(
             place(toggle, 3, center - toggleHalf, center + toggleHalf)
             place(rightSpace, 3, center + toggleHalf, width - commandsWidth)
             rightCommands.forEachIndexed { i, key ->
-                val start = width - commandsWidth + i * bottomUnit
-                place(key, 3, start, start + bottomUnit)
+                val start = width - commandsWidth
+                place(key, 3, start + i * commandsWidth / rightCommands.size,
+                    start + (i + 1) * commandsWidth / rightCommands.size)
             }
             if (split) {
                 place(leftHandle, 1, half, half + dp(HANDLE_WIDTH_DP))
