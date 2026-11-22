@@ -75,15 +75,15 @@ class TouchKeyboardSettingsActivityTest {
         for (key in listOf("height", "width", "position", "bottom"))
             assertNotNull(geometryPage.findPreference<SeekBarPreference>(key))
         val height = geometryPage.findPreference<SeekBarPreference>("height")!!
-        assertEquals(160, height.min)
+        assertEquals(100, height.min)
         assertEquals(400, height.max)
-        height.callChangeListener(320)
+        assertTrue(height.callChangeListener(100))
         val width = geometryPage.findPreference<SeekBarPreference>("width")!!
         assertEquals(10, width.min)
         assertTrue(width.callChangeListener(10))
         geometry.findViewById<android.widget.Button>(R.id.settings_save).performClick()
         assertEquals(ScreenKeyboardLayout.QWERTY, TouchKeyboardSettingsStore.read(geometry).layout)
-        assertEquals(320, TouchKeyboardSettingsStore.read(geometry).tenKeyHeightDp)
+        assertEquals(100, TouchKeyboardSettingsStore.read(geometry).tenKeyHeightDp)
         assertEquals(10, TouchKeyboardSettingsStore.read(geometry).tenKeyWidthPercent)
     }
 
@@ -91,7 +91,7 @@ class TouchKeyboardSettingsActivityTest {
         val initial = TouchKeyboardSettings(tenKeyHeightDp = 300, qwertySplit = true, qwertyGapPercent = 40)
         val activity = start(TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY, initial)
         val page = fragment(activity)
-        assertEquals(160, page.findPreference<SeekBarPreference>("height")!!.min)
+        assertEquals(100, page.findPreference<SeekBarPreference>("height")!!.min)
         assertEquals(320, page.findPreference<SeekBarPreference>("height")!!.max)
         page.findPreference<SeekBarPreference>("height")!!.callChangeListener(240)
         page.findPreference<SeekBarPreference>("width")!!.callChangeListener(75)

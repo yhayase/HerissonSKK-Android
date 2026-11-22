@@ -39,14 +39,14 @@ data class TouchKeyboardSettings(
         val HOLD_MILLIS = 100..1000
         const val HOLD_STEP_BASE = 100
         const val HOLD_STEP = 10
-        val TEN_KEY_HEIGHT_DP = 160..400
+        val TEN_KEY_HEIGHT_DP = 100..400
         val TEN_KEY_WIDTH_PERCENT = 10..100
         val TEN_KEY_POSITION_PERCENT = 0..100
         val TEN_KEY_BOTTOM_PADDING_DP = 0..160
         const val DEFAULT_QWERTY_GAP_PERCENT = 28
         const val DEFAULT_QWERTY_HEIGHT_DP = 200
         val QWERTY_GAP_PERCENT = 0..48
-        val QWERTY_HEIGHT_DP = 160..320
+        val QWERTY_HEIGHT_DP = 100..320
         val QWERTY_WIDTH_PERCENT = 60..100
         val QWERTY_POSITION_PERCENT = 0..100
         val QWERTY_BOTTOM_PADDING_DP = 0..160

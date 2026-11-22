@@ -706,12 +706,12 @@ class TouchKeyboardViewTest {
     }
 
     @Test @Config(qualifiers = "w800dp-h400dp-land-mdpi")
-    fun `高さが限られた調整中もスライダー下限付近の変更を文字面に反映する`() {
+    fun `高さが限られた調整中も100dpからの変更を文字面に反映する`() {
         val layouts = listOf(ScreenKeyboardLayout.TEN_KEY to 800,
             ScreenKeyboardLayout.QWERTY to 800, ScreenKeyboardLayout.QWERTY to 520)
         for ((layout, width) in layouts) {
             val keyboard = view().apply {
-                configure(TouchKeyboardSettings(layout = layout, tenKeyHeightDp = 160, qwertyHeightDp = 160))
+                configure(TouchKeyboardSettings(layout = layout, tenKeyHeightDp = 100, qwertyHeightDp = 100))
             }
             fun measure(height: Int) {
                 keyboard.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -723,13 +723,13 @@ class TouchKeyboardViewTest {
             val panel = keyboard.getChildAt(1) as ViewGroup
             val area = keyboard.getChildAt(2)
             val slider = descendants(panel).filterIsInstance<SeekBar>().first().apply { keyProgressIncrement = 20 }
-            assertEquals(160, slider.min)
+            assertEquals(100, slider.min)
             assertTrue(descendants(panel).filterIsInstance<TextView>().any { it.text == "幅 100%" })
             val left = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT)
             slider.onKeyDown(left.keyCode, left)
-            assertEquals(160, slider.progress)
+            assertEquals(100, slider.progress)
             val right = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT)
-            for (expected in listOf(160, 180, 200)) {
+            for (expected in listOf(100, 120, 140, 160, 180, 200)) {
                 measure(390)
                 assertEquals(expected, slider.progress)
                 assertTrue(descendants(panel).filterIsInstance<TextView>().any { it.text == "高さ $expected dp" })

@@ -23,9 +23,9 @@ class TouchKeyboardSettingsStoreTest {
     }
 
     @Test fun `形状値は境界を含む範囲だけ読み込み型違いと範囲外は既定値に戻す`() {
-        preferences.edit().putInt("ten_key_height_dp", 160).putInt("ten_key_width_percent", 10)
+        preferences.edit().putInt("ten_key_height_dp", 100).putInt("ten_key_width_percent", 10)
             .putInt("ten_key_position_percent", 100).putInt("ten_key_bottom_padding_dp", 160).commit()
-        assertEquals(TouchKeyboardSettings(tenKeyHeightDp = 160, tenKeyWidthPercent = 10,
+        assertEquals(TouchKeyboardSettings(tenKeyHeightDp = 100, tenKeyWidthPercent = 10,
             tenKeyPositionPercent = 100, tenKeyBottomPaddingDp = 160), TouchKeyboardSettingsStore.readFrom(preferences))
         preferences.edit().putInt("ten_key_height_dp", 401).putString("ten_key_width_percent", "60")
             .putInt("ten_key_position_percent", -1).putString("ten_key_bottom_padding_dp", "0").commit()
@@ -54,8 +54,9 @@ class TouchKeyboardSettingsStoreTest {
         assertEquals(before.copy(qwertySplit = true), TouchKeyboardSettingsStore.read(context))
         assertTrue(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 48, 320))
         assertFalse(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 49, 320))
-        assertFalse(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 48, 159))
-        assertEquals(before.copy(qwertySplit = true, qwertyGapPercent = 48, qwertyHeightDp = 320),
+        assertTrue(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 48, 100))
+        assertFalse(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 48, 99))
+        assertEquals(before.copy(qwertySplit = true, qwertyGapPercent = 48, qwertyHeightDp = 100),
             TouchKeyboardSettingsStore.read(context))
     }
 
