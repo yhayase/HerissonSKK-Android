@@ -778,17 +778,17 @@ class TouchKeyboardViewTest {
         val toggle = key(keyboard, "←→")
         assertTrue(kotlin.math.abs(keyboard.width / 2 - (toggle.left + toggle.right) / 2) <= 1)
         assertEquals((240 * keyboard.resources.displayMetrics.density).toInt(), (q.parent as View).height)
-        fun assertSpacesReachOuterQuarters() {
+        fun assertSpacesReachOuterFifths() {
             val spaces = buttons(keyboard).filter { it.text.toString() == "␣" }.sortedBy { it.left }
             val margin = keyboard.resources.displayMetrics.density.toInt()
             assertEquals(2, spaces.size)
-            assertEquals(keyboard.width / 4f + margin, spaces.first().left.toFloat(), 1f)
-            assertEquals(keyboard.width / 4f + margin, (keyboard.width - spaces.last().right).toFloat(), 1f)
+            assertEquals(keyboard.width / 5f + margin, spaces.first().left.toFloat(), 1f)
+            assertEquals(keyboard.width / 5f + margin, (keyboard.width - spaces.last().right).toFloat(), 1f)
         }
-        assertSpacesReachOuterQuarters()
+        assertSpacesReachOuterFifths()
         assertTrue(toggle.performClick())
         measureWideQwerty(keyboard)
-        assertSpacesReachOuterQuarters()
+        assertSpacesReachOuterFifths()
         assertTrue(TouchKeyboardSettingsStore.read(keyboard.context).qwertySplit)
         assertEquals("→←", toggle.text.toString())
         assertTrue(key(keyboard, "b").right < toggle.left)

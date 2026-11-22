@@ -757,7 +757,7 @@ internal class TouchKeyboardView(
 
             val center = width / 2f
             val toggleHalf = minOf(dp(56).toFloat(), width / JOINED_UNITS) / 2
-            val commandsWidth = width / 4f
+            val commandsWidth = width / 5f
             leftCommands.forEachIndexed { i, key ->
                 place(key, 3, i * commandsWidth / leftCommands.size, (i + 1) * commandsWidth / leftCommands.size)
             }
