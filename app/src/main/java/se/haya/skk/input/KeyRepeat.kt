@@ -4,9 +4,9 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.widget.Button
 
-/** 接触開始時に削除し、400ms 後から 60ms 間隔で繰り返します。戻り値で予約を取り消します。 */
+/** 接触開始時に実行し、400ms後から60ms間隔で繰り返します。戻り値で予約を取り消します。 */
 @android.annotation.SuppressLint("ClickableViewAccessibility")
-internal fun attachBackspaceRepeat(button: Button, isCurrent: () -> Boolean = { true }, action: () -> Unit): () -> Unit {
+internal fun attachKeyRepeat(button: Button, isCurrent: () -> Boolean = { true }, action: () -> Unit): () -> Unit {
     val slop = ViewConfiguration.get(button.context).scaledTouchSlop
     var repeating = false
     val repeat = object : Runnable {

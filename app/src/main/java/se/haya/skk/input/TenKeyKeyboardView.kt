@@ -469,7 +469,7 @@ internal class TenKeyKeyboardView(context: Context, private val settings: TouchK
     private fun backspaceKey(): Button {
         val capturedGeneration = generation
         return key("⌫") { action(BasicSkkAction.Backspace) }.also { button ->
-            cancellations += attachBackspaceRepeat(button, { capturedGeneration == generation }) { action(BasicSkkAction.Backspace) }
+            cancellations += attachKeyRepeat(button, { capturedGeneration == generation }) { action(BasicSkkAction.Backspace) }
         }
     }
     private fun key(label: String, function: Boolean = true, alternative: Boolean = false, supplied: Button? = null, click: (Button) -> Unit): Button {

@@ -686,7 +686,7 @@ internal class TouchKeyboardView(
         }
 
         private fun arrowKey(label: String, description: String, action: EditCommand) =
-            commandKey(label) { onCommand(TouchKeyboardCommand.MoveCursor(action)) }.apply {
+            repeatingKey(label) { onCommand(TouchKeyboardCommand.MoveCursor(action)) }.apply {
                 contentDescription = description
             }
 
@@ -1031,9 +1031,13 @@ internal class TouchKeyboardView(
         gravity = Gravity.CENTER
         isMotionEventSplittingEnabled = true
     }
-    private fun backspaceKey(): Button = commandKey("⌫") { send(BasicSkkAction.Backspace) }.also { button ->
-        cancelGestures += attachBackspaceRepeat(button, isCurrent = { button.isAttachedToWindow }) {
-            send(BasicSkkAction.Backspace)
+    private fun backspaceKey() = repeatingKey("⌫") { send(BasicSkkAction.Backspace) }
+
+    private fun repeatingKey(label: String, action: () -> Unit): Button {
+        val currentGeneration = generation
+        return commandKey(label, action = action).also { button ->
+            cancelGestures += attachKeyRepeat(button,
+                isCurrent = { currentGeneration == generation && button.isAttachedToWindow }, action = action)
         }
     }
 

@@ -636,6 +636,40 @@ class TouchKeyboardViewTest {
         }
     }
 
+    @Test
+    @Config(qualifiers = "w800dp-h800dp")
+    @LooperMode(LooperMode.Mode.PAUSED)
+    fun `カーソルキーは押下直後と削除と同じ間隔で送り離すと止まる`() {
+        val commands = mutableListOf<TouchKeyboardCommand>()
+        val keyboard = attachedView(commands)
+        val looper = Shadows.shadowOf(Looper.getMainLooper())
+        looper.idle()
+        measureWideQwerty(keyboard)
+        val arrows = listOf("←" to EditCommand.LEFT, "↓" to EditCommand.DOWN,
+            "↑" to EditCommand.UP, "→" to EditCommand.RIGHT)
+        arrows.forEach { (label, direction) ->
+            val arrow = key(keyboard, label)
+            val move = TouchKeyboardCommand.MoveCursor(direction)
+            event(arrow, MotionEvent.ACTION_DOWN)
+            assertEquals(listOf(move), commands)
+            looper.idleFor(399, TimeUnit.MILLISECONDS)
+            assertEquals(listOf(move), commands)
+            looper.idleFor(1, TimeUnit.MILLISECONDS)
+            assertEquals(List(2) { move }, commands)
+            looper.idleFor(60, TimeUnit.MILLISECONDS)
+            assertEquals(List(3) { move }, commands)
+            event(arrow, MotionEvent.ACTION_UP)
+            looper.idleFor(1, TimeUnit.SECONDS)
+            assertEquals(List(3) { move }, commands)
+            commands.clear()
+        }
+        val arrow = key(keyboard, "←")
+        event(arrow, MotionEvent.ACTION_DOWN)
+        keyboard.cancelInteractions()
+        looper.idleFor(1, TimeUnit.SECONDS)
+        assertEquals(listOf(TouchKeyboardCommand.MoveCursor(EditCommand.LEFT)), commands)
+    }
+
     @Test fun `広がったIME入力フレーム内でも調整前後と閉じた後の文字面下端を固定する`() {
         val controller = Robolectric.buildService(SkkInputMethodService::class.java).create()
         try {
