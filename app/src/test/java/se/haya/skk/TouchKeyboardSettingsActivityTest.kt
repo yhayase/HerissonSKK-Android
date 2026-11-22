@@ -2,6 +2,8 @@ package se.haya.skk
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.res.Configuration
+import com.google.android.material.appbar.MaterialToolbar
 import android.view.View
 import android.os.Bundle
 import android.os.Looper
@@ -181,6 +183,83 @@ class TouchKeyboardSettingsActivityTest {
         recreated.findViewById<android.widget.Button>(R.id.settings_save).performClick()
         assertTrue(recreated.isFinishing)
         assertEquals(80, TouchKeyboardSettingsStore.read(recreated).qwertyWidthPercent)
+    }
+
+    @Test fun `形状編集は開始時の向きと下書きを回転後も維持する`() {
+        val app = RuntimeEnvironment.getApplication()
+        val originalQualifiers = RuntimeEnvironment.getQualifiers()
+        try {
+            for (target in listOf(TouchKeyboardSettingsActivity.PAGE_GEOMETRY,
+                TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY)) {
+                RuntimeEnvironment.setQualifiers("port")
+                app.getSharedPreferences("settings", 0).edit().clear().commit()
+                val portrait = TouchKeyboardSettings(tenKeyWidthPercent = 70, qwertyWidthPercent = 75)
+                val landscape = TouchKeyboardSettings(tenKeyWidthPercent = 60, qwertyWidthPercent = 65)
+                assertTrue(TouchKeyboardSettingsStore.save(app, portrait, Configuration.ORIENTATION_PORTRAIT))
+                assertTrue(TouchKeyboardSettingsStore.save(app, landscape, Configuration.ORIENTATION_LANDSCAPE))
+                val intent = Intent(app, TouchKeyboardSettingsActivity::class.java)
+                    .putExtra(TouchKeyboardSettingsActivity.EXTRA_PAGE, target)
+                val controller = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java, intent).setup()
+                fragment(controller.get()).findPreference<SeekBarPreference>("width")!!.callChangeListener(80)
+                val state = Bundle()
+                controller.saveInstanceState(state).pause().stop().destroy()
+                RuntimeEnvironment.setQualifiers("land")
+                val recreated = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java, intent)
+                    .create(state).start().resume().visible().get()
+                assertTrue(recreated.findViewById<MaterialToolbar>(R.id.settings_top_bar).title.toString().contains("縦向き"))
+                assertEquals(80, fragment(recreated).findPreference<SeekBarPreference>("width")!!.value)
+                recreated.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+                val expected = if (target == TouchKeyboardSettingsActivity.PAGE_GEOMETRY)
+                    portrait.copy(tenKeyWidthPercent = 80) else portrait.copy(qwertyWidthPercent = 80)
+                assertEquals(expected, TouchKeyboardSettingsStore.read(app, Configuration.ORIENTATION_PORTRAIT))
+                assertEquals(landscape, TouchKeyboardSettingsStore.read(app, Configuration.ORIENTATION_LANDSCAPE))
+                recreated.finish()
+            }
+        } finally {
+            RuntimeEnvironment.setQualifiers(originalQualifiers)
+        }
+    }
+
+    @Test fun `横向きの形状標準化は縦向きと共通操作を維持する`() {
+        val originalQualifiers = RuntimeEnvironment.getQualifiers()
+        try {
+            RuntimeEnvironment.setQualifiers("land")
+            for (target in listOf(TouchKeyboardSettingsActivity.PAGE_GEOMETRY,
+                TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY)) {
+                val initial = TouchKeyboardSettings(operation = TenKeyOperation.HOLD,
+                    tenKeyHeightDp = 300, qwertyHeightDp = 240, qwertySplit = true, qwertyGapPercent = 40)
+                val activity = start(target, initial)
+                val portrait = initial.copy(tenKeyHeightDp = 280, qwertyHeightDp = 230)
+                assertTrue(TouchKeyboardSettingsStore.save(activity, portrait, Configuration.ORIENTATION_PORTRAIT))
+                assertTrue(activity.findViewById<MaterialToolbar>(R.id.settings_top_bar).title.toString().contains("横向き"))
+                activity.findViewById<android.widget.Button>(R.id.settings_defaults).performClick()
+                (ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog)
+                    .getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+                val expected = if (target == TouchKeyboardSettingsActivity.PAGE_GEOMETRY)
+                    initial.copy(tenKeyHeightDp = 256) else initial.copy(qwertyHeightDp = 200)
+                assertEquals(expected, TouchKeyboardSettingsStore.read(activity, Configuration.ORIENTATION_LANDSCAPE))
+                assertEquals(portrait, TouchKeyboardSettingsStore.read(activity, Configuration.ORIENTATION_PORTRAIT))
+            }
+        } finally {
+            RuntimeEnvironment.setQualifiers(originalQualifiers)
+        }
+    }
+
+    @Test fun `共通操作の保存は未設定の形状プロファイルを作らない`() {
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_OPERATION)
+        val preferences = activity.getSharedPreferences("settings", 0)
+        val beforeKeys = preferences.all.keys.toSet()
+        fragment(activity).findPreference<ListPreference>("operation")!!.callChangeListener("HOLD")
+        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        val afterKeys = preferences.all.keys.toSet()
+        assertEquals(setOf("ten_key_operation", "ten_key_hold_millis", "ten_key_vibrate_on_boundary"),
+            afterKeys - beforeKeys)
+        assertEquals(TenKeyOperation.HOLD,
+            TouchKeyboardSettingsStore.read(activity, Configuration.ORIENTATION_PORTRAIT).operation)
+        assertEquals(TenKeyOperation.HOLD,
+            TouchKeyboardSettingsStore.read(activity, Configuration.ORIENTATION_LANDSCAPE).operation)
     }
 
     @Test fun `未保存変更から戻ると破棄を確認し設定を変更しない`() {

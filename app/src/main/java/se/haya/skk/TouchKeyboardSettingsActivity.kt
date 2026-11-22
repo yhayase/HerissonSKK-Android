@@ -2,6 +2,7 @@ package se.haya.skk
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import android.os.Vibrator
 import androidx.preference.Preference
@@ -20,11 +21,15 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
     private var saved = TouchKeyboardSettings()
     private var draft = TouchKeyboardSettings()
     private var geometryEdited = false
+    private var profileOrientation = Configuration.ORIENTATION_PORTRAIT
     private val isGeometryEditor get() = editor == PAGE_GEOMETRY || editor == PAGE_QWERTY_GEOMETRY
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        saved = TouchKeyboardSettingsStore.read(this)
+        val displayOrientation = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
+            Configuration.ORIENTATION_LANDSCAPE else Configuration.ORIENTATION_PORTRAIT
+        profileOrientation = savedInstanceState?.getInt(PROFILE_ORIENTATION, displayOrientation) ?: displayOrientation
+        saved = TouchKeyboardSettingsStore.read(this, profileOrientation)
         saved = savedInstanceState?.let { fromBundle(it, "saved_") } ?: saved
         draft = savedInstanceState?.let { fromBundle(it, "draft_") } ?: saved
         geometryEdited = savedInstanceState?.getBoolean(GEOMETRY_EDITED) ?: false
@@ -34,7 +39,13 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
             return
         }
         page = TouchKeyboardSettingsFragment().apply { arguments = Bundle().apply { putString(EXTRA_PAGE, editor) } }
-        installSettingsPage(when (editor) { PAGE_OPERATION -> "10キーの操作"; PAGE_QWERTY_GEOMETRY -> "QWERTYの大きさと位置"; else -> "10キーの大きさと位置" }, page)
+        val pageTitle = when (editor) {
+            PAGE_OPERATION -> "10キーの操作"
+            PAGE_QWERTY_GEOMETRY -> "QWERTYの大きさと位置"
+            else -> "10キーの大きさと位置"
+        }
+        val orientationLabel = if (profileOrientation == Configuration.ORIENTATION_LANDSCAPE) "横向き" else "縦向き"
+        installSettingsPage(if (isGeometryEditor) "$pageTitle（$orientationLabel）" else pageTitle, page)
         page = supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
         page.onDraftChanged = { value ->
             if (isGeometryEditor && value.hasDifferentGeometry(draft, editor)) geometryEdited = true
@@ -50,6 +61,7 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         saved.toBundle(outState, "saved_")
         draft.toBundle(outState, "draft_")
         outState.putBoolean(GEOMETRY_EDITED, geometryEdited)
+        outState.putInt(PROFILE_ORIENTATION, profileOrientation)
         super.onSaveInstanceState(outState)
     }
 
@@ -62,30 +74,21 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
     }
 
     private fun saveDraft() {
-        val current = TouchKeyboardSettingsStore.read(this)
-        val valueToSave = when {
-            editor == PAGE_QWERTY_GEOMETRY && geometryEdited -> current.copy(
-                qwertyHeightDp = draft.qwertyHeightDp,
-                qwertyWidthPercent = draft.qwertyWidthPercent,
-                qwertyPositionPercent = draft.qwertyPositionPercent,
-                qwertyBottomPaddingDp = draft.qwertyBottomPaddingDp,
+        val success = when (editor) {
+            PAGE_QWERTY_GEOMETRY -> !geometryEdited || TouchKeyboardSettingsStore.saveQwertyGeometry(
+                this, heightDp = draft.qwertyHeightDp, widthPercent = draft.qwertyWidthPercent,
+                positionPercent = draft.qwertyPositionPercent, bottomPaddingDp = draft.qwertyBottomPaddingDp,
+                orientation = profileOrientation,
             )
-            editor == PAGE_GEOMETRY && geometryEdited -> current.copy(
-                tenKeyHeightDp = draft.tenKeyHeightDp,
-                tenKeyWidthPercent = draft.tenKeyWidthPercent,
-                tenKeyPositionPercent = draft.tenKeyPositionPercent,
-                tenKeyBottomPaddingDp = draft.tenKeyBottomPaddingDp,
+            PAGE_GEOMETRY -> !geometryEdited || TouchKeyboardSettingsStore.saveGeometry(
+                this, draft.tenKeyHeightDp, draft.tenKeyWidthPercent, draft.tenKeyPositionPercent,
+                draft.tenKeyBottomPaddingDp, orientation = profileOrientation,
             )
-            isGeometryEditor -> current
-            else -> current.copy(
-                operation = draft.operation,
-                holdMillis = draft.holdMillis,
-                vibrateOnBoundary = draft.vibrateOnBoundary,
-            )
+            else -> TouchKeyboardSettingsStore.saveOperation(this, draft)
         }
-        if (TouchKeyboardSettingsStore.save(this, valueToSave)) {
-            saved = valueToSave
-            draft = valueToSave
+        if (success) {
+            saved = TouchKeyboardSettingsStore.read(this, profileOrientation)
+            draft = saved
             geometryEdited = false
             renderPageState(false, false, "保存しました。次の入力欄から反映します。")
             finish()
@@ -126,6 +129,7 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         private const val WIDTH = "touch_width"
         private const val POSITION = "touch_position"
         private const val BOTTOM = "touch_bottom"
+        private const val PROFILE_ORIENTATION = "touch_profile_orientation"
         private const val GEOMETRY_EDITED = "touch_geometry_edited"
         private val DEFAULTS = TouchKeyboardSettings()
 
