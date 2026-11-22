@@ -44,12 +44,13 @@ class TouchKeyboardSettingsActivityTest {
     private fun fragment(activity: TouchKeyboardSettingsActivity) =
         activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
 
-    @Test fun `標準の画面は二つの編集先だけを示し配列や保存操作を持たない`() {
+    @Test fun `標準の画面は三つの編集先を示し配列や保存操作を持たない`() {
         val activity = start()
         val page = activity.supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsHubFragment
-        assertEquals(2, page.preferenceScreen.preferenceCount)
+        assertEquals(3, page.preferenceScreen.preferenceCount)
         assertEquals("10キーの操作", page.preferenceScreen.getPreference(0).title)
         assertEquals("10キーの大きさと位置", page.preferenceScreen.getPreference(1).title)
+        assertEquals("QWERTYの大きさと位置", page.preferenceScreen.getPreference(2).title)
         assertNull(page.findPreference<Preference>("layout"))
         assertNull(page.findPreference<Preference>("settings_save"))
         assertNull(page.findPreference<Preference>("settings_defaults"))
@@ -77,6 +78,37 @@ class TouchKeyboardSettingsActivityTest {
         geometry.findViewById<android.widget.Button>(R.id.settings_save).performClick()
         assertEquals(ScreenKeyboardLayout.QWERTY, TouchKeyboardSettingsStore.read(geometry).layout)
         assertEquals(320, TouchKeyboardSettingsStore.read(geometry).tenKeyHeightDp)
+    }
+
+    @Test fun `QWERTY形状の下書き保存は分割と間隔および10キー設定を維持する`() {
+        val initial = TouchKeyboardSettings(tenKeyHeightDp = 300, qwertySplit = true, qwertyGapPercent = 40)
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY, initial)
+        val page = fragment(activity)
+        assertEquals(320, page.findPreference<SeekBarPreference>("height")!!.max)
+        page.findPreference<SeekBarPreference>("height")!!.callChangeListener(240)
+        page.findPreference<SeekBarPreference>("width")!!.callChangeListener(75)
+        page.findPreference<SeekBarPreference>("position")!!.callChangeListener(100)
+        page.findPreference<SeekBarPreference>("bottom")!!.callChangeListener(48)
+        assertEquals(initial, TouchKeyboardSettingsStore.read(activity))
+        assertTrue(TouchKeyboardSettingsStore.saveGeometry(activity, 320, 70, 10, 64))
+        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertEquals(initial.copy(tenKeyHeightDp = 320, tenKeyWidthPercent = 70,
+            tenKeyPositionPercent = 10, tenKeyBottomPaddingDp = 64, qwertyHeightDp = 240,
+            qwertyWidthPercent = 75, qwertyPositionPercent = 100, qwertyBottomPaddingDp = 48),
+            TouchKeyboardSettingsStore.read(activity))
+    }
+
+    @Test fun `QWERTY形状の標準化は間隔と分割および10キー形状を維持する`() {
+        val initial = TouchKeyboardSettings(tenKeyHeightDp = 300, qwertySplit = true, qwertyGapPercent = 40,
+            qwertyHeightDp = 240, qwertyWidthPercent = 75, qwertyPositionPercent = 100, qwertyBottomPaddingDp = 48)
+        val activity = start(TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY, initial)
+        activity.findViewById<android.widget.Button>(R.id.settings_defaults).performClick()
+        (ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog)
+            .getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        activity.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertEquals(initial.copy(qwertyHeightDp = 200, qwertyWidthPercent = 100,
+            qwertyPositionPercent = 50, qwertyBottomPaddingDp = 0), TouchKeyboardSettingsStore.read(activity))
     }
 
     @Test fun `操作ページ保存は後から変更された形状を保つ`() {
@@ -123,6 +155,24 @@ class TouchKeyboardSettingsActivityTest {
         recreated.findViewById<android.widget.Button>(R.id.settings_save).performClick()
         assertTrue(recreated.isFinishing)
         assertEquals(80, TouchKeyboardSettingsStore.read(recreated).tenKeyWidthPercent)
+    }
+
+    @Test fun `QWERTY形状の下書きは回転後に維持し保存して戻る`() {
+        val controller = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), TouchKeyboardSettingsActivity::class.java)
+                .putExtra(TouchKeyboardSettingsActivity.EXTRA_PAGE, TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY)).setup()
+        val activity = controller.get()
+        fragment(activity).findPreference<SeekBarPreference>("width")!!.callChangeListener(80)
+        val state = Bundle()
+        controller.saveInstanceState(state).pause().stop().destroy()
+        val recreated = Robolectric.buildActivity(TouchKeyboardSettingsActivity::class.java,
+            Intent(RuntimeEnvironment.getApplication(), TouchKeyboardSettingsActivity::class.java)
+                .putExtra(TouchKeyboardSettingsActivity.EXTRA_PAGE, TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY))
+            .create(state).start().resume().visible().get()
+        assertEquals(80, fragment(recreated).findPreference<SeekBarPreference>("width")!!.value)
+        recreated.findViewById<android.widget.Button>(R.id.settings_save).performClick()
+        assertTrue(recreated.isFinishing)
+        assertEquals(80, TouchKeyboardSettingsStore.read(recreated).qwertyWidthPercent)
     }
 
     @Test fun `未保存変更から戻ると破棄を確認し設定を変更しない`() {

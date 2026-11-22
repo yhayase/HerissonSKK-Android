@@ -20,6 +20,7 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
     private var saved = TouchKeyboardSettings()
     private var draft = TouchKeyboardSettings()
     private var geometryEdited = false
+    private val isGeometryEditor get() = editor == PAGE_GEOMETRY || editor == PAGE_QWERTY_GEOMETRY
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,10 +34,10 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
             return
         }
         page = TouchKeyboardSettingsFragment().apply { arguments = Bundle().apply { putString(EXTRA_PAGE, editor) } }
-        installSettingsPage(if (editor == PAGE_OPERATION) "10キーの操作" else "10キーの大きさと位置", page)
+        installSettingsPage(when (editor) { PAGE_OPERATION -> "10キーの操作"; PAGE_QWERTY_GEOMETRY -> "QWERTYの大きさと位置"; else -> "10キーの大きさと位置" }, page)
         page = supportFragmentManager.findFragmentById(R.id.settings_content) as TouchKeyboardSettingsFragment
         page.onDraftChanged = { value ->
-            if (editor == PAGE_GEOMETRY && value.hasDifferentGeometry(draft)) geometryEdited = true
+            if (isGeometryEditor && value.hasDifferentGeometry(draft, editor)) geometryEdited = true
             draft = value
             render()
         }
@@ -55,7 +56,7 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
     private fun render() {
         if (!::page.isInitialized) return
         page.refresh(draft, hasVibrator(), editor)
-        val dirty = if (editor == PAGE_GEOMETRY) geometryEdited else
+        val dirty = if (isGeometryEditor) geometryEdited else
             draft.operation != saved.operation || draft.holdMillis != saved.holdMillis || draft.vibrateOnBoundary != saved.vibrateOnBoundary
         renderPageState(dirty, false, if (dirty) "変更は未保存です。" else null)
     }
@@ -63,13 +64,19 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
     private fun saveDraft() {
         val current = TouchKeyboardSettingsStore.read(this)
         val valueToSave = when {
+            editor == PAGE_QWERTY_GEOMETRY && geometryEdited -> current.copy(
+                qwertyHeightDp = draft.qwertyHeightDp,
+                qwertyWidthPercent = draft.qwertyWidthPercent,
+                qwertyPositionPercent = draft.qwertyPositionPercent,
+                qwertyBottomPaddingDp = draft.qwertyBottomPaddingDp,
+            )
             editor == PAGE_GEOMETRY && geometryEdited -> current.copy(
                 tenKeyHeightDp = draft.tenKeyHeightDp,
                 tenKeyWidthPercent = draft.tenKeyWidthPercent,
                 tenKeyPositionPercent = draft.tenKeyPositionPercent,
                 tenKeyBottomPaddingDp = draft.tenKeyBottomPaddingDp,
             )
-            editor == PAGE_GEOMETRY -> current
+            isGeometryEditor -> current
             else -> current.copy(
                 operation = draft.operation,
                 holdMillis = draft.holdMillis,
@@ -89,12 +96,15 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
     }
 
     override fun resetDraftToDefaults() {
-        draft = if (editor == PAGE_GEOMETRY) draft.copy(
+        draft = if (editor == PAGE_QWERTY_GEOMETRY) draft.copy(
+            qwertyHeightDp = DEFAULTS.qwertyHeightDp, qwertyWidthPercent = DEFAULTS.qwertyWidthPercent,
+            qwertyPositionPercent = DEFAULTS.qwertyPositionPercent, qwertyBottomPaddingDp = DEFAULTS.qwertyBottomPaddingDp,
+        ) else if (editor == PAGE_GEOMETRY) draft.copy(
             tenKeyHeightDp = DEFAULTS.tenKeyHeightDp, tenKeyWidthPercent = DEFAULTS.tenKeyWidthPercent,
             tenKeyPositionPercent = DEFAULTS.tenKeyPositionPercent, tenKeyBottomPaddingDp = DEFAULTS.tenKeyBottomPaddingDp,
         ) else draft.copy(operation = DEFAULTS.operation, holdMillis = DEFAULTS.holdMillis,
             vibrateOnBoundary = DEFAULTS.vibrateOnBoundary)
-        if (editor == PAGE_GEOMETRY) geometryEdited = true
+        if (isGeometryEditor) geometryEdited = true
         render()
     }
 
@@ -108,6 +118,7 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         const val PAGE_HUB = "hub"
         const val PAGE_OPERATION = "operation"
         const val PAGE_GEOMETRY = "geometry"
+        const val PAGE_QWERTY_GEOMETRY = "qwerty_geometry"
         private const val OPERATION = "touch_operation"
         private const val HOLD = "touch_hold"
         private const val VIBRATE = "touch_vibrate"
@@ -118,8 +129,11 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
         private const val GEOMETRY_EDITED = "touch_geometry_edited"
         private val DEFAULTS = TouchKeyboardSettings()
 
-        private fun TouchKeyboardSettings.hasDifferentGeometry(other: TouchKeyboardSettings) =
-            tenKeyHeightDp != other.tenKeyHeightDp || tenKeyWidthPercent != other.tenKeyWidthPercent ||
+        private fun TouchKeyboardSettings.hasDifferentGeometry(other: TouchKeyboardSettings, target: String) =
+            if (target == PAGE_QWERTY_GEOMETRY)
+                qwertyHeightDp != other.qwertyHeightDp || qwertyWidthPercent != other.qwertyWidthPercent ||
+                    qwertyPositionPercent != other.qwertyPositionPercent || qwertyBottomPaddingDp != other.qwertyBottomPaddingDp
+            else tenKeyHeightDp != other.tenKeyHeightDp || tenKeyWidthPercent != other.tenKeyWidthPercent ||
                 tenKeyPositionPercent != other.tenKeyPositionPercent || tenKeyBottomPaddingDp != other.tenKeyBottomPaddingDp
 
         private fun TouchKeyboardSettings.toBundle(bundle: Bundle, prefix: String) {
@@ -127,12 +141,18 @@ class TouchKeyboardSettingsActivity : SettingsPageActivity() {
             bundle.putInt(prefix + HOLD, holdMillis); bundle.putBoolean(prefix + VIBRATE, vibrateOnBoundary)
             bundle.putInt(prefix + HEIGHT, tenKeyHeightDp); bundle.putInt(prefix + WIDTH, tenKeyWidthPercent)
             bundle.putInt(prefix + POSITION, tenKeyPositionPercent); bundle.putInt(prefix + BOTTOM, tenKeyBottomPaddingDp)
+            bundle.putInt(prefix + "qwerty_height", qwertyHeightDp); bundle.putInt(prefix + "qwerty_width", qwertyWidthPercent)
+            bundle.putInt(prefix + "qwerty_position", qwertyPositionPercent); bundle.putInt(prefix + "qwerty_bottom", qwertyBottomPaddingDp)
         }
         private fun fromBundle(bundle: Bundle, prefix: String) = TouchKeyboardSettings(
             operation = enumValueOf<TenKeyOperation>(bundle.getString(prefix + OPERATION, TenKeyOperation.HOLD_AND_RETURN.name)),
             holdMillis = bundle.getInt(prefix + HOLD, 350), vibrateOnBoundary = bundle.getBoolean(prefix + VIBRATE, true),
             tenKeyHeightDp = bundle.getInt(prefix + HEIGHT, 256), tenKeyWidthPercent = bundle.getInt(prefix + WIDTH, 100),
             tenKeyPositionPercent = bundle.getInt(prefix + POSITION, 50), tenKeyBottomPaddingDp = bundle.getInt(prefix + BOTTOM, 0),
+            qwertyHeightDp = bundle.getInt(prefix + "qwerty_height", DEFAULTS.qwertyHeightDp),
+            qwertyWidthPercent = bundle.getInt(prefix + "qwerty_width", DEFAULTS.qwertyWidthPercent),
+            qwertyPositionPercent = bundle.getInt(prefix + "qwerty_position", DEFAULTS.qwertyPositionPercent),
+            qwertyBottomPaddingDp = bundle.getInt(prefix + "qwerty_bottom", DEFAULTS.qwertyBottomPaddingDp),
         )
     }
 }
@@ -144,6 +164,7 @@ class TouchKeyboardSettingsHubFragment : PreferenceFragmentCompat() {
         listOf(
             TouchKeyboardSettingsActivity.PAGE_OPERATION to ("10キーの操作" to "タップ・フリック、ホールド、振動を設定します。"),
             TouchKeyboardSettingsActivity.PAGE_GEOMETRY to ("10キーの大きさと位置" to "高さ、幅、左右位置、下の余白を設定します。"),
+            TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY to ("QWERTYの大きさと位置" to "高さ、幅、左右位置、下の余白を設定します。"),
         ).forEach { (target, text) ->
             preferenceScreen.addPreference(Preference(context).apply {
                 title = text.first
@@ -205,10 +226,13 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
             key = "vibrate"; title = "ホールド境界の指定・取消時に振動"; isIconSpaceReserved = false; isPersistent = false
             setOnPreferenceChangeListener { _, value -> update(draft.copy(vibrateOnBoundary = value as Boolean)); true }
         }
-        height = seek(context, "height", "高さ", 160, 400, 256, "dp") { draft.copy(tenKeyHeightDp = it) }
-        width = seek(context, "width", "幅（画面に対する割合）", 60, 100, 100, "%") { draft.copy(tenKeyWidthPercent = it) }
-        position = seek(context, "position", "左右位置", 0, 100, 50, "%") { draft.copy(tenKeyPositionPercent = it) }
-        bottom = seek(context, "bottom", "下の余白", 0, 160, 0, "dp") { draft.copy(tenKeyBottomPaddingDp = it) }
+        val qwerty = editor == TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY
+        height = seek(context, "height", "高さ", 160, if (qwerty) 320 else 400, if (qwerty) 200 else 256, "dp") {
+            if (qwerty) draft.copy(qwertyHeightDp = it) else draft.copy(tenKeyHeightDp = it)
+        }
+        width = seek(context, "width", "幅（画面に対する割合）", 60, 100, 100, "%") { if (qwerty) draft.copy(qwertyWidthPercent = it) else draft.copy(tenKeyWidthPercent = it) }
+        position = seek(context, "position", "左右位置", 0, 100, 50, "%") { if (qwerty) draft.copy(qwertyPositionPercent = it) else draft.copy(tenKeyPositionPercent = it) }
+        bottom = seek(context, "bottom", "下の余白", 0, 160, 0, "dp") { if (qwerty) draft.copy(qwertyBottomPaddingDp = it) else draft.copy(tenKeyBottomPaddingDp = it) }
         val items = if (editor == TouchKeyboardSettingsActivity.PAGE_OPERATION)
             listOf(operation, hold, vibrate) else listOf(height, width, position, bottom)
         items.forEach(category::addPreference)
@@ -222,13 +246,18 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
         operation.value = value.operation.name
         hold.value = value.holdMillis; hold.summary = "${value.holdMillis} ms"
         vibrate.isChecked = value.vibrateOnBoundary
-        height.value = value.tenKeyHeightDp; width.value = value.tenKeyWidthPercent
-        position.value = value.tenKeyPositionPercent; bottom.value = value.tenKeyBottomPaddingDp
-        bottom.summary = "${value.tenKeyBottomPaddingDp} dp（OSの操作領域に追加）"
-        height.summary = "${value.tenKeyHeightDp} dp"; width.summary = "${value.tenKeyWidthPercent} %"
-        position.summary = when (value.tenKeyPositionPercent) {
+        val qwerty = editor == TouchKeyboardSettingsActivity.PAGE_QWERTY_GEOMETRY
+        val heightDp = if (qwerty) value.qwertyHeightDp else value.tenKeyHeightDp
+        val widthPercent = if (qwerty) value.qwertyWidthPercent else value.tenKeyWidthPercent
+        val positionPercent = if (qwerty) value.qwertyPositionPercent else value.tenKeyPositionPercent
+        val bottomDp = if (qwerty) value.qwertyBottomPaddingDp else value.tenKeyBottomPaddingDp
+        height.value = heightDp; width.value = widthPercent
+        position.value = positionPercent; bottom.value = bottomDp
+        bottom.summary = "$bottomDp dp（OSの操作領域に追加）"
+        height.summary = "$heightDp dp"; width.summary = "$widthPercent %"
+        position.summary = when (positionPercent) {
             0 -> "左端"; 50 -> "中央"; 100 -> "右端"
-            else -> "中央から${if (value.tenKeyPositionPercent < 50) "左" else "右"}へ ${kotlin.math.abs(value.tenKeyPositionPercent - 50)} %"
+            else -> "中央から${if (positionPercent < 50) "左" else "右"}へ ${kotlin.math.abs(positionPercent - 50)} %"
         }
         val usesHold = value.operation != TenKeyOperation.FLICK
         hold.isEnabled = usesHold

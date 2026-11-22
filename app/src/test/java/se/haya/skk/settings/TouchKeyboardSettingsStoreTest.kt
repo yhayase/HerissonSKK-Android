@@ -40,7 +40,8 @@ class TouchKeyboardSettingsStoreTest {
         assertEquals(setOf("touch_keyboard_layout", "ten_key_operation", "ten_key_hold_millis",
             "ten_key_vibrate_on_boundary", "ten_key_height_dp", "ten_key_width_percent",
             "ten_key_position_percent", "ten_key_bottom_padding_dp", "qwerty_split",
-            "qwerty_gap_percent", "qwerty_height_dp"), preferences.all.keys)
+            "qwerty_gap_percent", "qwerty_height_dp", "qwerty_width_percent",
+            "qwerty_position_percent", "qwerty_bottom_padding_dp"), preferences.all.keys)
     }
 
     @Test fun `分割と形状の保存はそれぞれ他の設定を保持する`() {
@@ -56,6 +57,26 @@ class TouchKeyboardSettingsStoreTest {
         assertFalse(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 48, 159))
         assertEquals(before.copy(qwertySplit = true, qwertyGapPercent = 48, qwertyHeightDp = 320),
             TouchKeyboardSettingsStore.read(context))
+    }
+
+    @Test fun `QWERTYの幅と余白は境界を保存し省略時は現在値を維持する`() {
+        val context = RuntimeEnvironment.getApplication()
+        val before = TouchKeyboardSettings(tenKeyHeightDp = 300, qwertySplit = true)
+        assertTrue(TouchKeyboardSettingsStore.save(context, before))
+        assertTrue(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 48, 320, 60, 100, 160))
+        assertTrue(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 28, 200))
+        val expected = before.copy(qwertyWidthPercent = 60, qwertyPositionPercent = 100, qwertyBottomPaddingDp = 160)
+        assertEquals(expected, TouchKeyboardSettingsStore.read(context))
+        assertFalse(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 28, 200, widthPercent = 59))
+        assertFalse(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 28, 200, positionPercent = 101))
+        assertFalse(TouchKeyboardSettingsStore.saveQwertyGeometry(context, 28, 200, bottomPaddingDp = 161))
+        assertEquals(expected, TouchKeyboardSettingsStore.read(context))
+    }
+
+    @Test fun `QWERTYの不正な幅と余白は既定値に戻す`() {
+        preferences.edit().putString("qwerty_width_percent", "60")
+            .putInt("qwerty_position_percent", -1).putInt("qwerty_bottom_padding_dp", 161).commit()
+        assertEquals(TouchKeyboardSettings(), TouchKeyboardSettingsStore.readFrom(preferences))
     }
 
     @Test fun `形状だけの保存では他の設定を変更しない`() {

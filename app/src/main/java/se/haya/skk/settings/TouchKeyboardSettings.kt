@@ -18,6 +18,9 @@ data class TouchKeyboardSettings(
     val qwertySplit: Boolean = false,
     val qwertyGapPercent: Int = DEFAULT_QWERTY_GAP_PERCENT,
     val qwertyHeightDp: Int = DEFAULT_QWERTY_HEIGHT_DP,
+    val qwertyWidthPercent: Int = 100,
+    val qwertyPositionPercent: Int = 50,
+    val qwertyBottomPaddingDp: Int = 0,
 ) {
     init {
         require(holdMillis in HOLD_MILLIS && (holdMillis - HOLD_STEP_BASE) % HOLD_STEP == 0)
@@ -27,6 +30,9 @@ data class TouchKeyboardSettings(
         require(tenKeyBottomPaddingDp in TEN_KEY_BOTTOM_PADDING_DP)
         require(qwertyGapPercent in QWERTY_GAP_PERCENT)
         require(qwertyHeightDp in QWERTY_HEIGHT_DP)
+        require(qwertyWidthPercent in QWERTY_WIDTH_PERCENT)
+        require(qwertyPositionPercent in QWERTY_POSITION_PERCENT)
+        require(qwertyBottomPaddingDp in QWERTY_BOTTOM_PADDING_DP)
     }
 
     companion object {
@@ -41,6 +47,9 @@ data class TouchKeyboardSettings(
         const val DEFAULT_QWERTY_HEIGHT_DP = 200
         val QWERTY_GAP_PERCENT = 0..48
         val QWERTY_HEIGHT_DP = 160..320
+        val QWERTY_WIDTH_PERCENT = 60..100
+        val QWERTY_POSITION_PERCENT = 0..100
+        val QWERTY_BOTTOM_PADDING_DP = 0..160
     }
 }
 
@@ -58,6 +67,9 @@ object TouchKeyboardSettingsStore {
     private const val QWERTY_SPLIT = "qwerty_split"
     private const val QWERTY_GAP = "qwerty_gap_percent"
     private const val QWERTY_HEIGHT = "qwerty_height_dp"
+    private const val QWERTY_WIDTH = "qwerty_width_percent"
+    private const val QWERTY_POSITION = "qwerty_position_percent"
+    private const val QWERTY_BOTTOM = "qwerty_bottom_padding_dp"
 
     fun read(context: Context): TouchKeyboardSettings = readFrom(
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE),
@@ -82,11 +94,19 @@ object TouchKeyboardSettingsStore {
         return commitValues(preferences, mapOf(QWERTY_SPLIT to split))
     }
 
-    fun saveQwertyGeometry(context: Context, gapPercent: Int, heightDp: Int): Boolean {
+    fun saveQwertyGeometry(context: Context, gapPercent: Int, heightDp: Int,
+        widthPercent: Int? = null, positionPercent: Int? = null, bottomPaddingDp: Int? = null): Boolean {
         if (gapPercent !in TouchKeyboardSettings.QWERTY_GAP_PERCENT ||
-            heightDp !in TouchKeyboardSettings.QWERTY_HEIGHT_DP) return false
+            heightDp !in TouchKeyboardSettings.QWERTY_HEIGHT_DP ||
+            (widthPercent != null && widthPercent !in TouchKeyboardSettings.QWERTY_WIDTH_PERCENT) ||
+            (positionPercent != null && positionPercent !in TouchKeyboardSettings.QWERTY_POSITION_PERCENT) ||
+            (bottomPaddingDp != null && bottomPaddingDp !in TouchKeyboardSettings.QWERTY_BOTTOM_PADDING_DP)) return false
         val preferences = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return commitValues(preferences, mapOf(QWERTY_GAP to gapPercent, QWERTY_HEIGHT to heightDp))
+        val values = mutableMapOf(QWERTY_GAP to gapPercent, QWERTY_HEIGHT to heightDp)
+        widthPercent?.let { values[QWERTY_WIDTH] = it }
+        positionPercent?.let { values[QWERTY_POSITION] = it }
+        bottomPaddingDp?.let { values[QWERTY_BOTTOM] = it }
+        return commitValues(preferences, values)
     }
 
     /** IMEからの調整を含め、形状設定だけを現在値に保存します。 */
@@ -121,6 +141,9 @@ object TouchKeyboardSettingsStore {
             TouchKeyboardSettings.QWERTY_GAP_PERCENT),
         qwertyHeightDp = readInt(preferences, QWERTY_HEIGHT, TouchKeyboardSettings.DEFAULT_QWERTY_HEIGHT_DP,
             TouchKeyboardSettings.QWERTY_HEIGHT_DP),
+        qwertyWidthPercent = readInt(preferences, QWERTY_WIDTH, 100, TouchKeyboardSettings.QWERTY_WIDTH_PERCENT),
+        qwertyPositionPercent = readInt(preferences, QWERTY_POSITION, 50, TouchKeyboardSettings.QWERTY_POSITION_PERCENT),
+        qwertyBottomPaddingDp = readInt(preferences, QWERTY_BOTTOM, 0, TouchKeyboardSettings.QWERTY_BOTTOM_PADDING_DP),
     )
 
     internal fun saveTo(
@@ -135,7 +158,8 @@ object TouchKeyboardSettingsStore {
             HEIGHT to settings.tenKeyHeightDp, WIDTH to settings.tenKeyWidthPercent,
             POSITION to settings.tenKeyPositionPercent, BOTTOM to settings.tenKeyBottomPaddingDp,
             QWERTY_SPLIT to settings.qwertySplit, QWERTY_GAP to settings.qwertyGapPercent,
-            QWERTY_HEIGHT to settings.qwertyHeightDp,
+            QWERTY_HEIGHT to settings.qwertyHeightDp, QWERTY_WIDTH to settings.qwertyWidthPercent,
+            QWERTY_POSITION to settings.qwertyPositionPercent, QWERTY_BOTTOM to settings.qwertyBottomPaddingDp,
         ), commit)
     }
 
@@ -184,7 +208,10 @@ object TouchKeyboardSettingsStore {
         tenKeyPositionPercent in TouchKeyboardSettings.TEN_KEY_POSITION_PERCENT &&
         tenKeyBottomPaddingDp in TouchKeyboardSettings.TEN_KEY_BOTTOM_PADDING_DP &&
         qwertyGapPercent in TouchKeyboardSettings.QWERTY_GAP_PERCENT &&
-        qwertyHeightDp in TouchKeyboardSettings.QWERTY_HEIGHT_DP
+        qwertyHeightDp in TouchKeyboardSettings.QWERTY_HEIGHT_DP &&
+        qwertyWidthPercent in TouchKeyboardSettings.QWERTY_WIDTH_PERCENT &&
+        qwertyPositionPercent in TouchKeyboardSettings.QWERTY_POSITION_PERCENT &&
+        qwertyBottomPaddingDp in TouchKeyboardSettings.QWERTY_BOTTOM_PADDING_DP
 
     private inline fun <reified T : Enum<T>> enumOrDefault(value: String?, default: T): T =
         value?.let { raw -> enumValues<T>().firstOrNull { it.name == raw } } ?: default
