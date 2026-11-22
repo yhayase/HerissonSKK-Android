@@ -230,7 +230,10 @@ class TouchKeyboardSettingsFragment : PreferenceFragmentCompat() {
         height = seek(context, "height", "高さ", 160, if (qwerty) 320 else 400, if (qwerty) 200 else 256, "dp") {
             if (qwerty) draft.copy(qwertyHeightDp = it) else draft.copy(tenKeyHeightDp = it)
         }
-        width = seek(context, "width", "幅（画面に対する割合）", 60, 100, 100, "%") { if (qwerty) draft.copy(qwertyWidthPercent = it) else draft.copy(tenKeyWidthPercent = it) }
+        val widthRange = if (qwerty) TouchKeyboardSettings.QWERTY_WIDTH_PERCENT else TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT
+        width = seek(context, "width", "幅（画面に対する割合）", widthRange.first, widthRange.last, 100, "%") {
+            if (qwerty) draft.copy(qwertyWidthPercent = it) else draft.copy(tenKeyWidthPercent = it)
+        }
         position = seek(context, "position", "左右位置", 0, 100, 50, "%") { if (qwerty) draft.copy(qwertyPositionPercent = it) else draft.copy(tenKeyPositionPercent = it) }
         bottom = seek(context, "bottom", "下の余白", 0, 160, 0, "dp") { if (qwerty) draft.copy(qwertyBottomPaddingDp = it) else draft.copy(tenKeyBottomPaddingDp = it) }
         val items = if (editor == TouchKeyboardSettingsActivity.PAGE_OPERATION)

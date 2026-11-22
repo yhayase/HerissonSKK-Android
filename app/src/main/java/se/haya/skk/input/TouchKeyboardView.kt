@@ -74,7 +74,7 @@ internal class TouchKeyboardView(
     internal fun setTenKeyGeometry(heightDp: Int, widthPercent: Int, positionPercent: Int, bottomPaddingDp: Int = keyboardSettings.tenKeyBottomPaddingDp) {
         cancelTouches()
         val updated = keyboardSettings.copy(tenKeyHeightDp = heightDp.coerceIn(160, 400),
-            tenKeyWidthPercent = widthPercent.coerceIn(60, 100), tenKeyPositionPercent = positionPercent.coerceIn(0, 100),
+            tenKeyWidthPercent = widthPercent.coerceIn(TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT), tenKeyPositionPercent = positionPercent.coerceIn(0, 100),
             tenKeyBottomPaddingDp = bottomPaddingDp.coerceIn(0, 160))
         if (TouchKeyboardSettingsStore.saveGeometry(context, updated.tenKeyHeightDp, updated.tenKeyWidthPercent, updated.tenKeyPositionPercent, updated.tenKeyBottomPaddingDp)) {
             keyboardSettings = updated
@@ -141,7 +141,10 @@ internal class TouchKeyboardView(
             }
         } else {
             slider("高さ", 160, 400, keyboardSettings.tenKeyHeightDp) { setTenKeyGeometry(it, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent) }
-            slider("幅", 60, 100, keyboardSettings.tenKeyWidthPercent) { setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, it, keyboardSettings.tenKeyPositionPercent) }
+            val width = TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT
+            slider("幅", width.first, width.last, keyboardSettings.tenKeyWidthPercent) {
+                setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, it, keyboardSettings.tenKeyPositionPercent)
+            }
             tenKeyPositionSlider = slider("左右位置", 0, 100, keyboardSettings.tenKeyPositionPercent) {
                 setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, it)
             }
@@ -521,11 +524,8 @@ internal class TouchKeyboardView(
                 setPadding(0, 0, 0, 0)
                 textSize = 22f
                 isAllCaps = false
-                setTextColor(KeyboardColors.resolve(context).text)
-                background = GradientDrawable().apply {
-                    setColor(KeyboardColors.resolve(context).functionBackground)
-                    cornerRadius = dp(8).toFloat()
-                }
+                setTextColor(KeyboardColors.resolve(context).geometryControl)
+                background = null
                 setOnClickListener {
                     val position = keyboardSettings.tenKeyPositionPercent
                     val target = if (position == 50) 100 else 100 - position
@@ -692,6 +692,7 @@ internal class TouchKeyboardView(
 
         private fun handleKey(label: String, description: String) = commandKey(label) { showGeometryAdjustment() }.apply {
             background = null
+            setTextColor(KeyboardColors.resolve(context).geometryControl)
             contentDescription = description
         }
 

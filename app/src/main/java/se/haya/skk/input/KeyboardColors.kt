@@ -11,6 +11,7 @@ internal data class KeyboardColors(
     val border: Int,
     val pressed: Int,
     val panelBackground: Int,
+    val geometryControl: Int,
     val selectedBackground: Int,
 ) {
     companion object {
@@ -24,6 +25,7 @@ internal data class KeyboardColors(
                 border = 0xff747b85.toInt(),
                 pressed = 0xff596575.toInt(),
                 panelBackground = 0xff202328.toInt(),
+                geometryControl = 0xff929292.toInt(),
                 selectedBackground = 0xff475d78.toInt(),
             ) else KeyboardColors(
                 characterBackground = Color.WHITE,
@@ -32,6 +34,7 @@ internal data class KeyboardColors(
                 border = 0xff9ba1aa.toInt(),
                 pressed = 0xffcbd8e8.toInt(),
                 panelBackground = 0xfff2f3f5.toInt(),
+                geometryControl = 0xff707070.toInt(),
                 selectedBackground = 0xffc7d8ed.toInt(),
             )
         }

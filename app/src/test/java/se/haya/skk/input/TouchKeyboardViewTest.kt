@@ -749,7 +749,7 @@ class TouchKeyboardViewTest {
         val commands = mutableListOf<TouchKeyboardCommand>()
         val keyboard = attachedView(commands)
         val original = TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY, tenKeyHeightDp = 224,
-            tenKeyWidthPercent = 70, tenKeyPositionPercent = 0, tenKeyBottomPaddingDp = 20)
+            tenKeyWidthPercent = 20, tenKeyPositionPercent = 0, tenKeyBottomPaddingDp = 20)
         assertTrue(TouchKeyboardSettingsStore.save(keyboard.context, original))
         keyboard.configure(original)
         val metrics = keyboard.resources.displayMetrics
@@ -758,6 +758,9 @@ class TouchKeyboardViewTest {
         val area = keyboard.getChildAt(1) as ViewGroup
         val keys = area.getChildAt(0)
         val move = key(keyboard, "→|")
+        assertEquals(windowWidth / 5, keys.width)
+        assertEquals(KeyboardColors.resolve(keyboard.context).geometryControl, move.currentTextColor)
+        assertNull(move.background)
         assertTrue(move.left >= keys.right)
         val screen = IntArray(2)
         move.getLocationOnScreen(screen)
@@ -782,6 +785,11 @@ class TouchKeyboardViewTest {
         assertEquals("→|", move.text.toString())
         assertEquals(original, TouchKeyboardSettingsStore.read(keyboard.context))
         assertTrue(commands.isEmpty())
+
+        keyboard.setTenKeyGeometry(original.tenKeyHeightDp, 10, 0)
+        measureWideQwerty(keyboard, windowWidth)
+        assertEquals(windowWidth / 10, keys.width)
+        assertEquals(10, TouchKeyboardSettingsStore.read(keyboard.context).tenKeyWidthPercent)
 
         keyboard.setTenKeyGeometry(original.tenKeyHeightDp, 100, 0)
         measureWideQwerty(keyboard, windowWidth)
@@ -870,6 +878,9 @@ class TouchKeyboardViewTest {
         assertEquals("▶", right.text.toString())
         assertNull(left.background)
         assertNull(right.background)
+        val controlColor = KeyboardColors.resolve(keyboard.context).geometryControl
+        assertEquals(controlColor, left.currentTextColor)
+        assertEquals(controlColor, right.currentTextColor)
         assertTrue(left.isClickable && right.isClickable)
         val toggle = key(keyboard, "→←")
         fun bottomBounds(): List<Rect> = buttons(toggle.parent as ViewGroup)

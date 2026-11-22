@@ -40,7 +40,7 @@ data class TouchKeyboardSettings(
         const val HOLD_STEP_BASE = 100
         const val HOLD_STEP = 10
         val TEN_KEY_HEIGHT_DP = 160..400
-        val TEN_KEY_WIDTH_PERCENT = 60..100
+        val TEN_KEY_WIDTH_PERCENT = 10..100
         val TEN_KEY_POSITION_PERCENT = 0..100
         val TEN_KEY_BOTTOM_PADDING_DP = 0..160
         const val DEFAULT_QWERTY_GAP_PERCENT = 28

@@ -75,9 +75,13 @@ class TouchKeyboardSettingsActivityTest {
         for (key in listOf("height", "width", "position", "bottom"))
             assertNotNull(geometryPage.findPreference<SeekBarPreference>(key))
         geometryPage.findPreference<SeekBarPreference>("height")!!.callChangeListener(320)
+        val width = geometryPage.findPreference<SeekBarPreference>("width")!!
+        assertEquals(10, width.min)
+        assertTrue(width.callChangeListener(10))
         geometry.findViewById<android.widget.Button>(R.id.settings_save).performClick()
         assertEquals(ScreenKeyboardLayout.QWERTY, TouchKeyboardSettingsStore.read(geometry).layout)
         assertEquals(320, TouchKeyboardSettingsStore.read(geometry).tenKeyHeightDp)
+        assertEquals(10, TouchKeyboardSettingsStore.read(geometry).tenKeyWidthPercent)
     }
 
     @Test fun `QWERTY形状の下書き保存は分割と間隔および10キー設定を維持する`() {
