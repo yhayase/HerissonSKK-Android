@@ -2,6 +2,7 @@ package se.haya.skk.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.res.Configuration
 
 enum class ScreenKeyboardLayout { QWERTY, TEN_KEY }
 enum class TenKeyOperation { FLICK, HOLD, HOLD_AND_RETURN }
@@ -71,12 +72,21 @@ object TouchKeyboardSettingsStore {
     private const val QWERTY_POSITION = "qwerty_position_percent"
     private const val QWERTY_BOTTOM = "qwerty_bottom_padding_dp"
 
-    fun read(context: Context): TouchKeyboardSettings = readFrom(
+    fun read(
+        context: Context,
+        orientation: Int = context.resources.configuration.orientation,
+    ): TouchKeyboardSettings = readFrom(
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE),
+        orientation,
     )
 
-    fun save(context: Context, settings: TouchKeyboardSettings): Boolean = saveTo(
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE), settings,
+    fun save(
+        context: Context,
+        settings: TouchKeyboardSettings,
+        orientation: Int = context.resources.configuration.orientation,
+    ): Boolean = saveTo(
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE),
+        settings, orientation,
     )
 
     /** 入力中の配列切替は、操作方法や形状などの設定を上書きしません。 */
@@ -89,86 +99,123 @@ object TouchKeyboardSettingsStore {
         return commitValues(preferences, mapOf(LAYOUT to layout.name), commit)
     }
 
-    fun saveQwertySplit(context: Context, split: Boolean): Boolean {
+    /** 10キーの操作設定を画面の向きに関係なく保存します。 */
+    fun saveOperation(context: Context, settings: TouchKeyboardSettings): Boolean {
         val preferences = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return commitValues(preferences, mapOf(QWERTY_SPLIT to split))
+        return commitValues(preferences, settings.operationValues())
     }
 
-    fun saveQwertyGeometry(context: Context, gapPercent: Int, heightDp: Int,
-        widthPercent: Int? = null, positionPercent: Int? = null, bottomPaddingDp: Int? = null): Boolean {
-        if (gapPercent !in TouchKeyboardSettings.QWERTY_GAP_PERCENT ||
+    fun saveQwertySplit(
+        context: Context,
+        split: Boolean,
+        orientation: Int = context.resources.configuration.orientation,
+    ): Boolean {
+        val preferences = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return commitValues(preferences, mapOf(geometryKey(QWERTY_SPLIT, orientation) to split))
+    }
+
+    fun saveQwertyGeometry(
+        context: Context,
+        gapPercent: Int? = null,
+        heightDp: Int,
+        widthPercent: Int? = null,
+        positionPercent: Int? = null,
+        bottomPaddingDp: Int? = null,
+        orientation: Int = context.resources.configuration.orientation,
+    ): Boolean {
+        if ((gapPercent != null && gapPercent !in TouchKeyboardSettings.QWERTY_GAP_PERCENT) ||
             heightDp !in TouchKeyboardSettings.QWERTY_HEIGHT_DP ||
             (widthPercent != null && widthPercent !in TouchKeyboardSettings.QWERTY_WIDTH_PERCENT) ||
             (positionPercent != null && positionPercent !in TouchKeyboardSettings.QWERTY_POSITION_PERCENT) ||
             (bottomPaddingDp != null && bottomPaddingDp !in TouchKeyboardSettings.QWERTY_BOTTOM_PADDING_DP)) return false
         val preferences = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val values = mutableMapOf(QWERTY_GAP to gapPercent, QWERTY_HEIGHT to heightDp)
+        val values = mutableMapOf(QWERTY_HEIGHT to heightDp)
+        gapPercent?.let { values[QWERTY_GAP] = it }
         widthPercent?.let { values[QWERTY_WIDTH] = it }
         positionPercent?.let { values[QWERTY_POSITION] = it }
         bottomPaddingDp?.let { values[QWERTY_BOTTOM] = it }
-        return commitValues(preferences, values)
+        return commitValues(preferences, values.forOrientation(orientation))
     }
 
-    /** IMEからの調整を含め、形状設定だけを現在値に保存します。 */
-    fun saveGeometry(context: Context, heightDp: Int, widthPercent: Int, positionPercent: Int, bottomPaddingDp: Int? = null): Boolean {
+    /** 指定した画面の向きの10キー形状を保存します。 */
+    fun saveGeometry(
+        context: Context,
+        heightDp: Int,
+        widthPercent: Int,
+        positionPercent: Int,
+        bottomPaddingDp: Int? = null,
+        orientation: Int = context.resources.configuration.orientation,
+    ): Boolean {
         if (heightDp !in TouchKeyboardSettings.TEN_KEY_HEIGHT_DP ||
             widthPercent !in TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT ||
             positionPercent !in TouchKeyboardSettings.TEN_KEY_POSITION_PERCENT ||
             (bottomPaddingDp != null && bottomPaddingDp !in TouchKeyboardSettings.TEN_KEY_BOTTOM_PADDING_DP)) return false
-        return saveGeometryTo(
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE),
-            heightDp, widthPercent, positionPercent, bottomPaddingDp,
-        )
+        val preferences = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val values = mutableMapOf(HEIGHT to heightDp, WIDTH to widthPercent, POSITION to positionPercent)
+        bottomPaddingDp?.let { values[BOTTOM] = it }
+        return commitValues(preferences, values.forOrientation(orientation))
     }
 
-    internal fun readFrom(preferences: SharedPreferences): TouchKeyboardSettings = TouchKeyboardSettings(
-        layout = enumOrDefault(runCatching { preferences.getString(LAYOUT, null) }.getOrNull(), ScreenKeyboardLayout.QWERTY),
-        operation = enumOrDefault(runCatching { preferences.getString(OPERATION, null) }.getOrNull(), TenKeyOperation.HOLD_AND_RETURN),
-        holdMillis = runCatching { preferences.getInt(HOLD_MILLIS, 350) }.getOrDefault(350)
-            .takeIf { it in TouchKeyboardSettings.HOLD_MILLIS &&
-                (it - TouchKeyboardSettings.HOLD_STEP_BASE) % TouchKeyboardSettings.HOLD_STEP == 0 } ?: 350,
-        vibrateOnBoundary = runCatching { preferences.getBoolean(VIBRATE, true) }.getOrDefault(true),
-        tenKeyHeightDp = runCatching { preferences.getInt(HEIGHT, 256) }.getOrDefault(256)
-            .takeIf { it in TouchKeyboardSettings.TEN_KEY_HEIGHT_DP } ?: 256,
-        tenKeyWidthPercent = runCatching { preferences.getInt(WIDTH, 100) }.getOrDefault(100)
-            .takeIf { it in TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT } ?: 100,
-        tenKeyPositionPercent = runCatching { preferences.getInt(POSITION, 50) }.getOrDefault(50)
-            .takeIf { it in TouchKeyboardSettings.TEN_KEY_POSITION_PERCENT } ?: 50,
-        tenKeyBottomPaddingDp = runCatching { preferences.getInt(BOTTOM, 0) }.getOrDefault(0)
-            .takeIf { it in TouchKeyboardSettings.TEN_KEY_BOTTOM_PADDING_DP } ?: 0,
-        qwertySplit = runCatching { preferences.getBoolean(QWERTY_SPLIT, false) }.getOrDefault(false),
-        qwertyGapPercent = readInt(preferences, QWERTY_GAP, TouchKeyboardSettings.DEFAULT_QWERTY_GAP_PERCENT,
-            TouchKeyboardSettings.QWERTY_GAP_PERCENT),
-        qwertyHeightDp = readInt(preferences, QWERTY_HEIGHT, TouchKeyboardSettings.DEFAULT_QWERTY_HEIGHT_DP,
-            TouchKeyboardSettings.QWERTY_HEIGHT_DP),
-        qwertyWidthPercent = readInt(preferences, QWERTY_WIDTH, 100, TouchKeyboardSettings.QWERTY_WIDTH_PERCENT),
-        qwertyPositionPercent = readInt(preferences, QWERTY_POSITION, 50, TouchKeyboardSettings.QWERTY_POSITION_PERCENT),
-        qwertyBottomPaddingDp = readInt(preferences, QWERTY_BOTTOM, 0, TouchKeyboardSettings.QWERTY_BOTTOM_PADDING_DP),
-    )
+    internal fun readFrom(
+        preferences: SharedPreferences,
+        orientation: Int = Configuration.ORIENTATION_PORTRAIT,
+    ): TouchKeyboardSettings {
+        val stored = preferences.all
+        // 向き別の値を保存するまでは、旧設定を両方の向きで使います。
+        fun geometryValue(key: String) = stored.getOrElse(geometryKey(key, orientation)) { stored[key] }
+        fun geometryInt(key: String, default: Int, range: IntRange): Int =
+            (geometryValue(key) as? Int)?.takeIf { it in range } ?: default
+
+        return TouchKeyboardSettings(
+            layout = enumOrDefault(stored[LAYOUT] as? String, ScreenKeyboardLayout.QWERTY),
+            operation = enumOrDefault(stored[OPERATION] as? String, TenKeyOperation.HOLD_AND_RETURN),
+            holdMillis = (stored[HOLD_MILLIS] as? Int)?.takeIf {
+                it in TouchKeyboardSettings.HOLD_MILLIS &&
+                    (it - TouchKeyboardSettings.HOLD_STEP_BASE) % TouchKeyboardSettings.HOLD_STEP == 0
+            } ?: 350,
+            vibrateOnBoundary = stored[VIBRATE] as? Boolean ?: true,
+            tenKeyHeightDp = geometryInt(HEIGHT, 256, TouchKeyboardSettings.TEN_KEY_HEIGHT_DP),
+            tenKeyWidthPercent = geometryInt(WIDTH, 100, TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT),
+            tenKeyPositionPercent = geometryInt(POSITION, 50, TouchKeyboardSettings.TEN_KEY_POSITION_PERCENT),
+            tenKeyBottomPaddingDp = geometryInt(BOTTOM, 0, TouchKeyboardSettings.TEN_KEY_BOTTOM_PADDING_DP),
+            qwertySplit = geometryValue(QWERTY_SPLIT) as? Boolean ?: false,
+            qwertyGapPercent = geometryInt(QWERTY_GAP, TouchKeyboardSettings.DEFAULT_QWERTY_GAP_PERCENT,
+                TouchKeyboardSettings.QWERTY_GAP_PERCENT),
+            qwertyHeightDp = geometryInt(QWERTY_HEIGHT, TouchKeyboardSettings.DEFAULT_QWERTY_HEIGHT_DP,
+                TouchKeyboardSettings.QWERTY_HEIGHT_DP),
+            qwertyWidthPercent = geometryInt(QWERTY_WIDTH, 100, TouchKeyboardSettings.QWERTY_WIDTH_PERCENT),
+            qwertyPositionPercent = geometryInt(QWERTY_POSITION, 50, TouchKeyboardSettings.QWERTY_POSITION_PERCENT),
+            qwertyBottomPaddingDp = geometryInt(QWERTY_BOTTOM, 0, TouchKeyboardSettings.QWERTY_BOTTOM_PADDING_DP),
+        )
+    }
 
     internal fun saveTo(
         preferences: SharedPreferences,
         settings: TouchKeyboardSettings,
+        orientation: Int = Configuration.ORIENTATION_PORTRAIT,
         commit: (SharedPreferences.Editor) -> Boolean = { it.commit() },
     ): Boolean {
         if (!settings.isValid()) return false
-        return commitValues(preferences, mapOf(
-            LAYOUT to settings.layout.name, OPERATION to settings.operation.name,
-            HOLD_MILLIS to settings.holdMillis, VIBRATE to settings.vibrateOnBoundary,
+        val globalValues = settings.operationValues() + (LAYOUT to settings.layout.name)
+        val geometryValues = mapOf(
             HEIGHT to settings.tenKeyHeightDp, WIDTH to settings.tenKeyWidthPercent,
             POSITION to settings.tenKeyPositionPercent, BOTTOM to settings.tenKeyBottomPaddingDp,
             QWERTY_SPLIT to settings.qwertySplit, QWERTY_GAP to settings.qwertyGapPercent,
             QWERTY_HEIGHT to settings.qwertyHeightDp, QWERTY_WIDTH to settings.qwertyWidthPercent,
             QWERTY_POSITION to settings.qwertyPositionPercent, QWERTY_BOTTOM to settings.qwertyBottomPaddingDp,
-        ), commit)
+        ).forOrientation(orientation)
+        return commitValues(preferences, globalValues + geometryValues, commit)
     }
 
-    private fun saveGeometryTo(preferences: SharedPreferences, heightDp: Int, widthPercent: Int,
-        positionPercent: Int, bottomPaddingDp: Int?): Boolean {
-        val values = mutableMapOf(HEIGHT to heightDp, WIDTH to widthPercent, POSITION to positionPercent)
-        bottomPaddingDp?.let { values[BOTTOM] = it }
-        return commitValues(preferences, values)
-    }
+    private fun TouchKeyboardSettings.operationValues() = mapOf(
+        OPERATION to operation.name, HOLD_MILLIS to holdMillis, VIBRATE to vibrateOnBoundary,
+    )
+
+    private fun geometryKey(key: String, orientation: Int): String =
+        if (orientation == Configuration.ORIENTATION_LANDSCAPE) "${key}_landscape" else "${key}_portrait"
+
+    private fun <T> Map<String, T>.forOrientation(orientation: Int): Map<String, T> =
+        mapKeys { geometryKey(it.key, orientation) }
 
     private fun commitValues(preferences: SharedPreferences, values: Map<String, Any>,
         commit: (SharedPreferences.Editor) -> Boolean = { it.commit() }): Boolean {
@@ -197,9 +244,6 @@ object TouchKeyboardSettingsStore {
             }
         }
     }
-
-    private fun readInt(preferences: SharedPreferences, key: String, default: Int, range: IntRange): Int =
-        runCatching { preferences.getInt(key, default) }.getOrDefault(default).takeIf { it in range } ?: default
 
     private fun TouchKeyboardSettings.isValid() = holdMillis in TouchKeyboardSettings.HOLD_MILLIS &&
         (holdMillis - TouchKeyboardSettings.HOLD_STEP_BASE) % TouchKeyboardSettings.HOLD_STEP == 0 &&
