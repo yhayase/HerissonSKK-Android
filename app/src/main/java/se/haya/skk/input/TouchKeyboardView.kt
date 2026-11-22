@@ -2,7 +2,6 @@ package se.haya.skk.input
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
@@ -45,6 +44,8 @@ internal class TouchKeyboardView(
     private val controller = TouchKeyboardController()
     private var keyboardSettings = TouchKeyboardSettings()
     private var tenKeyView: TenKeyKeyboardView? = null
+    private var tenKeyAlignmentControl: Button? = null
+    private val tenKeyAlignmentBounds = Rect()
     private var wideQwerty: WideQwertyKeyboard? = null
     private var wide = false
     internal var onLayoutChanged: ((ScreenKeyboardLayout) -> Unit)? = null
@@ -53,6 +54,8 @@ internal class TouchKeyboardView(
     internal var onGeometryChanged: ((TouchKeyboardSettings) -> Unit)? = null
     private var adjustmentPanel: ScrollView? = null
     private var qwertyGapSlider: SeekBar? = null
+    private var qwertyWidthSlider: SeekBar? = null
+    private var tenKeyPositionSlider: SeekBar? = null
     internal val adjustingGeometry get() = adjustmentPanel != null
 
     /** 候補・調整面・下の余白を除く、表示中の文字面に限って操作を引き受けます。 */
@@ -77,13 +80,14 @@ internal class TouchKeyboardView(
             keyboardSettings = updated
             onGeometryChanged?.invoke(updated)
         }
+        tenKeyPositionSlider?.progress = keyboardSettings.tenKeyPositionPercent
         applyBottomInset()
         requestLayout()
     }
 
     internal fun showGeometryAdjustment() {
-        val qwerty = wideQwerty != null
-        if ((!qwerty && tenKeyView == null) || adjustmentPanel != null) return
+        val qwerty = keyboardSettings.layout == ScreenKeyboardLayout.QWERTY
+        if (adjustmentPanel != null) return
         cancelTouches()
         val panel = LinearLayout(context).apply { orientation = VERTICAL; setBackgroundColor(KeyboardColors.resolve(context).panelBackground) }
         val scroll = ScrollView(context).apply {
@@ -114,17 +118,33 @@ internal class TouchKeyboardView(
         }
         if (qwerty) {
             val height = TouchKeyboardSettings.QWERTY_HEIGHT_DP
-            val gap = qwertyGapPercentRange(maxOf(dp(WIDE_QWERTY_MIN_WIDTH_DP), measuredWidth))
+            val width = qwertyWidthRange(measuredWidth)
+            val position = TouchKeyboardSettings.QWERTY_POSITION_PERCENT
+            val bottom = TouchKeyboardSettings.QWERTY_BOTTOM_PADDING_DP
             slider("高さ", height.first, height.last, keyboardSettings.qwertyHeightDp) {
                 setQwertyGeometry(keyboardSettings.qwertyGapPercent, it)
             }
-            qwertyGapSlider = slider("分割時の間隔", gap.first, gap.last, keyboardSettings.qwertyGapPercent.coerceIn(gap)) {
-                setQwertyGeometry(it, keyboardSettings.qwertyHeightDp)
+            qwertyWidthSlider = slider("幅", width.first, width.last, keyboardSettings.qwertyWidthPercent.coerceIn(width)) {
+                setQwertyGeometry(widthPercent = it)
+            }
+            slider("左右位置", position.first, position.last, keyboardSettings.qwertyPositionPercent) {
+                setQwertyGeometry(positionPercent = it)
+            }
+            slider("下の余白", bottom.first, bottom.last, keyboardSettings.qwertyBottomPaddingDp) {
+                setQwertyGeometry(bottomPaddingDp = it)
+            }
+            if (wide) {
+                val gap = qwertyGapPercentRange(qwertyWidth(measuredWidth))
+                qwertyGapSlider = slider("分割時の間隔", gap.first, gap.last, keyboardSettings.qwertyGapPercent.coerceIn(gap)) {
+                    setQwertyGeometry(it)
+                }
             }
         } else {
             slider("高さ", 160, 400, keyboardSettings.tenKeyHeightDp) { setTenKeyGeometry(it, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent) }
             slider("幅", 60, 100, keyboardSettings.tenKeyWidthPercent) { setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, it, keyboardSettings.tenKeyPositionPercent) }
-            slider("左右位置", 0, 100, keyboardSettings.tenKeyPositionPercent) { setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, it) }
+            tenKeyPositionSlider = slider("左右位置", 0, 100, keyboardSettings.tenKeyPositionPercent) {
+                setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, it)
+            }
             slider("下の余白", 0, 160, keyboardSettings.tenKeyBottomPaddingDp) {
                 setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, keyboardSettings.tenKeyPositionPercent, it)
             }
@@ -133,7 +153,8 @@ internal class TouchKeyboardView(
             addView(commandKey("標準に戻す") {
                 if (qwerty) {
                     val defaults = TouchKeyboardSettings()
-                    setQwertyGeometry(defaults.qwertyGapPercent, defaults.qwertyHeightDp)
+                    setQwertyGeometry(defaults.qwertyGapPercent, defaults.qwertyHeightDp, defaults.qwertyWidthPercent,
+                        defaults.qwertyPositionPercent, defaults.qwertyBottomPaddingDp)
                 } else setTenKeyGeometry(256, 100, 50, 0)
                 hideGeometryAdjustment(); showGeometryAdjustment()
             }.apply { contentDescription = "サイズ・位置を標準に戻す" }, LayoutParams(0, dp(40), 1f))
@@ -142,15 +163,37 @@ internal class TouchKeyboardView(
         addView(scroll, 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
 
-    private fun setQwertyGeometry(gapPercent: Int, heightDp: Int) {
-        val updated = keyboardSettings.copy(qwertyGapPercent = gapPercent, qwertyHeightDp = heightDp)
-        if (updated != keyboardSettings && TouchKeyboardSettingsStore.saveQwertyGeometry(context, gapPercent, heightDp)) {
+    private fun setQwertyGeometry(
+        gapPercent: Int = keyboardSettings.qwertyGapPercent,
+        heightDp: Int = keyboardSettings.qwertyHeightDp,
+        widthPercent: Int? = null,
+        positionPercent: Int? = null,
+        bottomPaddingDp: Int? = null,
+    ) {
+        val updated = keyboardSettings.copy(qwertyGapPercent = gapPercent, qwertyHeightDp = heightDp,
+            qwertyWidthPercent = widthPercent ?: keyboardSettings.qwertyWidthPercent,
+            qwertyPositionPercent = positionPercent ?: keyboardSettings.qwertyPositionPercent,
+            qwertyBottomPaddingDp = bottomPaddingDp ?: keyboardSettings.qwertyBottomPaddingDp)
+        if (updated != keyboardSettings && TouchKeyboardSettingsStore.saveQwertyGeometry(
+                context, gapPercent, heightDp, widthPercent, positionPercent, bottomPaddingDp)) {
             keyboardSettings = updated
             onGeometryChanged?.invoke(updated)
         }
-        qwertyGapSlider?.let { updateQwertyGapSlider(it, measuredWidth) }
+        applyBottomInset()
         wideQwerty?.requestLayout()
+        requestLayout()
     }
+
+    private fun qwertyWidthRange(width: Int): IntRange {
+        val range = TouchKeyboardSettings.QWERTY_WIDTH_PERCENT
+        val minimum = if (wide && width > 0)
+            ((dp(WIDE_QWERTY_MIN_WIDTH_DP) * 100 + width - 1) / width).coerceIn(range)
+        else range.first
+        return minimum..range.last
+    }
+
+    private fun qwertyWidth(available: Int): Int =
+        available * keyboardSettings.qwertyWidthPercent.coerceIn(qwertyWidthRange(available)) / 100
 
     private fun qwertyGapPercentRange(width: Int): IntRange {
         val maxKeyGap = width - (dp(MIN_WIDE_KEY_WIDTH_DP) * SPLIT_HALF_UNITS * 2).roundToInt()
@@ -183,6 +226,8 @@ internal class TouchKeyboardView(
     private fun hideGeometryAdjustment() {
         adjustmentPanel?.let { removeView(it) }; adjustmentPanel = null
         qwertyGapSlider = null
+        qwertyWidthSlider = null
+        tenKeyPositionSlider = null
         requestLayout()
     }
 
@@ -196,7 +241,11 @@ internal class TouchKeyboardView(
                 rebuildKeys()
             }
         }
-        (tenKeyView ?: wideQwerty)?.let { keyboard ->
+        if (charactersVisible) {
+            val isTenKey = tenKeyView != null
+            val width = if (isTenKey) availableWidth * keyboardSettings.tenKeyWidthPercent / 100 else qwertyWidth(availableWidth)
+            val position = if (isTenKey) keyboardSettings.tenKeyPositionPercent else keyboardSettings.qwertyPositionPercent
+            val left = (availableWidth - width) * position / 100
             val screenHeight = resources.displayMetrics.heightPixels
             val availableHeight = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) screenHeight else minOf(screenHeight, MeasureSpec.getSize(heightMeasureSpec))
             val candidateHeight = if (candidateStatusView.visibility == View.GONE) 0 else {
@@ -204,29 +253,66 @@ internal class TouchKeyboardView(
                 candidateStatusView.measuredHeight
             }
             adjustmentPanel?.let { panel ->
-                qwertyGapSlider?.let { updateQwertyGapSlider(it, availableWidth) }
+                qwertyGapSlider?.let { updateQwertyGapSlider(it, width) }
+                qwertyWidthSlider?.let { bar ->
+                    val range = qwertyWidthRange(availableWidth)
+                    bar.min = range.first
+                    bar.progress = keyboardSettings.qwertyWidthPercent.coerceIn(range)
+                }
                 // IME窓自身の縮小後の高さを半分にすると、調整面まで再縮小して下に空きが残ります。
                 val maximum = minOf(maxOf(0, availableHeight - candidateHeight - paddingBottom),
                     maxOf(0, (screenHeight - candidateHeight - paddingBottom) / 2))
                 panel.measure(MeasureSpec.makeMeasureSpec(availableWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(maximum, MeasureSpec.AT_MOST))
                 panel.layoutParams.height = panel.measuredHeight
             }
-            val width = if (keyboard === tenKeyView) availableWidth * keyboardSettings.tenKeyWidthPercent / 100 else availableWidth
-            val preferredHeight = if (keyboard === tenKeyView) keyboardSettings.tenKeyHeightDp else keyboardSettings.qwertyHeightDp
+            val preferredHeight = if (isTenKey) keyboardSettings.tenKeyHeightDp else keyboardSettings.qwertyHeightDp
             val height = minOf(dp(preferredHeight), maxOf(0, availableHeight - candidateHeight - (adjustmentPanel?.measuredHeight ?: 0) - paddingBottom))
-            val params = keyboard.layoutParams as LayoutParams
-            val left = (availableWidth - width) * keyboardSettings.tenKeyPositionPercent / 100
-            if (params.width != width || params.height != height || params.leftMargin != left) {
-                params.width = width
-                params.height = height
-                params.gravity = Gravity.LEFT
-                params.leftMargin = left
-                // 入れ子の測定キャッシュも更新し、形状変更直後に文字面と親の高さを揃えます。
-                keyboard.forceLayout()
-                characterArea.forceLayout()
+            setMeasuredGeometry(characterArea, if (isTenKey) availableWidth else width,
+                LayoutParams.WRAP_CONTENT, if (isTenKey) 0 else left)
+            val keyboard = tenKeyView ?: wideQwerty
+            if (keyboard != null) {
+                setMeasuredGeometry(keyboard, width, height, if (isTenKey) left else 0)
+                if (isTenKey) refreshTenKeyAlignmentControl(availableWidth, width, height, left)
+            } else {
+                for (row in 0 until characterArea.childCount) {
+                    val rowHeight = (row + 1) * height / 4 - row * height / 4
+                    setMeasuredGeometry(characterArea.getChildAt(row), width, rowHeight, 0)
+                }
             }
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun setMeasuredGeometry(view: View, width: Int, height: Int, left: Int) {
+        val params = view.layoutParams as LayoutParams
+        if (params.width == width && params.height == height && params.leftMargin == left) return
+        params.width = width
+        params.height = height
+        params.gravity = Gravity.LEFT
+        params.leftMargin = left
+        // 入れ子の測定キャッシュも更新し、形状変更直後に文字面と親の高さを揃えます。
+        view.forceLayout()
+        characterArea.forceLayout()
+    }
+
+    private fun refreshTenKeyAlignmentControl(availableWidth: Int, keyboardWidth: Int, keyboardHeight: Int, keyboardLeft: Int) {
+        val button = tenKeyAlignmentControl ?: return
+        val rightGap = availableWidth - keyboardLeft - keyboardWidth
+        val moveRight = keyboardLeft <= rightGap
+        val gapLeft = if (moveRight) keyboardLeft + keyboardWidth else 0
+        val gapWidth = if (moveRight) rightGap else keyboardLeft
+        val size = minOf(dp(48), gapWidth - dp(8), keyboardHeight - dp(8))
+        if (size < dp(32)) {
+            tenKeyAlignmentBounds.setEmpty()
+            button.visibility = View.GONE
+            return
+        }
+        button.visibility = View.VISIBLE
+        button.text = if (moveRight) "→|" else "|←"
+        button.contentDescription = if (moveRight) "キーボードを右側に移動" else "キーボードを左側に移動"
+        val x = gapLeft + (gapWidth - size) / 2
+        val y = (keyboardHeight - size) / 2
+        tenKeyAlignmentBounds.set(x, y, x + size, y + size)
     }
 
     fun configure(settings: TouchKeyboardSettings) {
@@ -236,7 +322,17 @@ internal class TouchKeyboardView(
         hideGeometryAdjustment()
         rebuildKeys()
     }
-    private val characterArea = LinearLayout(context).apply {
+    private val characterArea = object : LinearLayout(context) {
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            super.onLayout(changed, left, top, right, bottom)
+            tenKeyAlignmentControl?.let { button ->
+                val bounds = tenKeyAlignmentBounds
+                button.measure(MeasureSpec.makeMeasureSpec(bounds.width(), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(bounds.height(), MeasureSpec.EXACTLY))
+                button.layout(bounds.left, bounds.top, bounds.right, bounds.bottom)
+            }
+        }
+    }.apply {
         orientation = VERTICAL
         isMotionEventSplittingEnabled = true
     }
@@ -304,9 +400,11 @@ internal class TouchKeyboardView(
     }
 
     // IMEの親がInsetsを消費しても、OSの切替・非表示ボタンと文字キーが重ならない領域を確保します。
-    private fun applyBottomInset() =
-        setPadding(0, 0, 0, if (charactersVisible) maxOf(dp(48), bottomInset) +
-            (if (keyboardSettings.layout == ScreenKeyboardLayout.TEN_KEY) dp(keyboardSettings.tenKeyBottomPaddingDp) else 0) else 0)
+    private fun applyBottomInset() {
+        val extra = if (keyboardSettings.layout == ScreenKeyboardLayout.TEN_KEY) keyboardSettings.tenKeyBottomPaddingDp
+            else keyboardSettings.qwertyBottomPaddingDp
+        setPadding(0, 0, 0, if (charactersVisible) maxOf(dp(48), bottomInset) + dp(extra) else 0)
+    }
 
     fun configurationChanged() {
         setBackgroundColor(KeyboardColors.resolve(context).panelBackground)
@@ -400,6 +498,8 @@ internal class TouchKeyboardView(
         modeButton = null
         primaryButton = null
         tenKeyView = null
+        tenKeyAlignmentControl = null
+        tenKeyAlignmentBounds.setEmpty()
         wideQwerty = null
         if (keyboardSettings.layout == ScreenKeyboardLayout.TEN_KEY) {
             tenKeyView = TenKeyKeyboardView(context, keyboardSettings, tenKeyController, onCommand).also {
@@ -411,6 +511,27 @@ internal class TouchKeyboardView(
                 it.setSkkEnabled(modeEnabled)
                 it.updateReadingConversion(readingConversionEnabled)
                 it.updateShiftPending(touchShiftPending)
+            }
+            tenKeyAlignmentControl = Button(context).apply {
+                visibility = View.GONE
+                minWidth = 0
+                minHeight = 0
+                minimumWidth = 0
+                minimumHeight = 0
+                setPadding(0, 0, 0, 0)
+                textSize = 22f
+                isAllCaps = false
+                setTextColor(KeyboardColors.resolve(context).text)
+                background = GradientDrawable().apply {
+                    setColor(KeyboardColors.resolve(context).functionBackground)
+                    cornerRadius = dp(8).toFloat()
+                }
+                setOnClickListener {
+                    val position = keyboardSettings.tenKeyPositionPercent
+                    val target = if (position == 50) 100 else 100 - position
+                    setTenKeyGeometry(keyboardSettings.tenKeyHeightDp, keyboardSettings.tenKeyWidthPercent, target)
+                }
+                characterArea.addView(this, LayoutParams(0, 0))
             }
             return
         }
@@ -470,7 +591,7 @@ internal class TouchKeyboardView(
         return LayoutSwitchKey(context, ScreenKeyboardLayout.TEN_KEY,
             onSwitchLayout = { switchLayout(ScreenKeyboardLayout.TEN_KEY) },
             onSwitchIme = { onCommand(TouchKeyboardCommand.SwitchIme) },
-            onAdjustGeometry = if (wide) ::showGeometryAdjustment else null,
+            onAdjustGeometry = ::showGeometryAdjustment,
             onOpenSettings = { onCommand(TouchKeyboardCommand.OpenSettings) },
             isCurrent = { currentGeneration == generation },
         ).also { button ->
@@ -570,6 +691,7 @@ internal class TouchKeyboardView(
             }
 
         private fun handleKey(label: String, description: String) = commandKey(label) { showGeometryAdjustment() }.apply {
+            background = null
             contentDescription = description
         }
 
@@ -634,18 +756,18 @@ internal class TouchKeyboardView(
             }
 
             val center = width / 2f
-            val toggleHalf = minOf(dp(56).toFloat(), unit) / 2
-            val leftSpaceEnd = minOf(center - toggleHalf, half + unit)
-            val commandsWidth = rightCommands.size * unit
+            val bottomUnit = width / JOINED_UNITS
+            val toggleHalf = minOf(dp(56).toFloat(), bottomUnit) / 2
+            val commandsWidth = rightCommands.size * bottomUnit
             leftCommands.forEachIndexed { i, key ->
                 place(key, 3, i * commandsWidth / leftCommands.size, (i + 1) * commandsWidth / leftCommands.size)
             }
-            place(leftSpace, 3, commandsWidth, leftSpaceEnd)
+            place(leftSpace, 3, commandsWidth, center - toggleHalf)
             place(toggle, 3, center - toggleHalf, center + toggleHalf)
-            place(rightSpace, 3, width - leftSpaceEnd, width - commandsWidth)
+            place(rightSpace, 3, center + toggleHalf, width - commandsWidth)
             rightCommands.forEachIndexed { i, key ->
-                val start = width - commandsWidth + i * unit
-                place(key, 3, start, start + unit)
+                val start = width - commandsWidth + i * bottomUnit
+                place(key, 3, start, start + bottomUnit)
             }
             if (split) {
                 place(leftHandle, 1, half, half + dp(HANDLE_WIDTH_DP))
@@ -943,10 +1065,9 @@ internal class TouchKeyboardView(
         typeface = Typeface.DEFAULT
         contentDescription = label
     }
-    private fun keyParams(weight: Float = 1f) = LayoutParams(0, keyHeight(), weight).apply {
+    private fun keyParams(weight: Float = 1f) = LayoutParams(0, LayoutParams.MATCH_PARENT, weight).apply {
         setMargins(dp(1), dp(1), dp(1), dp(1))
     }
-    private fun keyHeight() = dp(if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 38 else 46)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     private fun modeLabel(mode: InputMode?) = when (mode) {
         InputMode.DIRECT -> "A"

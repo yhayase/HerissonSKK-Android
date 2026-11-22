@@ -466,6 +466,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
                     qwertySplit = updated.qwertySplit,
                     qwertyGapPercent = updated.qwertyGapPercent,
                     qwertyHeightDp = updated.qwertyHeightDp,
+                    qwertyWidthPercent = updated.qwertyWidthPercent,
+                    qwertyPositionPercent = updated.qwertyPositionPercent,
+                    qwertyBottomPaddingDp = updated.qwertyBottomPaddingDp,
                 )
             }
             it.configure(sessionTouchSettings)
