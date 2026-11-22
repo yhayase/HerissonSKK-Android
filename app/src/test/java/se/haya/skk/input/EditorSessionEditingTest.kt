@@ -227,6 +227,19 @@ class EditorSessionEditingTest {
         assertTrue(f.connection.nativeDown.isEmpty())
     }
 
+    @Test fun `画面の矢印は先行する削除の完了後に入力先へ届く`() {
+        val f = Fixture(enabled = false, text = "abcd", cursor = 2)
+        assertTrue(f.session.handleTouch(BasicSkkAction.Backspace))
+        assertTrue(f.session.handleTouchMoveCursor(EditCommand.RIGHT))
+        assertTrue(f.connection.nativeDown.isEmpty())
+        f.run()
+
+        assertEquals("acd", f.connection.text)
+        assertEquals(2, f.connection.cursor)
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_RIGHT), f.connection.nativeDown)
+        assertNull(f.session.notice)
+    }
+
     @Test fun delayedTouchEditsCompleteBeforeFollowingTextAndEnter() {
         for (first in listOf(BasicSkkAction.Left, BasicSkkAction.Backspace)) {
             val f = Fixture(enabled = false, text = "abcd", cursor = 2)

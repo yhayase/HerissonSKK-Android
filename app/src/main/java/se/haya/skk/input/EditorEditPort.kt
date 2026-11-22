@@ -66,7 +66,7 @@ class EditorEditPort(
     private val killChain = java.util.concurrent.atomic.AtomicReference<KillChain?>(null)
     private val killEpoch = java.util.concurrent.atomic.AtomicLong()
     fun breakKillChain() { killEpoch.incrementAndGet(); killChain.set(null) }
-    fun expectNativeEnter() { nativeNavigation.set(true); nativeSelectionPending.set(true) }
+    fun expectNativeNavigation() { nativeNavigation.set(true); nativeSelectionPending.set(true) }
 
     private val active = AtomicBoolean(true)
     private val failed = AtomicBoolean(false)

@@ -582,7 +582,7 @@ class EditorEditPortTest {
     @Test fun `標準編集中の選択照会は同じ版の遅延通知を受け入れ外部変更では止める`() {
         for (external in listOf(false, true)) {
             val h = Harness("abc", 2)
-            h.port.expectNativeEnter()
+            h.port.expectNativeNavigation()
             h.connection.onQuery = { if (it == 1) {
                 h.update { state -> state.copy(selectionStart = 3, selectionEnd = 3,
                     revision = if (external) 1 else 0) }

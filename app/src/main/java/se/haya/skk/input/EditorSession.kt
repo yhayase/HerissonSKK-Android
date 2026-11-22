@@ -449,17 +449,27 @@ class EditorSession(
 
     /** 画面の矢印は候補ページ操作から分離し、未確定内容の所有中に入力先へ漏らしません。 */
     fun handleTouchMoveCursor(command: EditCommand): Boolean {
-        if (command !in listOf(EditCommand.LEFT, EditCommand.DOWN, EditCommand.UP, EditCommand.RIGHT)) return false
+        val keyCode = when (command) {
+            EditCommand.LEFT -> KeyEvent.KEYCODE_DPAD_LEFT
+            EditCommand.DOWN -> KeyEvent.KEYCODE_DPAD_DOWN
+            EditCommand.UP -> KeyEvent.KEYCODE_DPAD_UP
+            EditCommand.RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT
+            else -> return false
+        }
         if (deferTouchSemantic { handleTouchMoveCursor(command) }) return true
         if (!active || failed) return false
-        if (command == EditCommand.LEFT) return handleTouch(BasicSkkAction.Left)
-        if (command == EditCommand.RIGHT) return handleTouch(BasicSkkAction.Right)
-        if (protectedInput) return sendTouchNavigation(
-            if (command == EditCommand.UP) KeyEvent.KEYCODE_DPAD_UP else KeyEvent.KEYCODE_DPAD_DOWN)
-        // 縦移動で読み・登録・候補を暗黙に確定せず、その下の本文も動かしません。
-        if (hasComposition || ownsInternalEditing()) return true
-        submitExternal(command)
-        return true
+        if (protectedInput) return sendTouchNavigation(keyCode)
+        if (hasComposition || ownsInternalEditing()) {
+            return when (command) {
+                EditCommand.LEFT -> handleTouch(BasicSkkAction.Left)
+                EditCommand.RIGHT -> handleTouch(BasicSkkAction.Right)
+                // 縦移動で読み・登録・候補を暗黙に確定せず、その下の本文も動かしません。
+                else -> true
+            }
+        }
+        // 選択範囲や表示行からの移動先は、物理矢印と同じく入力先に任せます。
+        if (expectedSelections.none { it.blocksExternalEditing }) editPort.expectNativeNavigation()
+        return sendTouchNavigation(keyCode)
     }
 
     /** 10キーの文字は候補ラベルやローマ字にせず、現在の入力対象へ一度だけ挿入します。 */
@@ -750,7 +760,7 @@ class EditorSession(
             }
             if (handleHardwareEnter()) return true
             // 素通しの物理 Enter と同じキーを、C-m の修飾状態を引き継がず送ります。
-            editPort.expectNativeEnter()
+            editPort.expectNativeNavigation()
             connection.clearMetaKeyStates(KeyEvent.META_CTRL_MASK or KeyEvent.META_ALT_MASK or
                 KeyEvent.META_SHIFT_MASK or KeyEvent.META_META_MASK)
             sendTouchNavigation(KeyEvent.KEYCODE_ENTER)

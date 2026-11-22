@@ -45,8 +45,7 @@ class EditorSessionTest {
         var textQueries = 0
         var rejectNativeAfterMutation = false
         val deletionKeys = mutableListOf<Int>()
-        val navigationKeys = mutableListOf<Int>()
-        var acceptNavigation = false
+        val navigationEvents = mutableListOf<KeyEvent>()
         val editorActions = mutableListOf<Int>()
         init { Selection.setSelection(editable, 0) }
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
@@ -70,9 +69,9 @@ class EditorSessionTest {
             return super.getSelectedText(flags)
         }
         override fun sendKeyEvent(event: KeyEvent): Boolean {
-            if (acceptNavigation && event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_DOWN,
+            if (event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_DOWN,
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_RIGHT)) {
-                if (event.action == KeyEvent.ACTION_DOWN) navigationKeys += event.keyCode
+                navigationEvents += event
                 return true
             }
             if (event.keyCode != KeyEvent.KEYCODE_DEL && event.keyCode != KeyEvent.KEYCODE_FORWARD_DEL)
@@ -214,36 +213,49 @@ class EditorSessionTest {
         text.forEach { assertTrue(handle(BasicSkkAction.Text(it.toString()))) }
     }
 
-    @Test fun `画面の上下移動はEmacs無効でも本文の行を移動する`() {
-        for ((command, cursor, expected) in listOf(
-            Triple(EditCommand.UP, 6, 2), Triple(EditCommand.DOWN, 2, 6))) {
-            val connection = HandoffConnection()
-            connection.editable!!.append("abc\ndef")
-            Selection.setSelection(connection.editable, cursor)
-            val direct = java.util.concurrent.Executor { it.run() }
-            val current = EditorSession(1, connection, false, true, cursor, cursor,
-                callbackExecutor = direct, editPortFactory = { input, token, state, callbacks, before ->
-                    EditorEditPort(input, token, state, callbacks, workerExecutor = direct, beforeRequest = before)
-                })
-            assertTrue(current.handleTouchMoveCursor(command))
-            assertEquals(expected, Selection.getSelectionStart(connection.editable))
-            assertEquals("abc\ndef", connection.editable.toString())
+    @Test fun `画面の矢印は全選択中も本文を取得せず修飾なしの標準キーを一度ずつ送る`() {
+        val text = "abc\ndef"
+        val directions = listOf(
+            EditCommand.LEFT to KeyEvent.KEYCODE_DPAD_LEFT,
+            EditCommand.DOWN to KeyEvent.KEYCODE_DPAD_DOWN,
+            EditCommand.UP to KeyEvent.KEYCODE_DPAD_UP,
+            EditCommand.RIGHT to KeyEvent.KEYCODE_DPAD_RIGHT,
+        )
+        for (protected in listOf(false, true)) {
+            for ((start, end) in listOf(3 to 3, 0 to text.length, text.length to 0)) {
+                val connection = Connection()
+                connection.editable!!.append(text)
+                Selection.setSelection(connection.editable, start, end)
+                val current = EditorSession(1, connection, protected, false, start, end)
+                directions.forEach { (command, _) -> assertTrue(current.handleTouchMoveCursor(command)) }
+
+                assertEquals(directions.flatMap { (_, keyCode) ->
+                    listOf(keyCode to KeyEvent.ACTION_DOWN, keyCode to KeyEvent.ACTION_UP)
+                }, connection.navigationEvents.map { it.keyCode to it.action })
+                assertTrue(connection.navigationEvents.all { it.hasNoModifiers() })
+                assertEquals(0, connection.textQueries)
+                assertEquals(0, connection.selections)
+                assertEquals(text, connection.editable.toString())
+                assertNull(current.notice)
+                assertFalse(current.hasComposition)
+                current.close()
+                assertFalse(current.handleTouchMoveCursor(EditCommand.UP))
+                assertEquals(8, connection.navigationEvents.size)
+            }
         }
     }
 
-    @Test fun `保護欄の画面矢印は本文を取得せず標準キーを一度だけ送る`() {
-        val connection = Connection().apply { acceptNavigation = true }
-        val current = EditorSession(1, connection, true, false, 0, 0)
-        for (command in listOf(EditCommand.LEFT, EditCommand.DOWN, EditCommand.UP, EditCommand.RIGHT)) {
-            assertTrue(current.handleTouchMoveCursor(command))
-        }
-        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_RIGHT), connection.navigationKeys)
-        assertEquals(0, connection.textQueries)
-        assertFalse(current.hasComposition)
-        current.close()
-        assertFalse(current.handleTouchMoveCursor(EditCommand.UP))
-        assertEquals(4, connection.navigationKeys.size)
+    @Test fun `未確定の読みでは画面の左右矢印が読みのカーソルを移動する`() {
+        val connection = Connection()
+        val current = session(connection)
+        current.type("Nihon")
+
+        assertTrue(current.handleTouchMoveCursor(EditCommand.LEFT))
+        assertEquals(2, connection.lastSelectionStart)
+        assertTrue(current.handleTouchMoveCursor(EditCommand.RIGHT))
+        assertEquals(3, Selection.getSelectionStart(connection.editable))
+        assertTrue(connection.navigationEvents.isEmpty())
+        assertEquals("にほん", current.displayedComposition)
     }
 
     @Test fun `画面の上下移動は保留ローマ字と読みと候補を入力先に漏らさない`() {
@@ -260,6 +272,7 @@ class EditorSessionTest {
                 assertEquals(before, connection.editable.toString())
                 assertEquals(selections, connection.selections)
                 assertEquals(queries, connection.textQueries)
+                assertTrue(connection.navigationEvents.isEmpty())
                 assertEquals(view, current.view)
             }
         }
