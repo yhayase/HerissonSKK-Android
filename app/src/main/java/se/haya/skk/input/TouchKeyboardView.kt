@@ -43,6 +43,7 @@ internal class TouchKeyboardView(
     val candidateStatusView = CandidateStatusView(context).apply { reserveTouchViewport = true }
     private val controller = TouchKeyboardController()
     private var keyboardSettings = TouchKeyboardSettings()
+    private var settingsOrientation = resources.configuration.orientation
     private var tenKeyView: TenKeyKeyboardView? = null
     private var tenKeyAlignmentControl: Button? = null
     private val tenKeyAlignmentBounds = Rect()
@@ -76,7 +77,8 @@ internal class TouchKeyboardView(
         val updated = keyboardSettings.copy(tenKeyHeightDp = heightDp.coerceIn(TouchKeyboardSettings.TEN_KEY_HEIGHT_DP),
             tenKeyWidthPercent = widthPercent.coerceIn(TouchKeyboardSettings.TEN_KEY_WIDTH_PERCENT), tenKeyPositionPercent = positionPercent.coerceIn(0, 100),
             tenKeyBottomPaddingDp = bottomPaddingDp.coerceIn(0, 160))
-        if (TouchKeyboardSettingsStore.saveGeometry(context, updated.tenKeyHeightDp, updated.tenKeyWidthPercent, updated.tenKeyPositionPercent, updated.tenKeyBottomPaddingDp)) {
+        if (TouchKeyboardSettingsStore.saveGeometry(context, updated.tenKeyHeightDp, updated.tenKeyWidthPercent,
+                updated.tenKeyPositionPercent, updated.tenKeyBottomPaddingDp, orientation = settingsOrientation)) {
             keyboardSettings = updated
             onGeometryChanged?.invoke(updated)
         }
@@ -181,7 +183,8 @@ internal class TouchKeyboardView(
             qwertyPositionPercent = positionPercent ?: keyboardSettings.qwertyPositionPercent,
             qwertyBottomPaddingDp = bottomPaddingDp ?: keyboardSettings.qwertyBottomPaddingDp)
         if (updated != keyboardSettings && TouchKeyboardSettingsStore.saveQwertyGeometry(
-                context, gapPercent, heightDp, widthPercent, positionPercent, bottomPaddingDp)) {
+                context, gapPercent, heightDp, widthPercent, positionPercent, bottomPaddingDp,
+                orientation = settingsOrientation)) {
             keyboardSettings = updated
             onGeometryChanged?.invoke(updated)
         }
@@ -326,7 +329,8 @@ internal class TouchKeyboardView(
         tenKeyAlignmentBounds.set(x, y, x + size, y + size)
     }
 
-    fun configure(settings: TouchKeyboardSettings) {
+    fun configure(settings: TouchKeyboardSettings, orientation: Int = resources.configuration.orientation) {
+        settingsOrientation = orientation
         if (keyboardSettings == settings) return
         keyboardSettings = settings
         applyBottomInset()
@@ -417,7 +421,10 @@ internal class TouchKeyboardView(
         setPadding(0, 0, 0, if (charactersVisible) maxOf(dp(48), bottomInset) + dp(extra) else 0)
     }
 
-    fun configurationChanged() {
+    fun configurationChanged(settings: TouchKeyboardSettings = keyboardSettings,
+        orientation: Int = resources.configuration.orientation) {
+        keyboardSettings = settings
+        settingsOrientation = orientation
         setBackgroundColor(KeyboardColors.resolve(context).panelBackground)
         candidateStatusView.refreshColors()
         hideGeometryAdjustment()
@@ -707,7 +714,7 @@ internal class TouchKeyboardView(
         private fun toggleSplit() {
             val split = !keyboardSettings.qwertySplit
             cancelTouches()
-            if (TouchKeyboardSettingsStore.saveQwertySplit(context, split)) {
+            if (TouchKeyboardSettingsStore.saveQwertySplit(context, split, orientation = settingsOrientation)) {
                 keyboardSettings = keyboardSettings.copy(qwertySplit = split)
                 onGeometryChanged?.invoke(keyboardSettings)
                 updateSplitPresentation()

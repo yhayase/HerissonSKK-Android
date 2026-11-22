@@ -27,12 +27,14 @@ import org.robolectric.util.ReflectionHelpers
 import se.haya.skk.input.TouchKeyboardCommand
 import se.haya.skk.input.EditorSession
 import se.haya.skk.core.BasicSkkAction
+import se.haya.skk.input.TenKeyKeyboardView
 import se.haya.skk.input.TouchKeyboardView
 import se.haya.skk.input.LayoutSwitchKey
 import se.haya.skk.settings.ScreenKeyboardLayout
 import se.haya.skk.settings.TouchKeyboardSettings
 import se.haya.skk.settings.TouchKeyboardSettingsStore
 import se.haya.skk.settings.CustomizationStore
+import kotlin.math.roundToInt
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35])
@@ -178,6 +180,83 @@ class TenKeyEditorServiceTest {
         assertNotNull(key(service.onCreateInputView(), "q"))
     }
 
+    @Config(qualifiers = "port")
+    @Test fun `10キーは向きに合う形状を表示し入力中の位置調整をその向きへ保存する`() = withService { service ->
+        val portrait = TouchKeyboardSettings(layout = ScreenKeyboardLayout.TEN_KEY, tenKeyHeightDp = 172,
+            tenKeyWidthPercent = 62, tenKeyPositionPercent = 20, tenKeyBottomPaddingDp = 12)
+        val landscape = portrait.copy(tenKeyHeightDp = 216, tenKeyWidthPercent = 40,
+            tenKeyPositionPercent = 90, tenKeyBottomPaddingDp = 26)
+        assertTrue(TouchKeyboardSettingsStore.save(service, portrait, Configuration.ORIENTATION_PORTRAIT))
+        assertTrue(TouchKeyboardSettingsStore.save(service, landscape, Configuration.ORIENTATION_LANDSCAPE))
+
+        fun assertGeometry(view: TouchKeyboardView, expected: TouchKeyboardSettings) {
+            measureKeyboard(view)
+            val keys = descendants(view).filterIsInstance<TenKeyKeyboardView>().single()
+            val width = view.width * expected.tenKeyWidthPercent / 100
+            assertEquals(width, keys.width)
+            assertEquals((view.width - width) * expected.tenKeyPositionPercent / 100, keys.left)
+            assertEquals(view.dp(expected.tenKeyHeightDp), keys.height)
+            assertEquals(view.dp(48) + view.dp(expected.tenKeyBottomPaddingDp), view.paddingBottom)
+        }
+
+        val initial = descendants(service.onCreateInputView()).filterIsInstance<TouchKeyboardView>().single()
+        assertGeometry(initial, portrait)
+        start(service, InputType.TYPE_CLASS_TEXT)
+        val rotated = rotateKeyboard(service, Configuration.ORIENTATION_LANDSCAPE)
+        assertGeometry(rotated, landscape)
+        val move = buttons(rotated).single { it.contentDescription == "キーボードを左側に移動" }
+        assertEquals(View.VISIBLE, move.visibility)
+        assertTrue(move.performClick())
+        val changed = landscape.copy(tenKeyPositionPercent = 10)
+        assertEquals(changed, TouchKeyboardSettingsStore.read(service, Configuration.ORIENTATION_LANDSCAPE))
+        assertEquals(portrait, TouchKeyboardSettingsStore.read(service, Configuration.ORIENTATION_PORTRAIT))
+        assertGeometry(descendants(service.onCreateInputView()).filterIsInstance<TouchKeyboardView>().single(), changed)
+        assertGeometry(rotateKeyboard(service, Configuration.ORIENTATION_PORTRAIT), portrait)
+    }
+
+    @Config(qualifiers = "port")
+    @Test fun `広幅QWERTYは向きごとの形状と分割状態を再生成後も復元する`() = withService { service ->
+        val portrait = TouchKeyboardSettings(qwertyHeightDp = 160, qwertyWidthPercent = 76,
+            qwertyPositionPercent = 100, qwertyBottomPaddingDp = 8, qwertyGapPercent = 16)
+        val landscape = portrait.copy(qwertyHeightDp = 208, qwertyWidthPercent = 90,
+            qwertyPositionPercent = 25, qwertyBottomPaddingDp = 20, qwertySplit = true, qwertyGapPercent = 35)
+        assertTrue(TouchKeyboardSettingsStore.save(service, portrait, Configuration.ORIENTATION_PORTRAIT))
+        assertTrue(TouchKeyboardSettingsStore.save(service, landscape, Configuration.ORIENTATION_LANDSCAPE))
+
+        fun assertGeometry(view: TouchKeyboardView, expected: TouchKeyboardSettings): Button {
+            measureKeyboard(view)
+            val keys = key(view, "q").parent as View
+            val width = view.width * expected.qwertyWidthPercent / 100
+            assertEquals(width, keys.width)
+            assertEquals((view.width - width) * expected.qwertyPositionPercent / 100, (keys.parent as View).left)
+            assertEquals(view.dp(expected.qwertyHeightDp), keys.height)
+            assertEquals(view.dp(48) + view.dp(expected.qwertyBottomPaddingDp), view.paddingBottom)
+            val left = buttons(view).single { it.contentDescription == "左側の境界を調整" }
+            val right = buttons(view).single { it.contentDescription == "右側の境界を調整" }
+            if (expected.qwertySplit) {
+                assertEquals(View.VISIBLE, left.visibility)
+                assertEquals(View.VISIBLE, right.visibility)
+                val gap = (width * expected.qwertyGapPercent / 100f).roundToInt()
+                assertEquals(gap.toFloat(), (right.right - left.left + 2 * view.dp(1)).toFloat(), 1f)
+            } else {
+                assertEquals(View.GONE, left.visibility)
+                assertEquals(View.GONE, right.visibility)
+            }
+            return key(view, if (expected.qwertySplit) "→←" else "←→")
+        }
+
+        start(service, InputType.TYPE_CLASS_TEXT)
+        assertGeometry(descendants(service.onCreateInputView()).filterIsInstance<TouchKeyboardView>().single(), portrait)
+        assertGeometry(rotateKeyboard(service, Configuration.ORIENTATION_LANDSCAPE), landscape)
+        val recreated = descendants(service.onCreateInputView()).filterIsInstance<TouchKeyboardView>().single()
+        assertTrue(assertGeometry(recreated, landscape).performClick())
+        val changed = landscape.copy(qwertySplit = false)
+        assertEquals(changed, TouchKeyboardSettingsStore.read(service, Configuration.ORIENTATION_LANDSCAPE))
+        assertEquals(portrait, TouchKeyboardSettingsStore.read(service, Configuration.ORIENTATION_PORTRAIT))
+        assertGeometry(rotateKeyboard(service, Configuration.ORIENTATION_PORTRAIT), portrait)
+        assertGeometry(rotateKeyboard(service, Configuration.ORIENTATION_LANDSCAPE), changed)
+    }
+
     @Test fun `保護欄でも配列切替と十キーの形状調整を利用できる`() = withService { service ->
         start(service, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         val host = service.onCreateInputView()
@@ -256,6 +335,18 @@ class TenKeyEditorServiceTest {
         service.onStartInput(info, false)
         assertNotNull(ReflectionHelpers.getField<EditorSession?>(service, "session"))
     }
+    private fun rotateKeyboard(service: SkkInputMethodService, orientation: Int): TouchKeyboardView {
+        // Robolectricではリソースを変更せず、構成変更の通知に渡った向きで切り替わることを確かめます。
+        service.onConfigurationChanged(Configuration(service.resources.configuration).apply { this.orientation = orientation })
+        return ReflectionHelpers.getField(service, "touchKeyboardView")
+    }
+    private fun measureKeyboard(view: TouchKeyboardView) {
+        val width = view.dp(1000)
+        view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(view.dp(600), View.MeasureSpec.AT_MOST))
+        view.layout(0, 0, width, view.measuredHeight)
+    }
+    private fun TouchKeyboardView.dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     private fun editorInfo(type: Int) = EditorInfo().apply {
         inputType = type
         packageName = "example.tenkey"

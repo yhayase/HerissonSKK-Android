@@ -28,6 +28,8 @@ import se.haya.skk.settings.AppEmacsEditingRuntime
 import se.haya.skk.settings.AppEmacsEditingStore
 import se.haya.skk.settings.CustomizationStore
 import se.haya.skk.settings.CustomizationStoreStatus
+import se.haya.skk.settings.TouchKeyboardSettings
+import se.haya.skk.settings.TouchKeyboardSettingsStore
 import se.haya.skk.input.EditorSession
 import se.haya.skk.input.HardwareKeyMapper
 import se.haya.skk.input.KeyPressLedger
@@ -95,7 +97,8 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
     private var touchKeyboardView: TouchKeyboardView? = null
     private var keyboardTouchWindowCallback: se.haya.skk.input.KeyboardTouchWindowCallback? = null
     private val tenKeyController = se.haya.skk.input.TenKeyController()
-    private var sessionTouchSettings = se.haya.skk.settings.TouchKeyboardSettings()
+    private var sessionTouchSettings = TouchKeyboardSettings()
+    private var sessionTouchOrientation: Int? = null
     private var lastDevice: Int? = null
     private var physicalHostAllowed = false
     private var physicalHostRequested = false
@@ -223,7 +226,9 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         allowPhysicalHost: Boolean,
         restarting: Boolean,
     ) {
-        sessionTouchSettings = se.haya.skk.settings.TouchKeyboardSettingsStore.read(this)
+        val orientation = resources.configuration.orientation
+        sessionTouchOrientation = orientation
+        sessionTouchSettings = TouchKeyboardSettingsStore.read(this, orientation)
         val writeContext = SessionWriteContext(dictionaries.captureInputWriteContext())
         sessionWriteContext = writeContext
         val global = customization.snapshot
@@ -346,7 +351,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         physicalHostAllowed = allowPhysicalHost && info.inputType != InputType.TYPE_NULL
         tenKeyController.startEditorSession(info.inputType, restarting)
         touchKeyboardView?.resetForEditorSession()
-        touchKeyboardView?.configure(sessionTouchSettings)
+        touchKeyboardView?.configure(sessionTouchSettings, orientation)
         updateTouchKeyboardVisibility()
         render()
     }
@@ -455,31 +460,26 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         keyboardTouchWindowCallback?.reset()
         touchKeyboardView?.cancelInteractions()
         installKeyboardTouchWindowCallback()
-        val keys = TouchKeyboardView(this, tenKeyController, ::onTouchCommand).also {
-            it.onLayoutChanged = { layout -> sessionTouchSettings = sessionTouchSettings.copy(layout = layout) }
-            it.onGeometryChanged = { updated ->
-                sessionTouchSettings = sessionTouchSettings.copy(
-                    tenKeyHeightDp = updated.tenKeyHeightDp,
-                    tenKeyWidthPercent = updated.tenKeyWidthPercent,
-                    tenKeyPositionPercent = updated.tenKeyPositionPercent,
-                    tenKeyBottomPaddingDp = updated.tenKeyBottomPaddingDp,
-                    qwertySplit = updated.qwertySplit,
-                    qwertyGapPercent = updated.qwertyGapPercent,
-                    qwertyHeightDp = updated.qwertyHeightDp,
-                    qwertyWidthPercent = updated.qwertyWidthPercent,
-                    qwertyPositionPercent = updated.qwertyPositionPercent,
-                    qwertyBottomPaddingDp = updated.qwertyBottomPaddingDp,
-                )
+        val orientation = sessionTouchOrientation ?: resources.configuration.orientation.also {
+            sessionTouchOrientation = it
+            sessionTouchSettings = TouchKeyboardSettingsStore.read(this, it)
+        }
+        val keys = TouchKeyboardView(this, tenKeyController, ::onTouchCommand).also { keyboard ->
+            keyboard.onLayoutChanged = { layout ->
+                if (touchKeyboardView === keyboard) sessionTouchSettings = sessionTouchSettings.copy(layout = layout)
             }
-            it.configure(sessionTouchSettings)
-            touchKeyboardView = it
-            candidateStatusView = it.candidateStatusView
-            statusView = it.candidateStatusView.statusTextView
-            it.candidateStatusView.setOnCandidateTapListener(::onCandidateTapped)
-            it.candidateStatusView.onTouchViewportChanged = {
-                if (touchKeyboardView === it && session?.repaginateTouchMenu() == true) render()
+            keyboard.onGeometryChanged = { updated ->
+                if (touchKeyboardView === keyboard) sessionTouchSettings = updated
             }
-            it.candidateStatusView.setOnPageListeners(
+            keyboard.configure(sessionTouchSettings, orientation)
+            touchKeyboardView = keyboard
+            candidateStatusView = keyboard.candidateStatusView
+            statusView = keyboard.candidateStatusView.statusTextView
+            keyboard.candidateStatusView.setOnCandidateTapListener(::onCandidateTapped)
+            keyboard.candidateStatusView.onTouchViewportChanged = {
+                if (touchKeyboardView === keyboard && session?.repaginateTouchMenu() == true) render()
+            }
+            keyboard.candidateStatusView.setOnPageListeners(
                 { configurationRestart = null; session?.handleTouch(BasicSkkAction.PreviousCandidatePage); render() },
                 { configurationRestart = null; session?.handleTouch(BasicSkkAction.NextCandidatePage); render() },
                 { configurationRestart = null; session?.cancelTouchRegistration(); render() })
@@ -778,6 +778,19 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         clearInlineAnnotation()
+        touchKeyboardView?.cancelInteractions()
+        if (sessionTouchOrientation != newConfig.orientation) {
+            val currentSettings = sessionTouchSettings
+            val profile = TouchKeyboardSettingsStore.read(this, newConfig.orientation)
+            // 調整値だけを切り替え、入力セッションで選択済みの配列と操作設定を保持します。
+            sessionTouchSettings = if (sessionTouchOrientation == null) profile else profile.copy(
+                layout = currentSettings.layout,
+                operation = currentSettings.operation,
+                holdMillis = currentSettings.holdMillis,
+                vibrateOnBoundary = currentSettings.vibrateOnBoundary,
+            )
+            sessionTouchOrientation = newConfig.orientation
+        }
         generation++
         mapper.reset()
         quoteNext.reset()
@@ -816,7 +829,7 @@ class SkkInputMethodService : InputMethodService(), InputManager.InputDeviceList
         }
         candidateStatusView?.requestLayout()
         inputHost?.setBackgroundColor(se.haya.skk.input.KeyboardColors.resolve(this).panelBackground)
-        touchKeyboardView?.configurationChanged()
+        touchKeyboardView?.configurationChanged(sessionTouchSettings, newConfig.orientation)
         updateTouchKeyboardVisibility()
         updatePhysicalHostVisibility()
     }
